@@ -55,6 +55,8 @@ param openAiEndpoint string = ''
 param openAiRealtimeDeployment string = ''
 param openAiRealtimeVoiceChoice string = ''
 
+param enableSentimentAnalysis bool = true
+
 @description('Location for the OpenAI resource group')
 @allowed([
   'eastus2'
@@ -180,6 +182,8 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       AZURE_OPENAI_ENDPOINT: reuseExistingOpenAi ? openAiEndpoint : openAi.outputs.endpoint
       AZURE_OPENAI_REALTIME_DEPLOYMENT: reuseExistingOpenAi ? openAiRealtimeDeployment : openAiDeployments[0].name
       AZURE_OPENAI_REALTIME_VOICE_CHOICE: openAiRealtimeVoiceChoice
+      // Sentiment analysis feature
+      ENABLE_SENTIMENT_ANALYSIS: enableSentimentAnalysis ? 'true' : 'false'
       // RAG features disabled - AI Search removed
       // AZURE_SEARCH_ENDPOINT
       // AZURE_SEARCH_INDEX

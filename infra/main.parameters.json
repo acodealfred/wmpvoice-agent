@@ -35,6 +35,9 @@
     "openAiRealtimeVoiceChoice": {
       "value": "${AZURE_OPENAI_REALTIME_VOICE_CHOICE=alloy}"
     },
+    "enableSentimentAnalysis": {
+      "value": "${ENABLE_SENTIMENT_ANALYSIS=false}"
+    },
     "storageAccountName": {
       "value": "${AZURE_STORAGE_ACCOUNT}"
     },

@@ -17,11 +17,11 @@ services:
 #     postprovision:
 #       windows:
 #         shell: pwsh
-#         run: ./scripts/write_env.ps1; ./scripts/setup_intvect.ps1
+#         run: ./scripts/write_env.ps1
 #         interactive: true
 #         continueOnError: false
 #       posix:
 #         shell: sh
-#         run: ./scripts/write_env.sh; ./scripts/setup_intvect.sh
+#         run: ./scripts/write_env.sh
 #         interactive: true
 #         continueOnError: false
