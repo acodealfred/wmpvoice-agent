@@ -188,35 +188,42 @@ class RTMiddleTier:
                 headers = { "api-key": self.key }
             else:
                 headers = { "Authorization": f"Bearer {self._token_provider()}" } # NOTE: no async version of token provider, maybe refresh token on a timer?
-            async with session.ws_connect("/openai/realtime", headers=headers, params=params) as target_ws:
-                async def from_client_to_server():
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            new_msg = await self._process_message_to_server(msg, ws)
-                            if new_msg is not None:
-                                await target_ws.send_str(new_msg)
-                        else:
-                            print("Error: unexpected message type:", msg.type)
-                    
-                    # Means it is gracefully closed by the client then time to close the target_ws
-                    if target_ws:
-                        print("Closing OpenAI's realtime socket connection.")
-                        await target_ws.close()
+            try:
+                async with session.ws_connect("/openai/realtime", headers=headers, params=params) as target_ws:
+                    async def from_client_to_server():
+                        async for msg in ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                new_msg = await self._process_message_to_server(msg, ws)
+                                if new_msg is not None:
+                                    await target_ws.send_str(new_msg)
+                            else:
+                                print("Error: unexpected message type:", msg.type)
                         
-                async def from_server_to_client():
-                    async for msg in target_ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            new_msg = await self._process_message_to_client(msg, ws, target_ws)
-                            if new_msg is not None:
-                                await ws.send_str(new_msg)
-                        else:
-                            print("Error: unexpected message type:", msg.type)
+                        # Means it is gracefully closed by the client then time to close the target_ws
+                        if target_ws:
+                            print("Closing OpenAI's realtime socket connection.")
+                            await target_ws.close()
+                            
+                    async def from_server_to_client():
+                        async for msg in target_ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                new_msg = await self._process_message_to_client(msg, ws, target_ws)
+                                if new_msg is not None:
+                                    await ws.send_str(new_msg)
+                            else:
+                                print("Error: unexpected message type:", msg.type)
 
-                try:
-                    await asyncio.gather(from_client_to_server(), from_server_to_client())
-                except ConnectionResetError:
-                    # Ignore the errors resulting from the client disconnecting the socket
-                    pass
+                    try:
+                        await asyncio.gather(from_client_to_server(), from_server_to_client())
+                    except ConnectionResetError:
+                        # Ignore the errors resulting from the client disconnecting the socket
+                        pass
+            except aiohttp.client.WSServerHandshakeError as e:
+                logger.error("WebSocket handshake failed: %s. This may be due to an invalid or non-realtime deployment. Please verify your AZURE_OPENAI_REALTIME_DEPLOYMENT is correctly configured for the Realtime API.", str(e))
+                await ws.close(code=1011, message=b"Realtime API connection failed - check deployment configuration")
+            except Exception as e:
+                logger.error("Error connecting to realtime endpoint: %s", str(e))
+                await ws.close(code=1011, message=b"Failed to connect to realtime endpoint")
 
     async def _websocket_handler(self, request: web.Request):
         ws = web.WebSocketResponse()
