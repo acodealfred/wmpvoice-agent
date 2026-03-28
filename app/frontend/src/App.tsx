@@ -17,8 +17,6 @@ import useAudioPlayer from "@/hooks/useAudioPlayer";
 
 import logo from "./assets/logo.svg";
 
-// Feature flag for RAG/grounding features - set to true to re-enable
-const RAG_ENABLED = false;
 
 function App() {
     const [isRecording, setIsRecording] = useState(false);
