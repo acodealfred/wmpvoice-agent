@@ -11,7 +11,7 @@ echo "AZURE_OPENAI_ENDPOINT=$(azd env get-value AZURE_OPENAI_ENDPOINT)" >> $ENV_
 echo "AZURE_OPENAI_REALTIME_DEPLOYMENT=$(azd env get-value AZURE_OPENAI_REALTIME_DEPLOYMENT)" >> $ENV_FILE_PATH
 echo "AZURE_OPENAI_REALTIME_VOICE_CHOICE=$(azd env get-value AZURE_OPENAI_REALTIME_VOICE_CHOICE)" >> $ENV_FILE_PATH
 echo "AZURE_TENANT_ID=$(azd env get-value AZURE_TENANT_ID)" >> $ENV_FILE_PATH
-echo "ENABLE_SENTIMENT_ANALYSIS=$(azd env get-value ENABLE_SENTIMENT_ANALYSIS 2>/dev/null || echo 'false')" >> $ENV_FILE_PATH
+echo "ENABLE_SENTIMENT_ANALYSIS=$(azd env get-value ENABLE_SENTIMENT_ANALYSIS 2>/dev/null || echo 'true')" >> $ENV_FILE_PATH
 # RAG features disabled - AI Search env vars removed
 # echo "AZURE_SEARCH_ENDPOINT=$(azd env get-value AZURE_SEARCH_ENDPOINT)" >> $ENV_FILE_PATH
 # echo "AZURE_SEARCH_INDEX=$(azd env get-value AZURE_SEARCH_INDEX)" >> $ENV_FILE_PATH
