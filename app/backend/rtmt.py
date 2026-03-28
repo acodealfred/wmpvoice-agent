@@ -211,10 +211,15 @@ class RTMiddleTier:
                                                 # Strip the SENTIMENT tags from the transcript so AI doesn't speak them
                                                 # This ensures the sentiment is only displayed as text in the UI
                                                 cleaned_transcript = re.sub(r'<SENTIMENT>.*?</SENTIMENT>', '', transcript, flags=re.DOTALL).strip()
-                                                if content_type in ("audio_transcript", "audio", "output_audio"):
-                                                    content["transcript"] = cleaned_transcript
-                                                elif content_type == "text":
-                                                    content["text"] = cleaned_transcript
+                                                
+                                                # Update ALL possible text fields that may contain the source text for audio generation
+                                                transcript_fields = ["transcript", "text", "input_text", "content", "assistant"]
+                                                for field in transcript_fields:
+                                                    if field in content and isinstance(content[field], str):
+                                                        if "<SENTIMENT>" in content[field]:
+                                                            original_text = content[field][:200]
+                                                            content[field] = re.sub(r'<SENTIMENT>.*?</SENTIMENT>', '', content[field], flags=re.DOTALL).strip()
+                                                            logger.info(f"DEBUG: Cleaned field '{field}': {original_text} -> {content[field][:200]}")
                                                 logger.info(f"Cleaned transcript: {cleaned_transcript[:100]}...")
                                                 updated_message = json.dumps(message)
                                             except json.JSONDecodeError as e:
