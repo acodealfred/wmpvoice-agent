@@ -51,7 +51,7 @@
       "value": "${AZURE_OPENAI_REALTIME_DEPLOYMENT_CAPACITY=1}"
     },
     "realtimeDeploymentVersion": {
-      "value": "${AZURE_OPENAI_REALTIME_DEPLOYMENT_VERSION=2026-02-23}"
+      "value": "${AZURE_OPENAI_REALTIME_DEPLOYMENT_VERSION=2024-07-18}"
     },
     "logAnalyticsName": {
       "value": "${AZURE_LOG_ANALYTICS}"
