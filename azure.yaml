@@ -11,7 +11,7 @@ services:
     docker:
       remoteBuild: true
     env:
-      AZURE_OPENAI_REALTIME_DEPLOYMENT_VERSION: "2026-03-17"
+      AZURE_OPENAI_REALTIME_DEPLOYMENT_VERSION: "2026-02-23"
 # RAG features disabled - postprovision hooks removed
 # hooks:
 #     postprovision:
