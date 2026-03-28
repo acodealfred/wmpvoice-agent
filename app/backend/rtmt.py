@@ -100,6 +100,30 @@ class RTMiddleTier:
                         updated_message = None
 
                 case "conversation.item.created":
+                    # Check for user input audio transcription for sentiment analysis
+                    if self.enable_sentiment_analysis and "item" in message:
+                        item = message.get("item", {})
+                        if item.get("type") == "message" and item.get("role") == "user":
+                            for content in item.get("content", []):
+                                if content.get("type") == "audio_transcript":
+                                    transcript = content.get("transcript", "")
+                                    logger.info(f"User transcript for sentiment: {transcript[:100]}...")
+                                    # Look for <SENTIMENT> tags in the user's transcript
+                                    sentiment_match = re.search(r'<SENTIMENT>(.*?)</SENTIMENT>', transcript, re.DOTALL)
+                                    if sentiment_match:
+                                        try:
+                                            sentiment_data = json.loads(sentiment_match.group(1))
+                                            await client_ws.send_json({
+                                                "type": "sentiment.update",
+                                                "sentiment": sentiment_data.get("sentiment", "neutral"),
+                                                "reason": sentiment_data.get("reason", "")
+                                            })
+                                            logger.info(f"User sentiment detected: {sentiment_data.get('sentiment')} - {sentiment_data.get('reason')}")
+                                        except json.JSONDecodeError as e:
+                                            logger.error(f"Failed to parse sentiment JSON: {e}")
+                                elif content.get("type") == "input_audio":
+                                    logger.debug("User input is audio, checking for transcription...")
+                    
                     if "item" in message and message["item"]["type"] == "function_call":
                         item = message["item"]
                         if item["call_id"] not in self._tools_pending:
@@ -157,11 +181,21 @@ class RTMiddleTier:
                     
                     # Extract sentiment from response content if sentiment analysis is enabled
                     if self.enable_sentiment_analysis and "response" in message:
+                        logger.info(f"Checking for sentiment in response, output count: {len(message['response'].get('output', []))}")
                         for output in message["response"]["output"]:
+                            logger.debug(f"Output type: {output.get('type')}")
                             if output.get("type") == "message" and "content" in output:
                                 for content in output["content"]:
-                                    if content.get("type") == "input_text" and "transcript" in content:
-                                        transcript = content["transcript"]
+                                    logger.debug(f"Content type: {content.get('type')}")
+                                    # Look for sentiment in the assistant's audio transcript or text response
+                                    transcript = None
+                                    if content.get("type") == "audio_transcript":
+                                        transcript = content.get("transcript")
+                                    elif content.get("type") == "text":
+                                        transcript = content.get("text")
+                                    
+                                    if transcript:
+                                        logger.debug(f"Found transcript for sentiment analysis: {transcript[:100]}...")
                                         # Look for <SENTIMENT> tags in the transcript
                                         sentiment_match = re.search(r'<SENTIMENT>(.*?)</SENTIMENT>', transcript, re.DOTALL)
                                         if sentiment_match:
@@ -175,6 +209,8 @@ class RTMiddleTier:
                                                 logger.info(f"Sentiment detected: {sentiment_data.get('sentiment')} - {sentiment_data.get('reason')}")
                                             except json.JSONDecodeError as e:
                                                 logger.error(f"Failed to parse sentiment JSON: {e}")
+                                        else:
+                                            logger.debug("No <SENTIMENT> tags found in transcript")
 
         return updated_message
 
