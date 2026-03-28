@@ -10,6 +10,8 @@ services:
     host: containerapp
     docker:
       remoteBuild: true
+    env:
+      AZURE_OPENAI_REALTIME_DEPLOYMENT_VERSION: "2025-01-01"
 # RAG features disabled - postprovision hooks removed
 # hooks:
 #     postprovision:
