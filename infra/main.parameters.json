@@ -36,7 +36,7 @@
       "value": "${AZURE_OPENAI_REALTIME_VOICE_CHOICE=alloy}"
     },
     "enableSentimentAnalysis": {
-      "value": "${ENABLE_SENTIMENT_ANALYSIS=false}"
+      "value": "${ENABLE_SENTIMENT_ANALYSIS=true}"
     },
     "storageAccountName": {
       "value": "${AZURE_STORAGE_ACCOUNT}"
