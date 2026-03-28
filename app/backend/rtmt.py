@@ -207,6 +207,16 @@ class RTMiddleTier:
                                                     "reason": sentiment_data.get("reason", "")
                                                 })
                                                 logger.info(f"Sentiment detected: {sentiment_data.get('sentiment')} - {sentiment_data.get('reason')}")
+                                                
+                                                # Strip the SENTIMENT tags from the transcript so AI doesn't speak them
+                                                # This ensures the sentiment is only displayed as text in the UI
+                                                cleaned_transcript = re.sub(r'<SENTIMENT>.*?</SENTIMENT>', '', transcript, flags=re.DOTALL).strip()
+                                                if content.get("type") == "audio_transcript":
+                                                    content["transcript"] = cleaned_transcript
+                                                elif content.get("type") == "text":
+                                                    content["text"] = cleaned_transcript
+                                                logger.debug(f"Cleaned transcript: {cleaned_transcript[:100]}...")
+                                                updated_message = json.dumps(message)
                                             except json.JSONDecodeError as e:
                                                 logger.error(f"Failed to parse sentiment JSON: {e}")
                                         else:
