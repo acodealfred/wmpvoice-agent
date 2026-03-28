@@ -46,7 +46,7 @@ param storageAccountName string = ''
 param storageResourceGroupName string = ''
 param storageResourceGroupLocation string = location
 param storageContainerName string = 'content'
-param storageSkuName string
+param storageSkuName string = 'Standard_LRS'
 
 param reuseExistingOpenAi bool = false
 param openAiServiceName string = ''
@@ -279,7 +279,7 @@ module openAi 'br/public:avm/res/cognitive-services/account:0.8.0' = if (!reuseE
 //   }
 // }
 
-module storage 'br/public:avm/res/storage/storage-account:0.9.1' = {
+module storage 'br/public:avm/res/storage/storage-account:0.9.1' = if (!empty(storageAccountName)) {
   name: 'storage'
   scope: storageResourceGroup
   params: {
@@ -391,11 +391,11 @@ output AZURE_OPENAI_EMBEDDING_MODEL string = embedModel
 // output AZURE_SEARCH_EMBEDDING_FIELD string = searchEmbeddingField
 // output AZURE_SEARCH_USE_VECTOR_QUERY bool = searchUseVectorQuery
 
-output AZURE_STORAGE_ENDPOINT string = 'https://${storage.outputs.name}.blob.core.windows.net'
-output AZURE_STORAGE_ACCOUNT string = storage.outputs.name
-output AZURE_STORAGE_CONNECTION_STRING string = 'ResourceId=/subscriptions/${subscription().subscriptionId}/resourceGroups/${storageResourceGroup.name}/providers/Microsoft.Storage/storageAccounts/${storage.outputs.name}'
-output AZURE_STORAGE_CONTAINER string = storageContainerName
-output AZURE_STORAGE_RESOURCE_GROUP string = storageResourceGroup.name
+output AZURE_STORAGE_ENDPOINT string = !empty(storageAccountName) ? 'https://${storage.outputs.name}.blob.core.windows.net' : ''
+output AZURE_STORAGE_ACCOUNT string = !empty(storageAccountName) ? storage.outputs.name : ''
+output AZURE_STORAGE_CONNECTION_STRING string = !empty(storageAccountName) ? 'ResourceId=/subscriptions/${subscription().subscriptionId}/resourceGroups/${storageResourceGroup.name}/providers/Microsoft.Storage/storageAccounts/${storage.outputs.name}' : ''
+output AZURE_STORAGE_CONTAINER string = !empty(storageAccountName) ? storageContainerName : ''
+output AZURE_STORAGE_RESOURCE_GROUP string = !empty(storageAccountName) ? storageResourceGroup.name : ''
 
 output BACKEND_URI string = acaBackend.outputs.uri
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerApps.outputs.registryLoginServer
