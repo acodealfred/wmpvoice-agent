@@ -105,7 +105,8 @@ class RTMiddleTier:
                         item = message.get("item", {})
                         if item.get("type") == "message" and item.get("role") == "user":
                             for content in item.get("content", []):
-                                if content.get("type") == "audio_transcript":
+                                content_type = content.get("type")
+                                if content_type == "audio_transcript":
                                     transcript = content.get("transcript", "")
                                     logger.info(f"User transcript for sentiment: {transcript[:100]}...")
                                     # Look for <SENTIMENT> tags in the user's transcript
@@ -121,7 +122,7 @@ class RTMiddleTier:
                                             logger.info(f"User sentiment detected: {sentiment_data.get('sentiment')} - {sentiment_data.get('reason')}")
                                         except json.JSONDecodeError as e:
                                             logger.error(f"Failed to parse sentiment JSON: {e}")
-                                elif content.get("type") == "input_audio":
+                                elif content_type == "input_audio":
                                     logger.debug("User input is audio, checking for transcription...")
                     
                     if "item" in message and message["item"]["type"] == "function_call":
@@ -186,16 +187,15 @@ class RTMiddleTier:
                             logger.debug(f"Output type: {output.get('type')}")
                             if output.get("type") == "message" and "content" in output:
                                 for content in output["content"]:
-                                    logger.debug(f"Content type: {content.get('type')}")
+                                    logger.info(f"Content type: {content.get('type')}")
                                     # Look for sentiment in the assistant's audio transcript or text response
                                     transcript = None
-                                    if content.get("type") == "audio_transcript":
-                                        transcript = content.get("transcript")
-                                    elif content.get("type") == "text":
-                                        transcript = content.get("text")
+                                    content_type = content.get("type")
+                                    if content_type in ("audio_transcript", "text", "audio", "output_audio"):
+                                        transcript = content.get("transcript") or content.get("text")
                                     
                                     if transcript:
-                                        logger.debug(f"Found transcript for sentiment analysis: {transcript[:100]}...")
+                                        logger.info(f"Found transcript for sentiment analysis: {transcript[:100]}...")
                                         # Look for <SENTIMENT> tags in the transcript
                                         sentiment_match = re.search(r'<SENTIMENT>(.*?)</SENTIMENT>', transcript, re.DOTALL)
                                         if sentiment_match:
@@ -211,16 +211,16 @@ class RTMiddleTier:
                                                 # Strip the SENTIMENT tags from the transcript so AI doesn't speak them
                                                 # This ensures the sentiment is only displayed as text in the UI
                                                 cleaned_transcript = re.sub(r'<SENTIMENT>.*?</SENTIMENT>', '', transcript, flags=re.DOTALL).strip()
-                                                if content.get("type") == "audio_transcript":
+                                                if content_type in ("audio_transcript", "audio", "output_audio"):
                                                     content["transcript"] = cleaned_transcript
-                                                elif content.get("type") == "text":
+                                                elif content_type == "text":
                                                     content["text"] = cleaned_transcript
-                                                logger.debug(f"Cleaned transcript: {cleaned_transcript[:100]}...")
+                                                logger.info(f"Cleaned transcript: {cleaned_transcript[:100]}...")
                                                 updated_message = json.dumps(message)
                                             except json.JSONDecodeError as e:
                                                 logger.error(f"Failed to parse sentiment JSON: {e}")
                                         else:
-                                            logger.debug("No <SENTIMENT> tags found in transcript")
+                                            logger.warning(f"No <SENTIMENT> tags found in transcript: {transcript[:100]}...")
 
         return updated_message
 
