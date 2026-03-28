@@ -9,6 +9,8 @@ $azureOpenAiEndpoint = azd env get-value AZURE_OPENAI_ENDPOINT
 $azureOpenAiRealtimeDeployment = azd env get-value AZURE_OPENAI_REALTIME_DEPLOYMENT
 $azureOpenAiRealtimeVoiceChoice = azd env get-value AZURE_OPENAI_REALTIME_VOICE_CHOICE
 $azureTenantId = azd env get-value AZURE_TENANT_ID
+$enableSentimentAnalysis = azd env get-value ENABLE_SENTIMENT_ANALYSIS 2>$null
+if (-not $enableSentimentAnalysis) { $enableSentimentAnalysis = "false" }
 # RAG features disabled - AI Search env vars removed
 # $azureSearchEndpoint = azd env get-value AZURE_SEARCH_ENDPOINT
 # $azureSearchIndex = azd env get-value AZURE_SEARCH_INDEX
@@ -23,6 +25,7 @@ Add-Content -Path $envFilePath -Value "AZURE_OPENAI_ENDPOINT=$azureOpenAiEndpoin
 Add-Content -Path $envFilePath -Value "AZURE_OPENAI_REALTIME_DEPLOYMENT=$azureOpenAiRealtimeDeployment"
 Add-Content -Path $envFilePath -Value "AZURE_OPENAI_REALTIME_VOICE_CHOICE=$azureOpenAiRealtimeVoiceChoice"
 Add-Content -Path $envFilePath -Value "AZURE_TENANT_ID=$azureTenantId"
+Add-Content -Path $envFilePath -Value "ENABLE_SENTIMENT_ANALYSIS=$enableSentimentAnalysis"
 # RAG features disabled - AI Search env vars removed
 # Add-Content -Path $envFilePath -Value "AZURE_SEARCH_ENDPOINT=$azureSearchEndpoint"
 # Add-Content -Path $envFilePath -Value "AZURE_SEARCH_INDEX=$azureSearchIndex"

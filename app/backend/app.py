@@ -39,6 +39,12 @@ async def create_app():
         deployment=os.environ["AZURE_OPENAI_REALTIME_DEPLOYMENT"],
         voice_choice=os.environ.get("AZURE_OPENAI_REALTIME_VOICE_CHOICE") or "alloy"
         )
+    
+    # Enable sentiment analysis based on environment variable
+    enable_sentiment = os.environ.get("ENABLE_SENTIMENT_ANALYSIS", "false").lower() == "true"
+    rtmt.enable_sentiment_analysis = enable_sentiment
+    if enable_sentiment:
+        logger.info("Sentiment analysis is enabled")
     # RAG features disabled - simple conversational voice assistant
     rtmt.system_message = """
         You are a helpful voice assistant. Provide clear, concise answers to the user's questions.

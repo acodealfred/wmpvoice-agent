@@ -69,6 +69,12 @@ export type ExtensionMiddleTierToolResponse = {
     tool_result: string; // JSON string that needs to be parsed into ToolResult
 };
 
+export type SentimentUpdate = {
+    type: "sentiment.update";
+    sentiment: "positive" | "neutral" | "negative";
+    reason: string;
+};
+
 export type ToolResult = {
     sources: { chunk_id: string; title: string; chunk: string }[];
 };

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mic, MicOff } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,14 @@ import useAudioPlayer from "@/hooks/useAudioPlayer";
 
 // RAG features disabled - kept for future extensibility
 // import { GroundingFile, ToolResult } from "./types";
+import { SentimentUpdate } from "./types";
 
 import logo from "./assets/logo.svg";
 
 
 function App() {
     const [isRecording, setIsRecording] = useState(false);
+    const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     // RAG features disabled - kept for future extensibility
     // const [groundingFiles, setGroundingFiles] = useState<GroundingFile[]>([]);
     // const [selectedFile, setSelectedFile] = useState<GroundingFile | null>(null);
@@ -34,6 +36,9 @@ function App() {
         },
         onReceivedInputAudioBufferSpeechStarted: () => {
             stopAudioPlayer();
+        },
+        onReceivedSentimentUpdate: message => {
+            setSentiment(message);
         },
         // RAG features disabled - kept for future extensibility
         // onReceivedExtensionMiddleTierToolResponse: message => {
@@ -96,6 +101,33 @@ function App() {
                     </Button>
                     <StatusMessage isRecording={isRecording} />
                 </div>
+                {/* Sentiment Display */}
+                {sentiment && (
+                    <div className="mb-6 flex items-center gap-2 rounded-lg bg-white px-4 py-2 shadow-md">
+                        <span className="text-sm font-medium text-gray-600">Sentiment:</span>
+                        {sentiment.sentiment === "positive" && (
+                            <>
+                                <Smile className="h-5 w-5 text-green-500" />
+                                <span className="text-sm font-medium text-green-600">Positive</span>
+                            </>
+                        )}
+                        {sentiment.sentiment === "neutral" && (
+                            <>
+                                <Meh className="h-5 w-5 text-yellow-500" />
+                                <span className="text-sm font-medium text-yellow-600">Neutral</span>
+                            </>
+                        )}
+                        {sentiment.sentiment === "negative" && (
+                            <>
+                                <Frown className="h-5 w-5 text-red-500" />
+                                <span className="text-sm font-medium text-red-600">Negative</span>
+                            </>
+                        )}
+                        {sentiment.reason && (
+                            <span className="text-xs text-gray-500">- {sentiment.reason}</span>
+                        )}
+                    </div>
+                )}
                 {/* RAG features disabled - kept for future extensibility */}
                 {/* <GroundingFiles files={groundingFiles} onSelected={setSelectedFile} /> */}
             </main>

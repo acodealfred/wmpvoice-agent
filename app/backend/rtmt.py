@@ -61,6 +61,7 @@ class RTMiddleTier:
     max_tokens: Optional[int] = None
     disable_audio: Optional[bool] = None
     voice_choice: Optional[str] = None
+    enable_sentiment_analysis: bool = False  # Enable sentiment analysis feature
     api_version: str = "2024-10-01-preview"
     _tools_pending = {}
     _token_provider = None
@@ -78,6 +79,7 @@ class RTMiddleTier:
             self._token_provider() # Warm up during startup so we have a token cached when the first request arrives
 
     async def _process_message_to_client(self, msg: str, client_ws: web.WebSocketResponse, server_ws: web.WebSocketResponse) -> Optional[str]:
+        import re
         message = json.loads(msg.data)
         updated_message = msg.data
         if message is not None:
@@ -151,7 +153,28 @@ class RTMiddleTier:
                                 message["response"]["output"].pop(i)
                                 replace = True
                         if replace:
-                            updated_message = json.dumps(message)                        
+                            updated_message = json.dumps(message)
+                    
+                    # Extract sentiment from response content if sentiment analysis is enabled
+                    if self.enable_sentiment_analysis and "response" in message:
+                        for output in message["response"]["output"]:
+                            if output.get("type") == "message" and "content" in output:
+                                for content in output["content"]:
+                                    if content.get("type") == "input_text" and "transcript" in content:
+                                        transcript = content["transcript"]
+                                        # Look for <SENTIMENT> tags in the transcript
+                                        sentiment_match = re.search(r'<SENTIMENT>(.*?)</SENTIMENT>', transcript, re.DOTALL)
+                                        if sentiment_match:
+                                            try:
+                                                sentiment_data = json.loads(sentiment_match.group(1))
+                                                await client_ws.send_json({
+                                                    "type": "sentiment.update",
+                                                    "sentiment": sentiment_data.get("sentiment", "neutral"),
+                                                    "reason": sentiment_data.get("reason", "")
+                                                })
+                                                logger.info(f"Sentiment detected: {sentiment_data.get('sentiment')} - {sentiment_data.get('reason')}")
+                                            except json.JSONDecodeError as e:
+                                                logger.error(f"Failed to parse sentiment JSON: {e}")
 
         return updated_message
 
@@ -163,7 +186,21 @@ class RTMiddleTier:
                 case "session.update":
                     session = message["session"]
                     if self.system_message is not None:
-                        session["instructions"] = self.system_message
+                        base_instructions = self.system_message
+                    else:
+                        base_instructions = ""
+                    
+                    # Add sentiment analysis instructions if enabled
+                    if self.enable_sentiment_analysis:
+                        sentiment_instructions = """ Additionally, you must analyze the sentiment of the user's input.
+                        After each user message, determine if the sentiment is "positive", "neutral", or "negative".
+                        When you respond, include a JSON object with the sentiment analysis in the following format:
+                        <SENTIMENT>{"sentiment": "positive|neutral|negative", "reason": "brief explanation"}</SENTIMENT>
+                        This JSON should be included as part of your response but the user should not see it."""
+                        session["instructions"] = base_instructions + sentiment_instructions
+                    else:
+                        session["instructions"] = base_instructions
+                        
                     if self.temperature is not None:
                         session["temperature"] = self.temperature
                     if self.max_tokens is not None:

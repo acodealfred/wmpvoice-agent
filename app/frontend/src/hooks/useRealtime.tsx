@@ -9,7 +9,8 @@ import {
     ResponseDone,
     SessionUpdateCommand,
     ExtensionMiddleTierToolResponse,
-    ResponseInputAudioTranscriptionCompleted
+    ResponseInputAudioTranscriptionCompleted,
+    SentimentUpdate
 } from "@/types";
 
 type Parameters = {
@@ -30,6 +31,7 @@ type Parameters = {
     onReceivedExtensionMiddleTierToolResponse?: (message: ExtensionMiddleTierToolResponse) => void;
     onReceivedResponseAudioTranscriptDelta?: (message: ResponseAudioTranscriptDelta) => void;
     onReceivedInputAudioTranscriptionCompleted?: (message: ResponseInputAudioTranscriptionCompleted) => void;
+    onReceivedSentimentUpdate?: (message: SentimentUpdate) => void;
     onReceivedError?: (message: Message) => void;
 };
 
@@ -49,6 +51,7 @@ export default function useRealTime({
     onReceivedInputAudioBufferSpeechStarted,
     onReceivedExtensionMiddleTierToolResponse,
     onReceivedInputAudioTranscriptionCompleted,
+    onReceivedSentimentUpdate,
     onReceivedError
 }: Parameters) {
     const wsEndpoint = useDirectAoaiApi
@@ -128,6 +131,9 @@ export default function useRealTime({
                 break;
             case "extension.middle_tier_tool_response":
                 onReceivedExtensionMiddleTierToolResponse?.(message as ExtensionMiddleTierToolResponse);
+                break;
+            case "sentiment.update":
+                onReceivedSentimentUpdate?.(message as SentimentUpdate);
                 break;
             case "error":
                 onReceivedError?.(message);
