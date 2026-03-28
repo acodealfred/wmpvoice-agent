@@ -42,26 +42,6 @@ param resourceGroupName string = ''
 
 param logAnalyticsName string = ''
 
-param reuseExistingSearch bool
-param searchEndpoint string = ''
-param searchServiceName string = ''
-param searchServiceResourceGroupName string = ''
-param searchServiceLocation string = ''
-// The free tier does not support managed identity (required) or semantic search (optional)
-@allowed(['free', 'basic', 'standard', 'standard2', 'standard3', 'storage_optimized_l1', 'storage_optimized_l2'])
-param searchServiceSkuName string
-param searchIndexName string
-param searchSemanticConfiguration string
-param searchServiceSemanticRankerLevel string
-var actualSearchServiceSemanticRankerLevel = (searchServiceSkuName == 'free')
-  ? 'disabled'
-  : searchServiceSemanticRankerLevel
-param searchIdentifierField string
-param searchContentField string
-param searchTitleField string
-param searchEmbeddingField string
-param searchUseVectorQuery bool
-
 param storageAccountName string = ''
 param storageResourceGroupName string = ''
 param storageResourceGroupLocation string = location
@@ -89,7 +69,8 @@ param openAiServiceLocation string
 
 param realtimeDeploymentCapacity int
 param realtimeDeploymentVersion string
-param embeddingDeploymentCapacity int
+// RAG features disabled - embedding deployment no longer needed
+// param embeddingDeploymentCapacity int
 
 param tenantId string = tenant().tenantId
 
@@ -127,10 +108,6 @@ resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
 
 resource openAiResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(openAiResourceGroupName)) {
   name: !empty(openAiResourceGroupName) ? openAiResourceGroupName : resourceGroup.name
-}
-
-resource searchServiceResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(searchServiceResourceGroupName)) {
-  name: !empty(searchServiceResourceGroupName) ? searchServiceResourceGroupName : resourceGroup.name
 }
 
 resource storageResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(storageResourceGroupName)) {
@@ -200,19 +177,12 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
     containerCpuCoreCount: '1.0'
     containerMemory: '2Gi'
     env: {
-      AZURE_SEARCH_ENDPOINT: reuseExistingSearch
-        ? searchEndpoint
-        : 'https://${searchService.outputs.name}.search.windows.net'
-      AZURE_SEARCH_INDEX: searchIndexName
-      AZURE_SEARCH_SEMANTIC_CONFIGURATION: searchSemanticConfiguration
-      AZURE_SEARCH_IDENTIFIER_FIELD: searchIdentifierField
-      AZURE_SEARCH_CONTENT_FIELD: searchContentField
-      AZURE_SEARCH_TITLE_FIELD: searchTitleField
-      AZURE_SEARCH_EMBEDDING_FIELD: searchEmbeddingField
-      AZURE_SEARCH_USE_VECTOR_QUERY: searchUseVectorQuery
       AZURE_OPENAI_ENDPOINT: reuseExistingOpenAi ? openAiEndpoint : openAi.outputs.endpoint
       AZURE_OPENAI_REALTIME_DEPLOYMENT: reuseExistingOpenAi ? openAiRealtimeDeployment : openAiDeployments[0].name
       AZURE_OPENAI_REALTIME_VOICE_CHOICE: openAiRealtimeVoiceChoice
+      // RAG features disabled - AI Search removed
+      // AZURE_SEARCH_ENDPOINT
+      // AZURE_SEARCH_INDEX
       // CORS support, for frontends on other hosts
       RUNNING_IN_PRODUCTION: 'true'
       // For using managed identity to access Azure resources. See https://github.com/microsoft/azure-container-apps/issues/442
@@ -235,18 +205,19 @@ var openAiDeployments = [
       capacity: realtimeDeploymentCapacity
     }
   }
-  {
-    name: embedModel
-    model: {
-      format: 'OpenAI'
-      name: embedModel
-      version: '1'
-    }
-    sku: {
-      name: 'Standard'
-      capacity: embeddingDeploymentCapacity
-    }
-  }
+  // RAG features disabled - embedding deployment no longer needed
+  // {
+  //   name: embedModel
+  //   model: {
+  //     format: 'OpenAI'
+  //     name: embedModel
+  //     version: '1'
+  //   }
+  //   sku: {
+  //     name: 'Standard'
+  //     capacity: embeddingDeploymentCapacity
+  //   }
+  // }
 ]
 
 module openAi 'br/public:avm/res/cognitive-services/account:0.8.0' = if (!reuseExistingOpenAi) {
@@ -275,39 +246,38 @@ module openAi 'br/public:avm/res/cognitive-services/account:0.8.0' = if (!reuseE
   }
 }
 
-module searchService 'br/public:avm/res/search/search-service:0.7.1' = if (!reuseExistingSearch) {
-  name: 'search-service'
-  scope: searchServiceResourceGroup
-  params: {
-    name: !empty(searchServiceName) ? searchServiceName : 'gptkb-${resourceToken}'
-    location: !empty(searchServiceLocation) ? searchServiceLocation : location
-    tags: tags
-    disableLocalAuth: true
-    sku: searchServiceSkuName
-    replicaCount: 1
-    semanticSearch: actualSearchServiceSemanticRankerLevel
-    // An outbound managed identity is required for integrated vectorization to work,
-    // and is only supported on non-free tiers:
-    managedIdentities: { systemAssigned: true }
-    roleAssignments: [
-      {
-        roleDefinitionIdOrName: 'Search Index Data Reader'
-        principalId: principalId
-        principalType: principalType
-      }
-      {
-        roleDefinitionIdOrName: 'Search Index Data Contributor'
-        principalId: principalId
-        principalType: principalType
-      }
-      {
-        roleDefinitionIdOrName: 'Search Service Contributor'
-        principalId: principalId
-        principalType: principalType
-      }
-    ]
-  }
-}
+// RAG features disabled - AI Search service removed
+// module searchService 'br/public:avm/res/search/search-service:0.7.1' = if (!reuseExistingSearch) {
+//   name: 'search-service'
+//   scope: searchServiceResourceGroup
+//   params: {
+//     name: !empty(searchServiceName) ? searchServiceName : 'gptkb-${resourceToken}'
+//     location: !empty(searchServiceLocation) ? searchServiceLocation : location
+//     tags: tags
+//     disableLocalAuth: true
+//     sku: searchServiceSkuName
+//     replicaCount: 1
+//     semanticSearch: actualSearchServiceSemanticRankerLevel
+//     managedIdentities: { systemAssigned: true }
+//     roleAssignments: [
+//       {
+//         roleDefinitionIdOrName: 'Search Index Data Reader'
+//         principalId: principalId
+//         principalType: principalType
+//       }
+//       {
+//         roleDefinitionIdOrName: 'Search Index Data Contributor'
+//         principalId: principalId
+//         principalType: principalType
+//       }
+//       {
+//         roleDefinitionIdOrName: 'Search Service Contributor'
+//         principalId: principalId
+//         principalType: principalType
+//       }
+//     ]
+//   }
+// }
 
 module storage 'br/public:avm/res/storage/storage-account:0.9.1' = {
   name: 'storage'
@@ -351,6 +321,7 @@ module storage 'br/public:avm/res/storage/storage-account:0.9.1' = {
   }
 }
 
+// RAG features disabled - roles for search service removed
 // Roles for the backend to access other services
 module openAiRoleBackend 'core/security/role.bicep' = {
   scope: openAiResourceGroup
@@ -364,37 +335,37 @@ module openAiRoleBackend 'core/security/role.bicep' = {
 
 // Used to issue search queries
 // https://learn.microsoft.com/azure/search/search-security-rbac
-module searchRoleBackend 'core/security/role.bicep' = {
-  scope: searchServiceResourceGroup
-  name: 'search-role-backend'
-  params: {
-    principalId: acaBackend.outputs.identityPrincipalId
-    roleDefinitionId: '1407120a-92aa-4202-b7e9-c0e197c71c8f'
-    principalType: 'ServicePrincipal'
-  }
-}
+// module searchRoleBackend 'core/security/role.bicep' = {
+//   scope: searchServiceResourceGroup
+//   name: 'search-role-backend'
+//   params: {
+//     principalId: acaBackend.outputs.identityPrincipalId
+//     roleDefinitionId: '1407120a-92aa-4202-b7e9-c0e197c71c8f'
+//     principalType: 'ServicePrincipal'
+//   }
+// }
 
 // Necessary for integrated vectorization, for search service to access storage
-module storageRoleSearchService 'core/security/role.bicep' = if (!reuseExistingSearch) {
-  scope: storageResourceGroup
-  name: 'storage-role-searchservice'
-  params: {
-    principalId: !reuseExistingSearch ? searchService.outputs.systemAssignedMIPrincipalId : ''
-    roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1' // Storage Blob Data Reader
-    principalType: 'ServicePrincipal'
-  }
-}
+// module storageRoleSearchService 'core/security/role.bicep' = if (!reuseExistingSearch) {
+//   scope: storageResourceGroup
+//   name: 'storage-role-searchservice'
+//   params: {
+//     principalId: !reuseExistingSearch ? searchService.outputs.systemAssignedMIPrincipalId : ''
+//     roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1' // Storage Blob Data Reader
+//     principalType: 'ServicePrincipal'
+//   }
+// }
 
 // Necessary for integrated vectorization, for search service to access OpenAI embeddings
-module openAiRoleSearchService 'core/security/role.bicep' = if (!reuseExistingSearch) {
-  scope: openAiResourceGroup
-  name: 'openai-role-searchservice'
-  params: {
-    principalId: !reuseExistingSearch ? searchService.outputs.systemAssignedMIPrincipalId : ''
-    roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
-    principalType: 'ServicePrincipal'
-  }
-}
+// module openAiRoleSearchService 'core/security/role.bicep' = if (!reuseExistingSearch) {
+//   scope: openAiResourceGroup
+//   name: 'openai-role-searchservice'
+//   params: {
+//     principalId: !reuseExistingSearch ? searchService.outputs.systemAssignedMIPrincipalId : ''
+//     roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+//     principalType: 'ServicePrincipal'
+//   }
+// }
 
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenantId
@@ -408,16 +379,17 @@ output AZURE_OPENAI_REALTIME_VOICE_CHOICE string = openAiRealtimeVoiceChoice
 output AZURE_OPENAI_EMBEDDING_DEPLOYMENT string = embedModel
 output AZURE_OPENAI_EMBEDDING_MODEL string = embedModel
 
-output AZURE_SEARCH_ENDPOINT string = reuseExistingSearch
-  ? searchEndpoint
-  : 'https://${searchService.outputs.name}.search.windows.net'
-output AZURE_SEARCH_INDEX string = searchIndexName
-output AZURE_SEARCH_SEMANTIC_CONFIGURATION string = searchSemanticConfiguration
-output AZURE_SEARCH_IDENTIFIER_FIELD string = searchIdentifierField
-output AZURE_SEARCH_CONTENT_FIELD string = searchContentField
-output AZURE_SEARCH_TITLE_FIELD string = searchTitleField
-output AZURE_SEARCH_EMBEDDING_FIELD string = searchEmbeddingField
-output AZURE_SEARCH_USE_VECTOR_QUERY bool = searchUseVectorQuery
+// RAG features disabled - search outputs removed
+// output AZURE_SEARCH_ENDPOINT string = reuseExistingSearch
+//   ? searchEndpoint
+//   : 'https://${searchService.outputs.name}.search.windows.net'
+// output AZURE_SEARCH_INDEX string = searchIndexName
+// output AZURE_SEARCH_SEMANTIC_CONFIGURATION string = searchSemanticConfiguration
+// output AZURE_SEARCH_IDENTIFIER_FIELD string = searchIdentifierField
+// output AZURE_SEARCH_CONTENT_FIELD string = searchContentField
+// output AZURE_SEARCH_TITLE_FIELD string = searchTitleField
+// output AZURE_SEARCH_EMBEDDING_FIELD string = searchEmbeddingField
+// output AZURE_SEARCH_USE_VECTOR_QUERY bool = searchUseVectorQuery
 
 output AZURE_STORAGE_ENDPOINT string = 'https://${storage.outputs.name}.blob.core.windows.net'
 output AZURE_STORAGE_ACCOUNT string = storage.outputs.name
