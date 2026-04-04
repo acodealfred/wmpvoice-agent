@@ -1,23 +1,28 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Mic, MicOff, Smile, Meh, Frown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import StatusMessage from "@/components/ui/status-message";
 import { VideoPanel } from "@/components/ui/video-panel";
+import { SentimentHistoryPanel } from "@/components/ui/sentiment-history-panel";
 
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 
-import { SentimentUpdate, EmotionResult } from "./types";
+import { SentimentUpdate, EmotionResult, SentimentHistoryItem } from "./types";
 
 import logo from "./assets/logo.svg";
 
+const TIME_FRAME_SECONDS = 5;
 
 function App() {
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
+    const [lastEmotion, setLastEmotion] = useState<EmotionResult | null>(null);
+    const [sentimentHistory, setSentimentHistory] = useState<SentimentHistoryItem[]>([]);
+    const frameCounterRef = useRef(0);
 
     const { startSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
@@ -55,8 +60,39 @@ function App() {
     };
 
     const handleEmotionDetected = (emotion: EmotionResult) => {
-        console.log("Emotion detected:", emotion);
+        setLastEmotion(emotion);
     };
+
+    useEffect(() => {
+        if (!isRecording) {
+            setSentimentHistory([]);
+            frameCounterRef.current = 0;
+            return;
+        }
+
+        const interval = setInterval(() => {
+            frameCounterRef.current += 1;
+            const newItem: SentimentHistoryItem = {
+                id: `frame-${frameCounterRef.current}-${Date.now()}`,
+                timestamp: Date.now(),
+                timeFrameLabel: `${TIME_FRAME_SECONDS}s frame ${frameCounterRef.current}`,
+                faceEmotion: lastEmotion?.emotion || "No face detected",
+                faceEmotionConfidence: lastEmotion?.confidence || 0,
+                voiceSentiment: sentiment?.sentiment || "neutral",
+                voiceSentimentReason: sentiment?.reason
+            };
+
+            setSentimentHistory(prev => {
+                const updated = [...prev, newItem];
+                if (updated.length > 10) {
+                    return updated.slice(-10);
+                }
+                return updated;
+            });
+        }, TIME_FRAME_SECONDS * 1000);
+
+        return () => clearInterval(interval);
+    }, [isRecording, lastEmotion, sentiment]);
 
     const { t } = useTranslation();
 
@@ -119,6 +155,10 @@ function App() {
                                 )}
                             </div>
                         )}
+                        <SentimentHistoryPanel 
+                            history={sentimentHistory} 
+                            timeFrameSeconds={TIME_FRAME_SECONDS} 
+                        />
                     </div>
                 </div>
             </main>

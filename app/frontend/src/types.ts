@@ -84,3 +84,13 @@ export type EmotionResult = {
     confidence: number;
     allEmotions?: { type: string; confidence: number }[];
 };
+
+export type SentimentHistoryItem = {
+    id: string;
+    timestamp: number;
+    timeFrameLabel: string;
+    faceEmotion: string;
+    faceEmotionConfidence: number;
+    voiceSentiment: "positive" | "neutral" | "negative";
+    voiceSentimentReason?: string;
+};
