@@ -9,6 +9,8 @@ from azure.core.credentials import AzureKeyCredential
 from azure.identity import AzureDeveloperCliCredential, DefaultAzureCredential
 from dotenv import load_dotenv
 
+from rtmt import RTMiddleTier
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voicerag")
 
