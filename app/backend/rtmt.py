@@ -11,6 +11,29 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 logger = logging.getLogger("voicerag")
 
+_tool_sentiment_schema = {
+    "type": "function",
+    "name": "report_sentiment",
+    "description": "Report the sentiment analysis result from the user's voice input. Use this tool to record the sentiment after analyzing the user's message. The sentiment should be either 'positive', 'neutral', or 'negative', along with a brief reason.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "sentiment": {
+                "type": "string",
+                "enum": ["positive", "neutral", "negative"],
+                "description": "The sentiment of the user's input"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of why this sentiment was detected"
+            }
+        },
+        "required": ["sentiment", "reason"],
+        "additionalProperties": False
+    }
+}
+
+
 class ToolResultDirection(Enum):
     TO_SERVER = 1
     TO_CLIENT = 2
@@ -27,6 +50,15 @@ class ToolResult:
         if self.text is None:
             return ""
         return self.text if type(self.text) == str else json.dumps(self.text)
+
+
+async def _sentiment_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
+    sentiment = args.get("sentiment", "neutral")
+    reason = args.get("reason", "")
+    return ToolResult(
+        json.dumps({"sentiment": sentiment, "reason": reason}),
+        ToolResultDirection.TO_CLIENT
+    )
 
 class Tool:
     target: Callable[..., ToolResult]
@@ -77,6 +109,14 @@ class RTMiddleTier:
         else:
             self._token_provider = get_bearer_token_provider(credentials, "https://cognitiveservices.azure.com/.default")
             self._token_provider() # Warm up during startup so we have a token cached when the first request arrives
+
+    def enable_sentiment(self) -> None:
+        self.enable_sentiment_analysis = True
+        self.tools["report_sentiment"] = Tool(
+            schema=_tool_sentiment_schema,
+            target=lambda args: _sentiment_tool(self, args)
+        )
+        logger.info("Sentiment analysis enabled with report_sentiment tool")
 
     async def _process_message_to_client(self, msg: str, client_ws: web.WebSocketResponse, server_ws: web.WebSocketResponse) -> Optional[str]:
         import re
@@ -163,6 +203,19 @@ class RTMiddleTier:
                                 "tool_name": item["name"],
                                 "tool_result": result.to_text()
                             })
+                            
+                            # Handle sentiment tool response
+                            if item["name"] == "report_sentiment":
+                                try:
+                                    sentiment_result = json.loads(result.to_text())
+                                    await client_ws.send_json({
+                                        "type": "sentiment.update",
+                                        "sentiment": sentiment_result.get("sentiment", "neutral"),
+                                        "reason": sentiment_result.get("reason", "")
+                                    })
+                                    logger.info(f"Sentiment from tool: {sentiment_result.get('sentiment')} - {sentiment_result.get('reason')}")
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Failed to parse sentiment from tool: {e}")
                         updated_message = None
 
                 case "response.done":
@@ -245,9 +298,8 @@ class RTMiddleTier:
                     if self.enable_sentiment_analysis:
                         sentiment_instructions = """ Additionally, you must analyze the sentiment of the user's input.
                         After each user message, determine if the sentiment is "positive", "neutral", or "negative".
-                        When you respond, include a JSON object with the sentiment analysis in the following format:
-                        <SENTIMENT>{"sentiment": "positive|neutral|negative", "reason": "brief explanation"}</SENTIMENT>
-                        This JSON should be included as part of your response but the user should not see it."""
+                        IMPORTANT: You must call the 'report_sentiment' tool with the sentiment analysis results after each user message.
+                        Do NOT speak or mention the sentiment analysis results out loud. The sentiment is for display purposes only."""
                         session["instructions"] = base_instructions + sentiment_instructions
                     else:
                         session["instructions"] = base_instructions

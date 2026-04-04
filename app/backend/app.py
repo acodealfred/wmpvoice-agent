@@ -91,8 +91,8 @@ async def create_app():
     
     # Enable sentiment analysis based on environment variable
     enable_sentiment = os.environ.get("ENABLE_SENTIMENT_ANALYSIS", "false").lower() == "true"
-    rtmt.enable_sentiment_analysis = enable_sentiment
     if enable_sentiment:
+        rtmt.enable_sentiment()
         logger.info("Sentiment analysis is enabled")
     # RAG features disabled - simple conversational voice assistant
     rtmt.system_message = """
