@@ -38,6 +38,9 @@
     "enableSentimentAnalysis": {
       "value": "${ENABLE_SENTIMENT_ANALYSIS=true}"
     },
+    "enableSurveyMode": {
+      "value": "${ENABLE_SURVEY_MODE=false}"
+    },
     "awsRegion": {
       "value": "${AWS_REGION=us-east-1}"
     },

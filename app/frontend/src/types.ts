@@ -75,6 +75,26 @@ export type SentimentUpdate = {
     reason: string;
 };
 
+export type SurveyUpdate = {
+    type: "survey.update";
+    question_id: string;
+    score: number;
+    completed: number;
+    total: number;
+};
+
+export type SurveyQuestion = {
+    id: string;
+    text: string;
+    score: number;
+};
+
+export type SurveyResult = {
+    questions: SurveyQuestion[];
+    totalScore: number;
+    interpretation: string;
+};
+
 export type ToolResult = {
     sources: { chunk_id: string; title: string; chunk: string }[];
 };

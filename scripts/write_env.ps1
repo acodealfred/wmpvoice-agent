@@ -11,6 +11,8 @@ $azureOpenAiRealtimeVoiceChoice = azd env get-value AZURE_OPENAI_REALTIME_VOICE_
 $azureTenantId = azd env get-value AZURE_TENANT_ID
 $enableSentimentAnalysis = azd env get-value ENABLE_SENTIMENT_ANALYSIS 2>$null
 if (-not $enableSentimentAnalysis) { $enableSentimentAnalysis = "false" }
+$enableSurveyMode = azd env get-value ENABLE_SURVEY_MODE 2>$null
+if (-not $enableSurveyMode) { $enableSurveyMode = "false" }
 # RAG features disabled - AI Search env vars removed
 # $azureSearchEndpoint = azd env get-value AZURE_SEARCH_ENDPOINT
 # $azureSearchIndex = azd env get-value AZURE_SEARCH_INDEX
@@ -26,6 +28,7 @@ Add-Content -Path $envFilePath -Value "AZURE_OPENAI_REALTIME_DEPLOYMENT=$azureOp
 Add-Content -Path $envFilePath -Value "AZURE_OPENAI_REALTIME_VOICE_CHOICE=$azureOpenAiRealtimeVoiceChoice"
 Add-Content -Path $envFilePath -Value "AZURE_TENANT_ID=$azureTenantId"
 Add-Content -Path $envFilePath -Value "ENABLE_SENTIMENT_ANALYSIS=$enableSentimentAnalysis"
+Add-Content -Path $envFilePath -Value "ENABLE_SURVEY_MODE=$enableSurveyMode"
 $awsRegion = azd env get-value AWS_REGION 2>$null
 if (-not $awsRegion) { $awsRegion = "us-east-1" }
 Add-Content -Path $envFilePath -Value "AWS_REGION=$awsRegion"

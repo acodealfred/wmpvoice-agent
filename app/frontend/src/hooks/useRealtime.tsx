@@ -10,7 +10,8 @@ import {
     SessionUpdateCommand,
     ExtensionMiddleTierToolResponse,
     ResponseInputAudioTranscriptionCompleted,
-    SentimentUpdate
+    SentimentUpdate,
+    SurveyUpdate
 } from "@/types";
 
 type Parameters = {
@@ -32,6 +33,7 @@ type Parameters = {
     onReceivedResponseAudioTranscriptDelta?: (message: ResponseAudioTranscriptDelta) => void;
     onReceivedInputAudioTranscriptionCompleted?: (message: ResponseInputAudioTranscriptionCompleted) => void;
     onReceivedSentimentUpdate?: (message: SentimentUpdate) => void;
+    onReceivedSurveyUpdate?: (message: SurveyUpdate) => void;
     onReceivedError?: (message: Message) => void;
 };
 
@@ -52,6 +54,7 @@ export default function useRealTime({
     onReceivedExtensionMiddleTierToolResponse,
     onReceivedInputAudioTranscriptionCompleted,
     onReceivedSentimentUpdate,
+    onReceivedSurveyUpdate,
     onReceivedError
 }: Parameters) {
     const wsEndpoint = useDirectAoaiApi
@@ -134,6 +137,9 @@ export default function useRealTime({
                 break;
             case "sentiment.update":
                 onReceivedSentimentUpdate?.(message as SentimentUpdate);
+                break;
+            case "survey.update":
+                onReceivedSurveyUpdate?.(message as SurveyUpdate);
                 break;
             case "error":
                 onReceivedError?.(message);

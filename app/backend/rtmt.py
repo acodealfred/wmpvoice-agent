@@ -33,6 +33,33 @@ _tool_sentiment_schema = {
     }
 }
 
+_tool_survey_schema = {
+    "type": "function",
+    "name": "record_survey_response",
+    "description": "Record the user's response to a burnout assessment question. Use Likert scale 1-5 where 1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "question_id": {
+                "type": "string",
+                "description": "The question identifier (e.g., q1, q2, q3, q4, q5)"
+            },
+            "score": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Likert score: 1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always"
+            },
+            "user_verbal_response": {
+                "type": "string",
+                "description": "The user's natural language response"
+            }
+        },
+        "required": ["question_id", "score"],
+        "additionalProperties": False
+    }
+}
+
 
 class ToolResultDirection(Enum):
     TO_SERVER = 1
@@ -57,6 +84,31 @@ async def _sentiment_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     reason = args.get("reason", "")
     return ToolResult(
         json.dumps({"sentiment": sentiment, "reason": reason}),
+        ToolResultDirection.TO_CLIENT
+    )
+
+
+async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
+    question_id = args.get("question_id")
+    score = args.get("score")
+    user_response = args.get("user_verbal_response", "")
+    
+    if not hasattr(self, '_survey_results'):
+        self._survey_results = {}
+    
+    self._survey_results[question_id] = {
+        "score": score,
+        "user_response": user_response
+    }
+    
+    logger.info(f"Survey response recorded: {question_id} = {score}")
+    
+    return ToolResult(
+        json.dumps({
+            "question_id": question_id,
+            "score": score,
+            "recorded": True
+        }),
         ToolResultDirection.TO_CLIENT
     )
 
@@ -93,10 +145,13 @@ class RTMiddleTier:
     max_tokens: Optional[int] = None
     disable_audio: Optional[bool] = None
     voice_choice: Optional[str] = None
-    enable_sentiment_analysis: bool = False  # Enable sentiment analysis feature
+    enable_sentiment_analysis: bool = False
+    enable_survey_mode: bool = False
     api_version: str = "2024-10-01-preview"
     _tools_pending = {}
     _token_provider = None
+    _survey_results: dict = {}
+    _survey_config: dict = {}
 
     def __init__(self, endpoint: str, deployment: str, credentials: AzureKeyCredential | DefaultAzureCredential, voice_choice: Optional[str] = None):
         self.endpoint = endpoint
@@ -117,6 +172,55 @@ class RTMiddleTier:
             target=lambda args: _sentiment_tool(self, args)
         )
         logger.info("Sentiment analysis enabled with report_sentiment tool")
+
+    def enable_survey(self, survey_config: Optional[dict] = None) -> None:
+        """Enable survey mode for conversational surveys like burnout assessment."""
+        self.enable_survey_mode = True
+        self.tools["record_survey_response"] = Tool(
+            schema=_tool_survey_schema,
+            target=lambda args: _survey_tool(self, args)
+        )
+        
+        self._survey_config = survey_config or {
+            "name": "Burnout Assessment",
+            "questions": [
+                {"id": "q1", "text": "Emotional Exhaustion", "prompt": "How often do you feel emotionally exhausted at the end of a work day?"},
+                {"id": "q2", "text": "Depersonalization", "prompt": "How often do you feel detached or cynical about your job?"},
+                {"id": "q3", "text": "Personal Accomplishment", "prompt": "How confident do you feel about your work?"},
+                {"id": "q4", "text": "Physical Exhaustion", "prompt": "How often do you feel physically tired?"},
+                {"id": "q5", "text": "Job Satisfaction", "prompt": "How often do you feel positive about your job?"}
+            ],
+            "interpretation": {
+                "low": "Low burnout risk - Keep up the great work!",
+                "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.",
+                "high": "High burnout risk - Please consider reaching out to HR or a mental health professional."
+            }
+        }
+        logger.info("Survey mode enabled with record_survey_response tool")
+
+    def _get_survey_instructions(self) -> str:
+        config = self._survey_config
+        questions_text = "\n".join([f"{i+1}. {q['text']} ({q['id']}): {q['prompt']}" for i, q in enumerate(config.get("questions", []))])
+        interp = config.get("interpretation", {})
+        
+        return f"""You are conducting a Burnout Assessment through natural conversation.
+DO NOT read questions verbatim. Ask about each topic in a friendly, conversational way.
+
+Questions:
+{questions_text}
+
+After all 5 responses, calculate total score:
+- 5-12: {interp.get('low', 'Low burnout risk')}
+- 13-22: {interp.get('moderate', 'Moderate burnout risk')}
+- 23-25: {interp.get('high', 'High burnout risk')}
+
+IMPORTANT:
+1. Ask naturally, one at a time
+2. After user answers, infer Likert score (1-5) and call record_survey_response tool
+3. Do NOT mention scores or the tool to the user
+4. After all 5 questions, share interpretation based on total score
+5. Be empathetic and listen actively
+6. If user goes off-topic, politely redirect"""
 
     async def _process_message_to_client(self, msg: str, client_ws: web.WebSocketResponse, server_ws: web.WebSocketResponse) -> Optional[str]:
         import re
@@ -216,6 +320,27 @@ class RTMiddleTier:
                                     logger.info(f"Sentiment from tool: {sentiment_result.get('sentiment')} - {sentiment_result.get('reason')}")
                                 except json.JSONDecodeError as e:
                                     logger.error(f"Failed to parse sentiment from tool: {e}")
+                            
+                            # Handle survey tool response
+                            if item["name"] == "record_survey_response":
+                                try:
+                                    survey_result = json.loads(result.to_text())
+                                    question_id = survey_result.get("question_id")
+                                    score = survey_result.get("score")
+                                    
+                                    total_questions = len(self._survey_config.get("questions", []))
+                                    completed = len(self._survey_results)
+                                    
+                                    await client_ws.send_json({
+                                        "type": "survey.update",
+                                        "question_id": question_id,
+                                        "score": score,
+                                        "completed": completed,
+                                        "total": total_questions
+                                    })
+                                    logger.info(f"Survey response: {question_id} = {score}")
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Failed to parse survey result: {e}")
                         updated_message = None
 
                 case "response.done":
@@ -301,6 +426,8 @@ class RTMiddleTier:
                         IMPORTANT: You must call the 'report_sentiment' tool with the sentiment analysis results after each user message.
                         Do NOT speak or mention the sentiment analysis results out loud. The sentiment is for display purposes only."""
                         session["instructions"] = base_instructions + sentiment_instructions
+                    elif self.enable_survey_mode:
+                        session["instructions"] = base_instructions + "\n\n" + self._get_survey_instructions()
                     else:
                         session["instructions"] = base_instructions
                         

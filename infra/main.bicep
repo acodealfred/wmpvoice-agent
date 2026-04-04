@@ -56,6 +56,7 @@ param openAiRealtimeDeployment string = ''
 param openAiRealtimeVoiceChoice string = ''
 
 param enableSentimentAnalysis bool = true
+param enableSurveyMode bool = false
 
 @description('AWS Region for Rekognition API')
 param awsRegion string = 'us-east-1'
@@ -196,6 +197,8 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       AZURE_OPENAI_REALTIME_VOICE_CHOICE: openAiRealtimeVoiceChoice
       // Sentiment analysis feature
       ENABLE_SENTIMENT_ANALYSIS: enableSentimentAnalysis ? 'true' : 'false'
+      // Survey mode feature
+      ENABLE_SURVEY_MODE: enableSurveyMode ? 'true' : 'false'
       // AWS Rekognition for face emotion analysis
       AWS_REGION: awsRegion
       AWS_ACCESS_KEY_ID: !empty(awsAccessKeyId) ? awsAccessKeyId : ''

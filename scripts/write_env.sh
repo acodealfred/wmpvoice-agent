@@ -12,6 +12,7 @@ echo "AZURE_OPENAI_REALTIME_DEPLOYMENT=$(azd env get-value AZURE_OPENAI_REALTIME
 echo "AZURE_OPENAI_REALTIME_VOICE_CHOICE=$(azd env get-value AZURE_OPENAI_REALTIME_VOICE_CHOICE)" >> $ENV_FILE_PATH
 echo "AZURE_TENANT_ID=$(azd env get-value AZURE_TENANT_ID)" >> $ENV_FILE_PATH
 echo "ENABLE_SENTIMENT_ANALYSIS=$(azd env get-value ENABLE_SENTIMENT_ANALYSIS 2>/dev/null || echo 'true')" >> $ENV_FILE_PATH
+echo "ENABLE_SURVEY_MODE=$(azd env get-value ENABLE_SURVEY_MODE 2>/dev/null || echo 'false')" >> $ENV_FILE_PATH
 echo "AWS_REGION=$(azd env get-value AWS_REGION 2>/dev/null || echo 'us-east-1')" >> $ENV_FILE_PATH
 echo "AWS_ACCESS_KEY_ID=$(azd env get-value AWS_ACCESS_KEY_ID 2>/dev/null || echo '')" >> $ENV_FILE_PATH
 echo "AWS_SECRET_ACCESS_KEY=$(azd env get-value AWS_SECRET_ACCESS_KEY 2>/dev/null || echo '')" >> $ENV_FILE_PATH

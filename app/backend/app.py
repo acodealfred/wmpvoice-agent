@@ -9,10 +9,6 @@ from azure.core.credentials import AzureKeyCredential
 from azure.identity import AzureDeveloperCliCredential, DefaultAzureCredential
 from dotenv import load_dotenv
 
-# RAG tools disabled - kept for future extensibility
-# from ragtools import attach_rag_tools
-from rtmt import RTMiddleTier
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voicerag")
 
@@ -61,6 +57,13 @@ async def analyze_face(request):
         logger.error(f"Face analysis error: {e}")
         return web.json_response({'error': str(e)}, status=500)
 
+async def get_config(request):
+    """Return current feature configuration to frontend"""
+    return web.json_response({
+        'enableSentimentAnalysis': os.environ.get('ENABLE_SENTIMENT_ANALYSIS', 'false').lower() == 'true',
+        'enableSurveyMode': os.environ.get('ENABLE_SURVEY_MODE', 'false').lower() == 'true'
+    })
+
 async def create_app():
     if not os.environ.get("RUNNING_IN_PRODUCTION"):
         logger.info("Running in development mode, loading from .env file")
@@ -81,6 +84,7 @@ async def create_app():
     app = web.Application()
 
     app.router.add_post('/analyze', analyze_face)
+    app.router.add_get('/config', get_config)
 
     rtmt = RTMiddleTier(
         credentials=llm_credential,
@@ -94,6 +98,13 @@ async def create_app():
     if enable_sentiment:
         rtmt.enable_sentiment()
         logger.info("Sentiment analysis is enabled")
+    
+    # Enable survey mode based on environment variable
+    enable_survey = os.environ.get("ENABLE_SURVEY_MODE", "false").lower() == "true"
+    if enable_survey:
+        rtmt.enable_survey()
+        logger.info("Survey mode is enabled")
+    
     # RAG features disabled - simple conversational voice assistant
     rtmt.system_message = """
         You are a helpful voice assistant. Provide clear, concise answers to the user's questions.

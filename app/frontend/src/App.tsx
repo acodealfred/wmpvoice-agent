@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Mic, MicOff, Smile, Meh, Frown } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 
-import { SentimentUpdate, EmotionResult, SentimentHistoryItem } from "./types";
+import { SentimentUpdate, EmotionResult, SentimentHistoryItem, SurveyQuestion } from "./types";
 
 import logo from "./assets/logo.svg";
 
@@ -22,7 +22,22 @@ function App() {
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     const [lastEmotion, setLastEmotion] = useState<EmotionResult | null>(null);
     const [sentimentHistory, setSentimentHistory] = useState<SentimentHistoryItem[]>([]);
+    const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
+    const [surveyTotal, setSurveyTotal] = useState(0);
+    const [surveyCompleted, setSurveyCompleted] = useState(0);
+    const [enableSentiment, setEnableSentiment] = useState(false);
+    const [enableSurvey, setEnableSurvey] = useState(false);
     const frameCounterRef = useRef(0);
+
+    useEffect(() => {
+        fetch('/config')
+            .then(res => res.json())
+            .then(data => {
+                setEnableSentiment(data.enableSentimentAnalysis);
+                setEnableSurvey(data.enableSurveyMode);
+            })
+            .catch(err => console.error('Failed to fetch config:', err));
+    }, []);
 
     const { startSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
@@ -37,6 +52,11 @@ function App() {
         },
         onReceivedSentimentUpdate: message => {
             setSentiment(message);
+        },
+        onReceivedSurveyUpdate: message => {
+            setSurveyQuestions(prev => [...prev, { id: message.question_id, text: message.question_id, score: message.score }]);
+            setSurveyCompleted(message.completed);
+            setSurveyTotal(message.total);
         },
     });
 
@@ -129,6 +149,20 @@ function App() {
                             </Button>
                             <StatusMessage isRecording={isRecording} />
                         </div>
+                        <div className="mb-4 flex gap-3">
+                            {enableSentiment && (
+                                <div className="flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
+                                    <Smile className="h-3 w-3" />
+                                    Sentiment
+                                </div>
+                            )}
+                            {enableSurvey && (
+                                <div className="flex items-center gap-1 rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
+                                    <ClipboardList className="h-3 w-3" />
+                                    Survey
+                                </div>
+                            )}
+                        </div>
                         {sentiment && (
                             <div className="mb-6 flex items-center gap-2 rounded-lg bg-white px-4 py-2 shadow-md">
                                 <span className="text-sm font-medium text-gray-600">Sentiment:</span>
@@ -152,6 +186,29 @@ function App() {
                                 )}
                                 {sentiment.reason && (
                                     <span className="text-xs text-gray-500">- {sentiment.reason}</span>
+                                )}
+                            </div>
+                        )}
+                        {surveyTotal > 0 && (
+                            <div className="mb-6 w-full max-w-md rounded-lg bg-white p-4 shadow-md">
+                                <h3 className="mb-3 text-lg font-semibold text-gray-700">Burnout Assessment</h3>
+                                <div className="mb-2 flex justify-between text-sm text-gray-600">
+                                    <span>Progress: {surveyCompleted} / {surveyTotal}</span>
+                                    <span>{surveyQuestions.length > 0 ? `Current: ${surveyQuestions[surveyQuestions.length - 1].score}/5` : ''}</span>
+                                </div>
+                                <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                                    <div 
+                                        className="h-full bg-purple-500 transition-all duration-300" 
+                                        style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
+                                    />
+                                </div>
+                                {surveyQuestions.length > 0 && (
+                                    <div className="mt-3 text-xs text-gray-500">
+                                        <span>Responses: </span>
+                                        {surveyQuestions.map((q) => (
+                                            <span key={q.id} className="mr-2">{q.id}:{q.score}</span>
+                                        ))}
+                                    </div>
                                 )}
                             </div>
                         )}
