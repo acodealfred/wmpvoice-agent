@@ -1,7 +1,9 @@
+import base64
 import logging
 import os
 from pathlib import Path
 
+import boto3
 from aiohttp import web
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import AzureDeveloperCliCredential, DefaultAzureCredential
@@ -13,6 +15,43 @@ from rtmt import RTMiddleTier
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voicerag")
+
+async def analyze_face(request):
+    try:
+        data = await request.json()
+        image_data = data.get('image', '')
+        
+        if not image_data:
+            return web.json_response({'error': 'No image data provided'}, status=400)
+        
+        aws_region = os.environ.get('AWS_REGION', 'us-east-1')
+        rekognition = boto3.client('rekognition', region_name=aws_region)
+        
+        image_bytes = base64.b64decode(image_data.split(',')[1])
+        
+        response = rekognition.detect_faces(
+            Image={'Bytes': image_bytes},
+            Attributes=['ALL']
+        )
+        
+        if not response.get('FaceDetails'):
+            return web.json_response({'emotion': 'No face detected', 'confidence': 0})
+        
+        emotions = response['FaceDetails'][0].get('Emotions', [])
+        if not emotions:
+            return web.json_response({'emotion': 'No emotion detected', 'confidence': 0})
+        
+        top_emotion = max(emotions, key=lambda x: x.get('Confidence', 0))
+        
+        return web.json_response({
+            'emotion': top_emotion.get('Type', 'UNKNOWN'),
+            'confidence': top_emotion.get('Confidence', 0),
+            'allEmotions': [{'type': e['Type'], 'confidence': e['Confidence']} for e in emotions]
+        })
+    
+    except Exception as e:
+        logger.error(f"Face analysis error: {e}")
+        return web.json_response({'error': str(e)}, status=500)
 
 async def create_app():
     if not os.environ.get("RUNNING_IN_PRODUCTION"):
@@ -32,6 +71,8 @@ async def create_app():
     llm_credential = AzureKeyCredential(llm_key) if llm_key else credential
     
     app = web.Application()
+
+    app.router.add_post('/analyze', analyze_face)
 
     rtmt = RTMiddleTier(
         credentials=llm_credential,

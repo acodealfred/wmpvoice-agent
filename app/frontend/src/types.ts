@@ -78,3 +78,9 @@ export type SentimentUpdate = {
 export type ToolResult = {
     sources: { chunk_id: string; title: string; chunk: string }[];
 };
+
+export type EmotionResult = {
+    emotion: string;
+    confidence: number;
+    allEmotions?: { type: string; confidence: number }[];
+};

@@ -26,6 +26,13 @@ Add-Content -Path $envFilePath -Value "AZURE_OPENAI_REALTIME_DEPLOYMENT=$azureOp
 Add-Content -Path $envFilePath -Value "AZURE_OPENAI_REALTIME_VOICE_CHOICE=$azureOpenAiRealtimeVoiceChoice"
 Add-Content -Path $envFilePath -Value "AZURE_TENANT_ID=$azureTenantId"
 Add-Content -Path $envFilePath -Value "ENABLE_SENTIMENT_ANALYSIS=$enableSentimentAnalysis"
+$awsRegion = azd env get-value AWS_REGION 2>$null
+if (-not $awsRegion) { $awsRegion = "us-east-1" }
+Add-Content -Path $envFilePath -Value "AWS_REGION=$awsRegion"
+$awsAccessKeyId = azd env get-value AWS_ACCESS_KEY_ID 2>$null
+if ($awsAccessKeyId) { Add-Content -Path $envFilePath -Value "AWS_ACCESS_KEY_ID=$awsAccessKeyId" }
+$awsSecretAccessKey = azd env get-value AWS_SECRET_ACCESS_KEY 2>$null
+if ($awsSecretAccessKey) { Add-Content -Path $envFilePath -Value "AWS_SECRET_ACCESS_KEY=$awsSecretAccessKey" }
 # RAG features disabled - AI Search env vars removed
 # Add-Content -Path $envFilePath -Value "AZURE_SEARCH_ENDPOINT=$azureSearchEndpoint"
 # Add-Content -Path $envFilePath -Value "AZURE_SEARCH_INDEX=$azureSearchIndex"

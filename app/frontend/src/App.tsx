@@ -3,18 +3,14 @@ import { Mic, MicOff, Smile, Meh, Frown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-// RAG features disabled - kept for future extensibility
-// import { GroundingFiles } from "@/components/ui/grounding-files";
-// import GroundingFileView from "@/components/ui/grounding-file-view";
 import StatusMessage from "@/components/ui/status-message";
+import { VideoPanel } from "@/components/ui/video-panel";
 
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 
-// RAG features disabled - kept for future extensibility
-// import { GroundingFile, ToolResult } from "./types";
-import { SentimentUpdate } from "./types";
+import { SentimentUpdate, EmotionResult } from "./types";
 
 import logo from "./assets/logo.svg";
 
@@ -22,9 +18,6 @@ import logo from "./assets/logo.svg";
 function App() {
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
-    // RAG features disabled - kept for future extensibility
-    // const [groundingFiles, setGroundingFiles] = useState<GroundingFile[]>([]);
-    // const [selectedFile, setSelectedFile] = useState<GroundingFile | null>(null);
 
     const { startSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
@@ -40,16 +33,6 @@ function App() {
         onReceivedSentimentUpdate: message => {
             setSentiment(message);
         },
-        // RAG features disabled - kept for future extensibility
-        // onReceivedExtensionMiddleTierToolResponse: message => {
-        //     const result: ToolResult = JSON.parse(message.tool_result);
-        //
-        //     const files: GroundingFile[] = result.sources.map(x => {
-        //         return { id: x.chunk_id, name: x.title, content: x.chunk };
-        //     });
-        //
-        //     setGroundingFiles(prev => [...prev, ...files]);
-        // }
     });
 
     const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
@@ -71,6 +54,10 @@ function App() {
         }
     };
 
+    const handleEmotionDetected = (emotion: EmotionResult) => {
+        console.log("Emotion detected:", emotion);
+    };
+
     const { t } = useTranslation();
 
     return (
@@ -78,66 +65,67 @@ function App() {
             <div className="p-4 sm:absolute sm:left-4 sm:top-4">
                 <img src={logo} alt="Azure logo" className="h-16 w-16" />
             </div>
-            <main className="flex flex-grow flex-col items-center justify-center">
-                <h1 className="mb-8 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-4xl font-bold text-transparent md:text-7xl">
-                    {t("app.title")}
-                </h1>
-                <div className="mb-4 flex flex-col items-center justify-center">
-                    <Button
-                        onClick={onToggleListening}
-                        className={`h-12 w-60 ${isRecording ? "bg-red-600 hover:bg-red-700" : "bg-purple-500 hover:bg-purple-600"}`}
-                        aria-label={isRecording ? t("app.stopRecording") : t("app.startRecording")}
-                    >
-                        {isRecording ? (
-                            <>
-                                <MicOff className="mr-2 h-4 w-4" />
-                                {t("app.stopConversation")}
-                            </>
-                        ) : (
-                            <>
-                                <Mic className="mr-2 h-6 w-6" />
-                            </>
-                        )}
-                    </Button>
-                    <StatusMessage isRecording={isRecording} />
-                </div>
-                {/* Sentiment Display */}
-                {sentiment && (
-                    <div className="mb-6 flex items-center gap-2 rounded-lg bg-white px-4 py-2 shadow-md">
-                        <span className="text-sm font-medium text-gray-600">Sentiment:</span>
-                        {sentiment.sentiment === "positive" && (
-                            <>
-                                <Smile className="h-5 w-5 text-green-500" />
-                                <span className="text-sm font-medium text-green-600">Positive</span>
-                            </>
-                        )}
-                        {sentiment.sentiment === "neutral" && (
-                            <>
-                                <Meh className="h-5 w-5 text-yellow-500" />
-                                <span className="text-sm font-medium text-yellow-600">Neutral</span>
-                            </>
-                        )}
-                        {sentiment.sentiment === "negative" && (
-                            <>
-                                <Frown className="h-5 w-5 text-red-500" />
-                                <span className="text-sm font-medium text-red-600">Negative</span>
-                            </>
-                        )}
-                        {sentiment.reason && (
-                            <span className="text-xs text-gray-500">- {sentiment.reason}</span>
+            <main className="flex flex-grow flex-col items-center justify-center p-4">
+                <div className="flex w-full max-w-6xl flex-wrap items-start justify-center gap-8">
+                    <div className="flex-shrink-0">
+                        <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} />
+                    </div>
+                    <div className="flex flex-grow flex-col items-center justify-center">
+                        <h1 className="mb-8 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-4xl font-bold text-transparent md:text-7xl">
+                            {t("app.title")}
+                        </h1>
+                        <div className="mb-4 flex flex-col items-center justify-center">
+                            <Button
+                                onClick={onToggleListening}
+                                className={`h-12 w-60 ${isRecording ? "bg-red-600 hover:bg-red-700" : "bg-purple-500 hover:bg-purple-600"}`}
+                                aria-label={isRecording ? t("app.stopRecording") : t("app.startRecording")}
+                            >
+                                {isRecording ? (
+                                    <>
+                                        <MicOff className="mr-2 h-4 w-4" />
+                                        {t("app.stopConversation")}
+                                    </>
+                                ) : (
+                                    <>
+                                        <Mic className="mr-2 h-6 w-6" />
+                                    </>
+                                )}
+                            </Button>
+                            <StatusMessage isRecording={isRecording} />
+                        </div>
+                        {sentiment && (
+                            <div className="mb-6 flex items-center gap-2 rounded-lg bg-white px-4 py-2 shadow-md">
+                                <span className="text-sm font-medium text-gray-600">Sentiment:</span>
+                                {sentiment.sentiment === "positive" && (
+                                    <>
+                                        <Smile className="h-5 w-5 text-green-500" />
+                                        <span className="text-sm font-medium text-green-600">Positive</span>
+                                    </>
+                                )}
+                                {sentiment.sentiment === "neutral" && (
+                                    <>
+                                        <Meh className="h-5 w-5 text-yellow-500" />
+                                        <span className="text-sm font-medium text-yellow-600">Neutral</span>
+                                    </>
+                                )}
+                                {sentiment.sentiment === "negative" && (
+                                    <>
+                                        <Frown className="h-5 w-5 text-red-500" />
+                                        <span className="text-sm font-medium text-red-600">Negative</span>
+                                    </>
+                                )}
+                                {sentiment.reason && (
+                                    <span className="text-xs text-gray-500">- {sentiment.reason}</span>
+                                )}
+                            </div>
                         )}
                     </div>
-                )}
-                {/* RAG features disabled - kept for future extensibility */}
-                {/* <GroundingFiles files={groundingFiles} onSelected={setSelectedFile} /> */}
+                </div>
             </main>
 
             <footer className="py-4 text-center">
                 <p>{t("app.footer")}</p>
             </footer>
-
-            {/* RAG features disabled - kept for future extensibility */}
-            {/* <GroundingFileView groundingFile={selectedFile} onClosed={() => setSelectedFile(null)} /> */}
         </div>
     );
 }

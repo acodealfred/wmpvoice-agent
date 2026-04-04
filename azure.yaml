@@ -12,16 +12,15 @@ services:
       remoteBuild: true
     env:
       AZURE_OPENAI_REALTIME_DEPLOYMENT_VERSION: "2024-07-18"
-# RAG features disabled - postprovision hooks removed
-# hooks:
-#     postprovision:
-#       windows:
-#         shell: pwsh
-#         run: ./scripts/write_env.ps1
-#         interactive: true
-#         continueOnError: false
-#       posix:
-#         shell: sh
-#         run: ./scripts/write_env.sh
-#         interactive: true
-#         continueOnError: false
+hooks:
+    postprovision:
+      windows:
+        shell: pwsh
+        run: ./scripts/write_env.ps1
+        interactive: true
+        continueOnError: false
+      posix:
+        shell: sh
+        run: ./scripts/write_env.sh
+        interactive: true
+        continueOnError: false

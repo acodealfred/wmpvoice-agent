@@ -38,6 +38,15 @@
     "enableSentimentAnalysis": {
       "value": "${ENABLE_SENTIMENT_ANALYSIS=true}"
     },
+    "awsRegion": {
+      "value": "${AWS_REGION=us-east-1}"
+    },
+    "awsAccessKeyId": {
+      "value": "${AWS_ACCESS_KEY_ID}"
+    },
+    "awsSecretAccessKey": {
+      "value": "${AWS_SECRET_ACCESS_KEY}"
+    },
     "storageAccountName": {
       "value": "${AZURE_STORAGE_ACCOUNT}"
     },

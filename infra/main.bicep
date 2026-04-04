@@ -57,6 +57,15 @@ param openAiRealtimeVoiceChoice string = ''
 
 param enableSentimentAnalysis bool = true
 
+@description('AWS Region for Rekognition API')
+param awsRegion string = 'us-east-1'
+
+@description('AWS Access Key ID for Rekognition (optional - can use IAM role in deployment)')
+param awsAccessKeyId string = ''
+
+@description('AWS Secret Access Key for Rekognition (optional)')
+param awsSecretAccessKey string = ''
+
 @description('Location for the OpenAI resource group')
 @allowed([
   'eastus2'
@@ -184,6 +193,8 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       AZURE_OPENAI_REALTIME_VOICE_CHOICE: openAiRealtimeVoiceChoice
       // Sentiment analysis feature
       ENABLE_SENTIMENT_ANALYSIS: enableSentimentAnalysis ? 'true' : 'false'
+      // AWS Rekognition for face emotion analysis
+      AWS_REGION: awsRegion
       // RAG features disabled - AI Search removed
       // AZURE_SEARCH_ENDPOINT
       // AZURE_SEARCH_INDEX
