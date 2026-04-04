@@ -187,6 +187,9 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
     targetPort: 8000
     containerCpuCoreCount: '1.0'
     containerMemory: '2Gi'
+    secrets: !empty(awsSecretAccessKey) ? {
+      'aws-secret-key': awsSecretAccessKey
+    } : {}
     env: {
       AZURE_OPENAI_ENDPOINT: reuseExistingOpenAi ? openAiEndpoint : openAi.outputs.endpoint
       AZURE_OPENAI_REALTIME_DEPLOYMENT: reuseExistingOpenAi ? openAiRealtimeDeployment : openAiDeployments[0].name
@@ -195,6 +198,8 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       ENABLE_SENTIMENT_ANALYSIS: enableSentimentAnalysis ? 'true' : 'false'
       // AWS Rekognition for face emotion analysis
       AWS_REGION: awsRegion
+      AWS_ACCESS_KEY_ID: !empty(awsAccessKeyId) ? awsAccessKeyId : ''
+      AWS_SECRET_ACCESS_KEY: !empty(awsSecretAccessKey) ? 'secretref:aws-secret-key' : ''
       // RAG features disabled - AI Search removed
       // AZURE_SEARCH_ENDPOINT
       // AZURE_SEARCH_INDEX

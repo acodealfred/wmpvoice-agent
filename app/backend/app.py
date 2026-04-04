@@ -25,7 +25,15 @@ async def analyze_face(request):
             return web.json_response({'error': 'No image data provided'}, status=400)
         
         aws_region = os.environ.get('AWS_REGION', 'us-east-1')
-        rekognition = boto3.client('rekognition', region_name=aws_region)
+        aws_access_key = os.environ.get('AWS_ACCESS_KEY_ID', '')
+        aws_secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
+        
+        client_kwargs = {'region_name': aws_region}
+        if aws_access_key and aws_secret_key and not aws_secret_key.startswith('secretref:'):
+            client_kwargs['aws_access_key_id'] = aws_access_key
+            client_kwargs['aws_secret_access_key'] = aws_secret_key
+        
+        rekognition = boto3.client('rekognition', **client_kwargs)
         
         image_bytes = base64.b64decode(image_data.split(',')[1])
         
