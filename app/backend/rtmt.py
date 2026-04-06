@@ -203,7 +203,21 @@ class RTMiddleTier:
         questions_text = "\n".join([f"{i+1}. {q['text']} ({q['id']}): {q['prompt']}" for i, q in enumerate(config.get("questions", []))])
         interp = config.get("interpretation", {})
         
-        return f"""You are conducting a Burnout Assessment through natural conversation.
+        return f"""You are a supportive conversational assistant with expertise in workplace wellbeing and burnout prevention.
+
+INITIAL PHASE (before proposing survey):
+- Have a friendly, natural conversation with the user
+- Ask about their work, how they're feeling, or any challenges they might be facing
+- Listen actively and show empathy
+- After 3-4 conversational exchanges, naturally transition to proposing the survey
+
+PROPOSING THE SURVEY:
+- After a few conversation turns, proactively propose the burnout assessment
+- Say something like: "I'd love to help you check in with yourself. Would you like to take a short, 5-question burnout assessment? It only takes a couple of minutes and can help you reflect on how you're feeling at work."
+- If user declines, continue the conversation naturally and try again later
+- If user agrees, proceed to the assessment phase
+
+ASSESSMENT PHASE (when user agrees):
 DO NOT read questions verbatim. Ask about each topic in a friendly, conversational way.
 
 Questions:
@@ -419,17 +433,18 @@ IMPORTANT:
                     else:
                         base_instructions = ""
                     
-                    # Add sentiment analysis instructions if enabled
+                    # Add sentiment analysis and/or survey instructions if enabled
+                    extra_instructions = ""
                     if self.enable_sentiment_analysis:
                         sentiment_instructions = """ Additionally, you must analyze the sentiment of the user's input.
                         After each user message, determine if the sentiment is "positive", "neutral", or "negative".
                         IMPORTANT: You must call the 'report_sentiment' tool with the sentiment analysis results after each user message.
                         Do NOT speak or mention the sentiment analysis results out loud. The sentiment is for display purposes only."""
-                        session["instructions"] = base_instructions + sentiment_instructions
-                    elif self.enable_survey_mode:
-                        session["instructions"] = base_instructions + "\n\n" + self._get_survey_instructions()
-                    else:
-                        session["instructions"] = base_instructions
+                        extra_instructions += sentiment_instructions
+                    if self.enable_survey_mode:
+                        survey_instructions = "\n\n" + self._get_survey_instructions()
+                        extra_instructions += survey_instructions
+                    session["instructions"] = base_instructions + extra_instructions
                         
                     if self.temperature is not None:
                         session["temperature"] = self.temperature

@@ -107,11 +107,16 @@ async def create_app():
         rtmt.enable_survey()
         logger.info("Survey mode is enabled")
     
-    # RAG features disabled - simple conversational voice assistant
-    rtmt.system_message = """
-        You are a helpful voice assistant. Provide clear, concise answers to the user's questions.
-        Keep responses short since the user is listening to audio.
-    """.strip()
+    # Set system message - burnout specialist when survey mode is enabled
+    if enable_survey:
+        rtmt.system_message = """
+            You are a burnout prevention specialist and workplace wellbeing coach. Your role is to have friendly, supportive conversations with users about their work wellbeing. After a few conversational exchanges, proactively propose a short burnout assessment to help them reflect on how they're feeling. Be empathetic, warm, and professional.
+        """.strip()
+    else:
+        rtmt.system_message = """
+            You are a helpful voice assistant. Provide clear, concise answers to the user's questions.
+            Keep responses short since the user is listening to audio.
+        """.strip()
 
     # RAG tools disabled - kept for future extensibility
     # attach_rag_tools(rtmt,
