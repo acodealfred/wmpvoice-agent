@@ -1,7 +1,7 @@
 {
     "app": {
         "title": "CIQ Voice Agent",
-        "footer": "Built with Azure AI Search + Azure OpenAI",
+        "footer": "CIQ Voice Agent - Demo Web Application",
         "stopRecording": "Stop recording",
         "startRecording": "Start recording",
         "stopConversation": "Stop conversation"
