@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Video, VideoOff, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Video, VideoOff, Loader2, AlertTriangle } from "lucide-react";
 import { useVideoCapture, EmotionResult } from "@/hooks/useVideoCapture";
 import { Button } from "@/components/ui/button";
 
@@ -7,6 +7,8 @@ interface VideoPanelProps {
   onEmotionDetected?: (emotion: EmotionResult) => void;
   isRecording?: boolean;
 }
+
+const ANALYSIS_DELAY_MS = 5000;
 
 const emotionIcons: Record<string, string> = {
   HAPPY: "😊",
@@ -20,6 +22,9 @@ const emotionIcons: Record<string, string> = {
 };
 
 export function VideoPanel({ onEmotionDetected, isRecording = false }: VideoPanelProps) {
+  const [analysisReady, setAnalysisReady] = useState(false);
+  const [multipleFacesWarning, setMultipleFacesWarning] = useState(false);
+  
   const {
     videoRef,
     canvasRef,
@@ -34,12 +39,26 @@ export function VideoPanel({ onEmotionDetected, isRecording = false }: VideoPane
 
   useEffect(() => {
     if (isRecording && !isStreaming) {
-      startVideo().then(() => startAnalysis());
+      setAnalysisReady(false);
+      setMultipleFacesWarning(false);
+      startVideo().then(() => {
+        setTimeout(() => {
+          setAnalysisReady(true);
+          startAnalysis();
+        }, ANALYSIS_DELAY_MS);
+      });
     } else if (!isRecording && isStreaming) {
+      setAnalysisReady(false);
       stopAnalysis();
       stopVideo();
     }
   }, [isRecording, isStreaming, startVideo, stopVideo, startAnalysis, stopAnalysis]);
+
+  useEffect(() => {
+    if (currentEmotion) {
+      setMultipleFacesWarning(currentEmotion.emotion === "multiple_faces_detected");
+    }
+  }, [currentEmotion]);
 
   const getEmotionEmoji = (emotion: string) => {
     return emotionIcons[emotion.toUpperCase()] || "😐";
@@ -83,7 +102,21 @@ export function VideoPanel({ onEmotionDetected, isRecording = false }: VideoPane
         <div className="w-full rounded-lg bg-gray-800 p-4">
           <h3 className="mb-2 text-sm font-medium text-gray-300">Emotion Analysis</h3>
           
-          {isAnalyzing && !currentEmotion && (
+          {isStreaming && !analysisReady && (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin text-yellow-500" />
+              <span className="text-sm text-gray-400">Starting analysis in 5 seconds...</span>
+            </div>
+          )}
+          
+          {multipleFacesWarning && (
+            <div className="mb-2 flex items-center justify-center rounded-lg bg-yellow-900/50 p-2">
+              <AlertTriangle className="mr-2 h-4 w-4 text-yellow-500" />
+              <span className="text-sm text-yellow-500">Only one face should be visible</span>
+            </div>
+          )}
+          
+          {analysisReady && isAnalyzing && !currentEmotion && (
             <div className="flex items-center justify-center py-4">
               <Loader2 className="mr-2 h-5 w-5 animate-spin text-purple-500" />
               <span className="text-sm text-gray-400">Analyzing...</span>

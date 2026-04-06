@@ -10,6 +10,22 @@
         "notRecordingMessage": "Your Burnout Assistant",
         "conversationInProgress": "Conversation in progress"
     },
+    "onboarding": {
+        "title": "How to use",
+        "step1": "Click the microphone button",
+        "step2": "Camera will turn on automatically",
+        "step3": "Wait 5 seconds for face analysis to start",
+        "step4": "Make sure only one face is visible",
+        "step5": "Say \"Hi, Who are you?\" to start",
+        "limitationsTitle": "Limitations",
+        "limitation1": "Agent might hallucinate",
+        "limitation2": "Not optimized for mobile/tablet — use a desktop browser",
+        "limitation3": "Responses may occasionally be inaccurate",
+        "limitation4": "The agent may go off-topic — you can guide it back",
+        "limitation5": "Some survey questions may be skipped",
+        "limitation6": "Detailed burnout report — Not implemented",
+        "limitation7": "Post-survey consultant — not yet available"
+    },
     "history": {
         "answerHistory": "Answer history",
         "noHistory": "No history yet."
