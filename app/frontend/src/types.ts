@@ -75,9 +75,16 @@ export type SentimentUpdate = {
     reason: string;
 };
 
+export type SurveyOption = {
+    value: number;
+    label: string;
+};
+
 export type SurveyUpdate = {
     type: "survey.update";
     question_id: string;
+    question_text?: string;
+    options?: SurveyOption[];
     score: number;
     completed: number;
     total: number;

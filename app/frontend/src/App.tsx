@@ -11,7 +11,7 @@ import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 
-import { SentimentUpdate, EmotionResult, SentimentHistoryItem, SurveyQuestion } from "./types";
+import { SentimentUpdate, EmotionResult, SentimentHistoryItem, SurveyQuestion, SurveyOption } from "./types";
 
 import logo from "./assets/logo.png";
 
@@ -25,6 +25,7 @@ function App() {
     const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
     const [surveyTotal, setSurveyTotal] = useState(0);
     const [surveyCompleted, setSurveyCompleted] = useState(0);
+    const [surveyOptions, setSurveyOptions] = useState<SurveyOption[]>([]);
     const [enableSentiment, setEnableSentiment] = useState(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [showOnboarding, setShowOnboarding] = useState(true);
@@ -56,9 +57,12 @@ function App() {
             setSentiment(message);
         },
         onReceivedSurveyUpdate: message => {
-            setSurveyQuestions(prev => [...prev, { id: message.question_id, text: message.question_id, score: message.score }]);
+            setSurveyQuestions(prev => [...prev, { id: message.question_id, text: message.question_text || message.question_id, score: message.score }]);
             setSurveyCompleted(message.completed);
             setSurveyTotal(message.total);
+            if (message.options) {
+                setSurveyOptions(message.options);
+            }
         }
     });
 
@@ -228,7 +232,7 @@ function App() {
                         )}
                         {surveyTotal > 0 && (
                             <div className="mb-6 w-full max-w-md rounded-lg bg-white p-4 shadow-md">
-                                <h3 className="mb-3 text-lg font-semibold text-gray-700">Burnout Assessment</h3>
+                                <h3 className="mb-3 text-lg font-semibold text-gray-700">Burnout Assessment - Demostration Purpose Only</h3>
                                 <div className="mb-2 flex justify-between text-sm text-gray-600">
                                     <span>
                                         Progress: {surveyCompleted} / {surveyTotal}
@@ -242,14 +246,30 @@ function App() {
                                     />
                                 </div>
                                 {surveyQuestions.length > 0 && (
-                                    <div className="mt-3 text-xs text-gray-500">
-                                        <span>Responses: </span>
-                                        {surveyQuestions.map(q => (
-                                            <span key={q.id} className="mr-2">
-                                                {q.id}:{q.score}
-                                            </span>
-                                        ))}
-                                    </div>
+                                    <>
+                                        <div className="mt-3 text-sm text-gray-700 italic">
+                                            <span className="font-medium">Current question: </span>
+                                            {surveyQuestions[surveyQuestions.length - 1].text}
+                                        </div>
+                                        {surveyOptions.length > 0 && (
+                                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
+                                                <span className="font-medium">Options:</span>
+                                                {surveyOptions.map(opt => (
+                                                    <span key={opt.value} className="rounded bg-gray-100 px-2 py-1">
+                                                        {opt.value}={opt.label}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="mt-2 text-xs text-gray-500">
+                                            <span>Responses: </span>
+                                            {surveyQuestions.map(q => (
+                                                <span key={q.id} className="mr-2">
+                                                    {q.id}:{q.score}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </>
                                 )}
                             </div>
                         )}

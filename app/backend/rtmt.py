@@ -187,6 +187,13 @@ class RTMiddleTier:
 
         self._survey_config = survey_config or {
             "name": "Burnout Assessment",
+            "options": [
+                {"value": 1, "label": "Never"},
+                {"value": 2, "label": "Rarely"},
+                {"value": 3, "label": "Sometimes"},
+                {"value": 4, "label": "Often"},
+                {"value": 5, "label": "Always"},
+            ],
             "questions": [
                 {
                     "id": "q1",
@@ -425,10 +432,25 @@ CRITICAL RULES:
                                     )
                                     completed = len(self._survey_results)
 
+                                    question_text = next(
+                                        (
+                                            q.get("prompt", q.get("text", ""))
+                                            for q in self._survey_config.get(
+                                                "questions", []
+                                            )
+                                            if q.get("id") == question_id
+                                        ),
+                                        "",
+                                    )
+                                    survey_options = self._survey_config.get(
+                                        "options", []
+                                    )
                                     await client_ws.send_json(
                                         {
                                             "type": "survey.update",
                                             "question_id": question_id,
+                                            "question_text": question_text,
+                                            "options": survey_options,
                                             "score": score,
                                             "completed": completed,
                                             "total": total_questions,
