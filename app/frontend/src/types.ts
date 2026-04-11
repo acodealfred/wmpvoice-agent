@@ -112,6 +112,35 @@ export type EmotionResult = {
     allEmotions?: { type: string; confidence: number }[];
 };
 
+export interface BiometricMetrics {
+    headPose: {
+        pitch: number;
+        roll: number;
+        yaw: number;
+    };
+    blinkRate: number;
+    blinkCount: number;
+    eyeOpenness: number;
+    mouthOpenness: number;
+    smileIntensity: number;
+    faceWidth: number;
+    faceHeight: number;
+    interocularDistance: number;
+    irisPosition: { x: number; y: number };
+}
+
+export type BiometricResult = {
+    metrics: BiometricMetrics;
+    timestamp: number;
+    faceDetected: boolean;
+    analysisDuration?: number;
+};
+
+export type FaceLandmarks = {
+    positions: { x: number; y: number }[];
+    confidence: number;
+};
+
 export type SentimentHistoryItem = {
     id: string;
     timestamp: number;

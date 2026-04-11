@@ -194,3 +194,5 @@ join the Azure AI Foundry Developer Community:
 
 # Extending the application for Voice sentiment 
 Branch : ciq-voice-demo-p1 (phase-1)
+Branch : biometric-integration-1 
+-This brahc is created to integrate biometrics for the APP.
