@@ -262,6 +262,12 @@ export function VideoPanel({ onEmotionDetected, onBiometricsDetected, isRecordin
                     Y: {currentBiometrics.metrics.irisPosition.y.toFixed(2)}
                   </span>
                 </div>
+                <div className="rounded bg-gray-700 p-2">
+                  <span className="block text-gray-400">Pupil Size</span>
+                  <span className="text-white">
+                    {formatMetric(currentBiometrics.metrics.pupilSize)}
+                  </span>
+                </div>
               </div>
             </div>
           )}

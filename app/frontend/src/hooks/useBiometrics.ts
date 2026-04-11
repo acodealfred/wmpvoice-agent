@@ -34,6 +34,41 @@ const getIrisPosition = (landmarks: { x: number; y: number }[]): { x: number; y:
   return { x: irisOffset, y: -verticalOffset };
 };
 
+const calculatePupilSize = (landmarks: { x: number; y: number }[]): number => {
+  const leftIrisLeft = landmarks[469];
+  const leftIrisRight = landmarks[471];
+  const leftIrisTop = landmarks[470];
+  const leftIrisBottom = landmarks[472];
+  
+  const rightIrisLeft = landmarks[474];
+  const rightIrisRight = landmarks[476];
+  const rightIrisTop = landmarks[475];
+  const rightIrisBottom = landmarks[477];
+  
+  const leftEyeLeft = landmarks[362];
+  const leftEyeRight = landmarks[263];
+  const rightEyeLeft = landmarks[133];
+  const rightEyeRight = landmarks[33];
+  
+  const leftEyeWidth = calculateDistance(leftEyeLeft, leftEyeRight);
+  const rightEyeWidth = calculateDistance(rightEyeLeft, rightEyeRight);
+  const avgEyeWidth = (leftEyeWidth + rightEyeWidth) / 2;
+  
+  const leftIrisHorizontal = calculateDistance(leftIrisLeft, leftIrisRight);
+  const leftIrisVertical = calculateDistance(leftIrisTop, leftIrisBottom);
+  const leftIrisDiameter = (leftIrisHorizontal + leftIrisVertical) / 2;
+  
+  const rightIrisHorizontal = calculateDistance(rightIrisLeft, rightIrisRight);
+  const rightIrisVertical = calculateDistance(rightIrisTop, rightIrisBottom);
+  const rightIrisDiameter = (rightIrisHorizontal + rightIrisVertical) / 2;
+  
+  const avgIrisDiameter = (leftIrisDiameter + rightIrisDiameter) / 2;
+  
+  const normalizedPupilSize = avgIrisDiameter / avgEyeWidth;
+  
+  return normalizedPupilSize;
+};
+
 const calculateNormalizedEyeOpenness = (landmarks: { x: number; y: number }[]): number => {
   const leftUpper = landmarks[159];
   const leftLower = landmarks[145];
@@ -185,6 +220,7 @@ export function useBiometrics({
       }
 
       const irisPosition = getIrisPosition(faceLandmarks);
+      const pupilSize = calculatePupilSize(faceLandmarks);
 
       return {
         headPose: { pitch, roll, yaw },
@@ -197,6 +233,7 @@ export function useBiometrics({
         faceHeight: interocularDistance * 4,
         interocularDistance,
         irisPosition,
+        pupilSize,
       };
     },
     []
@@ -244,6 +281,7 @@ export function useBiometrics({
           faceHeight: 0,
           interocularDistance: 0,
           irisPosition: { x: 0, y: 0 },
+          pupilSize: 0,
         },
         timestamp: currentTime,
         faceDetected: false,

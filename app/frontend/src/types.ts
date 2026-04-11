@@ -127,6 +127,7 @@ export interface BiometricMetrics {
     faceHeight: number;
     interocularDistance: number;
     irisPosition: { x: number; y: number };
+    pupilSize: number;
 }
 
 export type BiometricResult = {
