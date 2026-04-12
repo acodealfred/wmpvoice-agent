@@ -265,7 +265,14 @@ export function VideoPanel({ onEmotionDetected, onBiometricsDetected, isRecordin
                 <div className="rounded bg-gray-700 p-2">
                   <span className="block text-gray-400">Pupil Size</span>
                   <span className="text-white">
-                    {formatMetric(currentBiometrics.metrics.pupilSize)}
+                    {currentBiometrics.metrics.pupilSizeMm.toFixed(2)} mm
+                  </span>
+                </div>
+                <div className="rounded bg-gray-700 p-2">
+                  <span className="block text-gray-400">Pupil Change</span>
+                  <span className={`text-white ${currentBiometrics.metrics.pupilSizeChangePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {currentBiometrics.metrics.pupilSizeChangePercent >= 0 ? '+' : ''}
+                    {currentBiometrics.metrics.pupilSizeChangePercent.toFixed(1)}%
                   </span>
                 </div>
               </div>

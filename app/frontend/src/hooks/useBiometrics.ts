@@ -101,6 +101,8 @@ export function useBiometrics({
   const previousEARRef = useRef<number>(1);
   const intervalRef = useRef<number | null>(null);
   const logCounterRef = useRef<number>(0);
+  const baselinePupilSizeRef = useRef<number>(0);
+  const baselineSetRef = useRef<boolean>(false);
 
   const initializeModel = useCallback(async () => {
     try {
@@ -221,6 +223,19 @@ export function useBiometrics({
 
       const irisPosition = getIrisPosition(faceLandmarks);
       const pupilSize = calculatePupilSize(faceLandmarks);
+      
+      const AVERAGE_EYE_WIDTH_MM = 30;
+      const pupilSizeMm = pupilSize * AVERAGE_EYE_WIDTH_MM;
+      
+      if (!baselineSetRef.current && pupilSize > 0) {
+        baselinePupilSizeRef.current = pupilSize;
+        baselineSetRef.current = true;
+      }
+      
+      let pupilSizeChangePercent = 0;
+      if (baselinePupilSizeRef.current > 0 && pupilSize > 0) {
+        pupilSizeChangePercent = ((pupilSize - baselinePupilSizeRef.current) / baselinePupilSizeRef.current) * 100;
+      }
 
       return {
         headPose: { pitch, roll, yaw },
@@ -234,6 +249,8 @@ export function useBiometrics({
         interocularDistance,
         irisPosition,
         pupilSize,
+        pupilSizeMm,
+        pupilSizeChangePercent,
       };
     },
     []
@@ -282,6 +299,8 @@ export function useBiometrics({
           interocularDistance: 0,
           irisPosition: { x: 0, y: 0 },
           pupilSize: 0,
+          pupilSizeMm: 0,
+          pupilSizeChangePercent: 0,
         },
         timestamp: currentTime,
         faceDetected: false,
@@ -306,6 +325,8 @@ export function useBiometrics({
     totalBlinkCountRef.current = 0;
     analysisStartTimeRef.current = 0;
     logCounterRef.current = 0;
+    baselinePupilSizeRef.current = 0;
+    baselineSetRef.current = false;
   }, []);
 
   const setVideoElement = useCallback((video: HTMLVideoElement | null) => {
