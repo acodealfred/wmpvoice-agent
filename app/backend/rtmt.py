@@ -58,6 +58,19 @@ _tool_survey_schema = {
                 "type": "string",
                 "description": "The user's natural language response",
             },
+            "voice_sentiment": {
+                "type": "string",
+                "enum": ["positive", "neutral", "negative"],
+                "description": "Sentiment detected from user's voice",
+            },
+            "blink_rate_change_percent": {
+                "type": "number",
+                "description": "Percentage change in blink rate from baseline during this answer",
+            },
+            "face_emotion": {
+                "type": "string",
+                "description": "Dominant emotion detected from face (e.g., HAPPY, SAD, ANGRY, NEUTRAL)",
+            },
         },
         "required": ["question_id", "score"],
         "additionalProperties": False,
@@ -97,18 +110,72 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     question_id = args.get("question_id")
     score = args.get("score")
     user_response = args.get("user_verbal_response", "")
+    voice_sentiment = args.get("voice_sentiment") or self._current_sentiment
+    blink_rate_change_percent = (
+        args.get("blink_rate_change_percent")
+        if args.get("blink_rate_change_percent") is not None
+        else self._current_blink_rate_change
+    )
+    face_emotion = args.get("face_emotion") or self._current_face_emotion
 
     if not hasattr(self, "_survey_results"):
         self._survey_results = {}
 
-    self._survey_results[question_id] = {"score": score, "user_response": user_response}
+    self._survey_results[question_id] = {
+        "score": score,
+        "user_response": user_response,
+        "voice_sentiment": voice_sentiment,
+        "blink_rate_change_percent": blink_rate_change_percent,
+        "face_emotion": face_emotion,
+    }
 
-    logger.info(f"Survey response recorded: {question_id} = {score}")
+    domain = _get_question_domain(question_id)
+    total_score = sum(r["score"] for r in self._survey_results.values())
+    completed = len(self._survey_results)
+    total = len(self._survey_config.get("questions", []))
+
+    logger.info(
+        f"Survey response recorded: {question_id} = {score}, sentiment={voice_sentiment}, blink_change={blink_rate_change_percent}%, emotion={face_emotion}"
+    )
+
+    client_message = {
+        "type": "survey.biometric.update",
+        "snapshot": {
+            "questionId": question_id,
+            "domain": domain,
+            "score": score,
+            "voiceSentiment": voice_sentiment,
+            "blinkRateChange": blink_rate_change_percent,
+            "faceEmotion": face_emotion,
+        },
+        "totalScore": total_score,
+        "completed": completed,
+        "total": total,
+    }
 
     return ToolResult(
-        json.dumps({"question_id": question_id, "score": score, "recorded": True}),
+        json.dumps(
+            {
+                "question_id": question_id,
+                "score": score,
+                "recorded": True,
+                "client_message": client_message,
+            }
+        ),
         ToolResultDirection.TO_CLIENT,
     )
+
+
+def _get_question_domain(question_id: str) -> str:
+    """Get the domain name for a question ID."""
+    domain_map = {
+        "q1": "Emotional Exhaustion",
+        "q2": "Depersonalization",
+        "q3": "Personal Accomplishment",
+        "q4": "Physical Exhaustion",
+        "q5": "Job Satisfaction",
+    }
+    return domain_map.get(question_id, "Unknown")
 
 
 class Tool:
@@ -154,6 +221,9 @@ class RTMiddleTier:
     _survey_results: dict = {}
     _survey_config: dict = {}
     _stress_state: str = "normal"
+    _current_sentiment: str = "neutral"
+    _current_blink_rate_change: float = 0.0
+    _current_face_emotion: str = "NEUTRAL"
 
     def __init__(
         self,
@@ -303,12 +373,21 @@ After all 5 responses, calculate total score:
 - 13-22: {interp.get("moderate", "Moderate burnout risk")}
 - 23-25: {interp.get("high", "High burnout risk")}
 
+BIOMETRIC DATA:
+- The system automatically captures biometric data during the conversation
+- When calling record_survey_response, include available biometric data:
+  - voice_sentiment: current voice sentiment (positive/neutral/negative)
+  - blink_rate_change_percent: current blink rate change from baseline
+  - face_emotion: current face emotion (HAPPY, SAD, ANGRY, NEUTRAL, etc.)
+- If you don't have access to specific values, the system will use defaults
+
 CRITICAL RULES:
 1. Call record_survey_response tool AFTER each user answer with the inferred score (1-5)
-2. NEVER mention scores or the tool to the user
-3. After all 5 questions, share the interpretation based on total score
-4. If user goes off-topic during assessment, gently redirect back to the question
-5. End the conversation professionally after the survey is complete"""
+2. Include biometric parameters in the tool call when available
+3. NEVER mention scores or the tool to the user
+4. After all 5 questions, share the interpretation based on total score
+5. If user goes off-topic during assessment, gently redirect back to the question
+6. End the conversation professionally after the survey is complete"""
 
     async def _process_message_to_client(
         self,
@@ -500,8 +579,57 @@ CRITICAL RULES:
                                             "total": total_questions,
                                         }
                                     )
+
+                                    survey_result_data = self._survey_results.get(
+                                        question_id, {}
+                                    )
+                                    voice_sentiment = (
+                                        survey_result_data.get("voice_sentiment")
+                                        or self._current_sentiment
+                                        if survey_result_data
+                                        else self._current_sentiment
+                                    )
+                                    blink_change = (
+                                        survey_result_data.get(
+                                            "blink_rate_change_percent"
+                                        )
+                                        if survey_result_data
+                                        and survey_result_data.get(
+                                            "blink_rate_change_percent"
+                                        )
+                                        is not None
+                                        else self._current_blink_rate_change
+                                    )
+                                    face_emotion = (
+                                        survey_result_data.get("face_emotion")
+                                        or self._current_face_emotion
+                                        if survey_result_data
+                                        else self._current_face_emotion
+                                    )
+
+                                    await client_ws.send_json(
+                                        {
+                                            "type": "survey.biometric.update",
+                                            "snapshot": {
+                                                "questionId": question_id,
+                                                "domain": _get_question_domain(
+                                                    question_id
+                                                ),
+                                                "score": score,
+                                                "voiceSentiment": voice_sentiment,
+                                                "blinkRateChange": blink_change,
+                                                "faceEmotion": face_emotion,
+                                            },
+                                            "totalScore": sum(
+                                                r["score"]
+                                                for r in self._survey_results.values()
+                                            ),
+                                            "completed": completed,
+                                            "total": total_questions,
+                                        }
+                                    )
                                     logger.info(
-                                        f"Survey response: {question_id} = {score}"
+                                        f"Survey biometric update sent: {question_id}, sentiment={voice_sentiment}, blink_change={blink_change}, emotion={face_emotion}"
                                     )
                                 except json.JSONDecodeError as e:
                                     logger.error(f"Failed to parse survey result: {e}")

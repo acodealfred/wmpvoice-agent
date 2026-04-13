@@ -90,6 +90,23 @@ export type SurveyUpdate = {
     total: number;
 };
 
+export interface BiometricSnapshot {
+    questionId: string;
+    domain: string;
+    score: number;
+    voiceSentiment: "positive" | "neutral" | "negative";
+    blinkRateChange: number;
+    faceEmotion: string;
+}
+
+export type SurveyBiometricUpdate = {
+    type: "survey.biometric.update";
+    snapshot: BiometricSnapshot;
+    totalScore: number;
+    completed: number;
+    total: number;
+};
+
 export type SurveyQuestion = {
     id: string;
     text: string;

@@ -118,6 +118,28 @@ async def update_stress_state(request, rtmt: RTMiddleTier):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def update_biometrics(request, rtmt: RTMiddleTier):
+    """Update current biometric data for survey response capture"""
+    try:
+        data = await request.json()
+        sentiment = data.get("sentiment", "neutral")
+        blink_rate_change = data.get("blink_rate_change_percent", 0.0)
+        face_emotion = data.get("face_emotion", "NEUTRAL")
+
+        rtmt._current_sentiment = sentiment
+        rtmt._current_blink_rate_change = blink_rate_change
+        rtmt._current_face_emotion = face_emotion
+
+        logger.info(
+            f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, emotion={face_emotion}"
+        )
+
+        return web.json_response({"success": True})
+    except Exception as e:
+        logger.error(f"Error updating biometrics: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def create_app():
     if not os.environ.get("RUNNING_IN_PRODUCTION"):
         logger.info("Running in development mode, loading from .env file")
@@ -147,6 +169,7 @@ async def create_app():
     app.router.add_post(
         "/stress-state", lambda request: update_stress_state(request, rtmt)
     )
+    app.router.add_post("/biometrics", lambda request: update_biometrics(request, rtmt))
 
     rtmt = RTMiddleTier(
         credentials=llm_credential,

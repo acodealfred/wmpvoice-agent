@@ -11,7 +11,8 @@ import {
     ExtensionMiddleTierToolResponse,
     ResponseInputAudioTranscriptionCompleted,
     SentimentUpdate,
-    SurveyUpdate
+    SurveyUpdate,
+    SurveyBiometricUpdate
 } from "@/types";
 
 type Parameters = {
@@ -34,6 +35,7 @@ type Parameters = {
     onReceivedInputAudioTranscriptionCompleted?: (message: ResponseInputAudioTranscriptionCompleted) => void;
     onReceivedSentimentUpdate?: (message: SentimentUpdate) => void;
     onReceivedSurveyUpdate?: (message: SurveyUpdate) => void;
+    onReceivedSurveyBiometricUpdate?: (message: SurveyBiometricUpdate) => void;
     onReceivedError?: (message: Message) => void;
 };
 
@@ -55,6 +57,7 @@ export default function useRealTime({
     onReceivedInputAudioTranscriptionCompleted,
     onReceivedSentimentUpdate,
     onReceivedSurveyUpdate,
+    onReceivedSurveyBiometricUpdate,
     onReceivedError
 }: Parameters) {
     const wsEndpoint = useDirectAoaiApi
@@ -143,6 +146,9 @@ export default function useRealTime({
                 break;
             case "survey.update":
                 onReceivedSurveyUpdate?.(message as SurveyUpdate);
+                break;
+            case "survey.biometric.update":
+                onReceivedSurveyBiometricUpdate?.(message as SurveyBiometricUpdate);
                 break;
             case "error":
                 onReceivedError?.(message);

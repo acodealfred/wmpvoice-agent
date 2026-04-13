@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Mic, MicOff, Smile, Meh, Frown, ClipboardList } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import StatusMessage from "@/components/ui/status-message";
 import { VideoPanel } from "@/components/ui/video-panel";
 import { SentimentHistoryPanel } from "@/components/ui/sentiment-history-panel";
+import { DetailedReport } from "@/components/ui/detailed-report";
 
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 
-import { SentimentUpdate, EmotionResult, SentimentHistoryItem, SurveyQuestion, SurveyOption } from "./types";
+import { SentimentUpdate, EmotionResult, SentimentHistoryItem, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult } from "./types";
 
 import logo from "./assets/logo.png";
 
@@ -26,6 +27,8 @@ function App() {
     const [surveyTotal, setSurveyTotal] = useState(0);
     const [surveyCompleted, setSurveyCompleted] = useState(0);
     const [surveyOptions, setSurveyOptions] = useState<SurveyOption[]>([]);
+    const [biometricSnapshots, setBiometricSnapshots] = useState<BiometricSnapshot[]>([]);
+    const [showDetailedReport, setShowDetailedReport] = useState(false);
     const [enableSentiment, setEnableSentiment] = useState(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [showOnboarding, setShowOnboarding] = useState(true);
@@ -63,8 +66,42 @@ function App() {
             if (message.options) {
                 setSurveyOptions(message.options);
             }
+        },
+        onReceivedSurveyBiometricUpdate: message => {
+            console.log("[App] Received survey biometric update:", message);
+            setBiometricSnapshots(prev => {
+                console.log("[App] Previous snapshots:", prev);
+                const updated = [...prev, message.snapshot];
+                console.log("[App] Updated snapshots:", updated);
+                return updated;
+            });
+            setSurveyCompleted(message.completed);
+            setSurveyTotal(message.total);
+            if (message.completed === message.total) {
+                console.log("[App] Survey completed, showing report in 2s");
+                setTimeout(() => {
+                    console.log("[App] Setting showDetailedReport to true");
+                    setShowDetailedReport(true);
+                }, 2000);
+            }
         }
     });
+
+    const handleBiometricsUpdate = useCallback(async (biometrics: BiometricResult) => {
+        try {
+            await fetch("/biometrics", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    sentiment: sentiment?.sentiment || "neutral",
+                    blink_rate_change_percent: biometrics.metrics.blinkRateChangePercent || 0,
+                    face_emotion: lastEmotion?.emotion || "NEUTRAL"
+                })
+            });
+        } catch (err) {
+            console.error("Failed to update biometrics:", err);
+        }
+    }, [sentiment, lastEmotion]);
 
     const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
@@ -134,7 +171,13 @@ function App() {
             <main className="flex flex-grow flex-col items-center justify-center p-4">
                 <div className="flex w-full max-w-6xl flex-wrap items-start justify-center gap-8">
                     <div className="flex-shrink-0">
-                        <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} enableBiometrics={true} onStressStateChanged={() => {}} />
+                        <VideoPanel 
+                            isRecording={isRecording} 
+                            onEmotionDetected={handleEmotionDetected} 
+                            enableBiometrics={true} 
+                            onStressStateChanged={() => {}}
+                            onBiometricsDetected={handleBiometricsUpdate}
+                        />
                     </div>
                     <div className="flex flex-grow flex-col items-center justify-center">
                         <h1 className="mb-8 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-4xl font-bold text-transparent md:text-7xl">
@@ -273,6 +316,17 @@ function App() {
                                 )}
                             </div>
                         )}
+                        
+                        {showDetailedReport && biometricSnapshots.length > 0 && (
+                            <div className="mb-6 flex justify-center">
+                                <DetailedReport 
+                                    snapshots={biometricSnapshots} 
+                                    totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
+                                    onClose={() => setShowDetailedReport(false)}
+                                />
+                            </div>
+                        )}
+                        
                         <SentimentHistoryPanel history={sentimentHistory} timeFrameSeconds={TIME_FRAME_SECONDS} />
                     </div>
                 </div>
