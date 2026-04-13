@@ -19,7 +19,10 @@ interface BaselineData {
 }
 
 const BASELINE_FILE_KEY = "voicerag_biometric_baseline";
-const DEFAULT_BASELINE_DURATION = 10;
+const DEFAULT_BASELINE_DURATION = 30;
+const BLINK_WINDOW_MS = 30000;
+const BLINK_UPDATE_INTERVAL_MS = 5000;
+const EMA_ALPHA = 0.3;
 
 const calculateDistance = (
   p1: { x: number; y: number },
@@ -161,6 +164,10 @@ export function useBiometrics({
   const baselineBlinkRateSamplesRef = useRef<number[]>([]);
   const baselineStartTimeRef = useRef<number>(0);
   const baselineTimerRef = useRef<number | null>(null);
+  const smoothedBlinkRateRef = useRef<number>(0);
+  const baselineRateRef = useRef<number>(0);
+  const lastBlinkRateUpdateRef = useRef<number>(0);
+  const currentSmoothedBlinkRateRef = useRef<number>(0);
 
   const initializeModel = useCallback(async () => {
     try {
@@ -241,9 +248,11 @@ export function useBiometrics({
         timestamp: Date.now(),
       };
       
+      baselineRateRef.current = avgBlinkRate;
+      smoothedBlinkRateRef.current = avgBlinkRate;
+      currentSmoothedBlinkRateRef.current = avgBlinkRate;
       setBaselineData(newBaseline);
       saveBaselineToFile(newBaseline);
-      console.log('[Biometrics] Baseline session completed. Avg Pupil:', avgPupilSize.toFixed(2), 'mm, Avg Blink Rate:', avgBlinkRate.toFixed(1), 'blinks/min');
     }
     
     setBaselineSessionStatus('completed');
@@ -303,19 +312,13 @@ export function useBiometrics({
           ? currentTime - blinkTimestampsRef.current[blinkTimestampsRef.current.length - 1]
           : 0;
         
-        console.log('[Biometrics] Eye closed - checking debounce. lastBlink:', lastBlink);
-        
         if (lastBlink === 0 || lastBlink > 250) {
           blinkTimestampsRef.current.push(currentTime);
           totalBlinkCountRef.current++;
           
-          while (blinkTimestampsRef.current.length > 0 && currentTime - blinkTimestampsRef.current[0] > 60000) {
+          while (blinkTimestampsRef.current.length > 0 && currentTime - blinkTimestampsRef.current[0] > BLINK_WINDOW_MS) {
             blinkTimestampsRef.current.shift();
           }
-          
-          console.log('[Biometrics] BLINK RECORDED! EyeOpenness:', leftEAR.toFixed(3), '| TotalBlinks:', totalBlinkCountRef.current);
-        } else {
-          console.log('[Biometrics] Blink debounced (too soon):', lastBlink, 'ms');
         }
       } else if (!isClosed && isBlinkingRef.current) {
         isBlinkingRef.current = false;
@@ -323,13 +326,22 @@ export function useBiometrics({
       
       previousEARRef.current = leftEAR;
 
-      const oneMinuteAgo = currentTime - 60000;
-      const recentBlinks = blinkTimestampsRef.current.filter(t => t > oneMinuteAgo).length;
-      const blinkRate = recentBlinks;
-
-      if (shouldLog) {
-        console.log('[Biometrics] BlinkRate:', blinkRate, 'blinks/min | RecentBlinks:', recentBlinks, '| EyeOpenness:', leftEAR.toFixed(3));
+      const thirtySecondsAgo = currentTime - BLINK_WINDOW_MS;
+      const blinksInWindow = blinkTimestampsRef.current.filter(t => t > thirtySecondsAgo).length;
+      const rawBlinkRate = blinksInWindow * 2;
+      
+      if (currentTime - lastBlinkRateUpdateRef.current >= BLINK_UPDATE_INTERVAL_MS) {
+        lastBlinkRateUpdateRef.current = currentTime;
+        
+        if (smoothedBlinkRateRef.current === 0) {
+          smoothedBlinkRateRef.current = rawBlinkRate;
+        } else {
+          smoothedBlinkRateRef.current = EMA_ALPHA * rawBlinkRate + (1 - EMA_ALPHA) * smoothedBlinkRateRef.current;
+        }
+        currentSmoothedBlinkRateRef.current = smoothedBlinkRateRef.current;
       }
+      
+      const blinkRate = currentSmoothedBlinkRateRef.current;
 
       if (baselineSessionStatus === 'collecting') {
         let interocularDistance = 0;
@@ -387,8 +399,9 @@ export function useBiometrics({
       }
       
       let blinkRateChangePercent = 0;
-      if (baselineData && baselineData.blinkRate > 0 && blinkRate > 0) {
-        blinkRateChangePercent = ((blinkRate - baselineData.blinkRate) / baselineData.blinkRate) * 100;
+      const baselineRateForChange = baselineRateRef.current > 0 ? baselineRateRef.current : baselineData?.blinkRate || 0;
+      if (baselineRateForChange > 0 && blinkRate > 0) {
+        blinkRateChangePercent = ((blinkRate - baselineRateForChange) / baselineRateForChange) * 100;
       }
 
       return {
@@ -406,6 +419,8 @@ export function useBiometrics({
         pupilSizeMm,
         pupilSizeChangePercent,
         blinkRateChangePercent,
+        smoothedBlinkRate: blinkRate,
+        baselineRateForChange,
       };
     },
     [baselineData, baselineSessionStatus]
@@ -457,6 +472,8 @@ export function useBiometrics({
           pupilSizeMm: 0,
           pupilSizeChangePercent: 0,
           blinkRateChangePercent: 0,
+          smoothedBlinkRate: 0,
+          baselineRateForChange: baselineRateRef.current,
         },
         timestamp: currentTime,
         faceDetected: false,

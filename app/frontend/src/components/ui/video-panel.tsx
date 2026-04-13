@@ -19,7 +19,7 @@ interface VideoPanelProps {
 const ANALYSIS_DELAY_MS = 5000;
 
 const DEFAULT_BIOMETRICS_ENABLED = false;
-const DEFAULT_BASELINE_DURATION = 10;
+const DEFAULT_BASELINE_DURATION = 30;
 
 const emotionIcons: Record<string, string> = {
   HAPPY: "😊",
