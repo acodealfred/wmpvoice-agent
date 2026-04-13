@@ -130,6 +130,7 @@ export interface BiometricMetrics {
     pupilSize: number;
     pupilSizeMm: number;
     pupilSizeChangePercent: number;
+    blinkRateChangePercent: number;
 }
 
 export type BiometricResult = {

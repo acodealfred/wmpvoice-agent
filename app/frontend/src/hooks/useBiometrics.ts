@@ -9,7 +9,17 @@ import { BiometricResult, BiometricMetrics } from "@/types";
 interface UseBiometricsProps {
   onBiometricsDetected?: (biometrics: BiometricResult) => void;
   analyzeInterval?: number;
+  baselineDuration?: number;
 }
+
+interface BaselineData {
+  pupilSize: number;
+  blinkRate: number;
+  timestamp: number;
+}
+
+const BASELINE_FILE_KEY = "voicerag_biometric_baseline";
+const DEFAULT_BASELINE_DURATION = 10;
 
 const calculateDistance = (
   p1: { x: number; y: number },
@@ -101,13 +111,41 @@ const calculateNormalizedEyeOpenness = (landmarks: { x: number; y: number }[]): 
   return avgOpen / eyeWidth;
 };
 
+const saveBaselineToFile = (data: BaselineData): void => {
+  try {
+    const jsonStr = JSON.stringify(data);
+    localStorage.setItem(BASELINE_FILE_KEY, jsonStr);
+    console.log('[Biometrics] Baseline saved to storage:', data);
+  } catch (error) {
+    console.error('[Biometrics] Error saving baseline:', error);
+  }
+};
+
+const loadBaselineFromFile = (): BaselineData | null => {
+  try {
+    const jsonStr = localStorage.getItem(BASELINE_FILE_KEY);
+    if (jsonStr) {
+      const data = JSON.parse(jsonStr) as BaselineData;
+      console.log('[Biometrics] Baseline loaded from storage:', data);
+      return data;
+    }
+  } catch (error) {
+    console.error('[Biometrics] Error loading baseline:', error);
+  }
+  return null;
+};
+
 export function useBiometrics({
   onBiometricsDetected,
-  analyzeInterval = 33, // ~30 FPS for better blink detection
+  analyzeInterval = 33,
+  baselineDuration = DEFAULT_BASELINE_DURATION,
 }: UseBiometricsProps = {}) {
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [currentBiometrics, setCurrentBiometrics] = useState<BiometricResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [baselineSessionStatus, setBaselineSessionStatus] = useState<'idle' | 'collecting' | 'completed'>('idle');
+  const [baselineData, setBaselineData] = useState<BaselineData | null>(null);
+  const [baselineProgress, setBaselineProgress] = useState(0);
 
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -119,8 +157,10 @@ export function useBiometrics({
   const previousEARRef = useRef<number>(1);
   const intervalRef = useRef<number | null>(null);
   const logCounterRef = useRef<number>(0);
-  const baselinePupilSizeRef = useRef<number>(0);
-  const baselineSetRef = useRef<boolean>(false);
+  const baselinePupilSizeSamplesRef = useRef<number[]>([]);
+  const baselineBlinkRateSamplesRef = useRef<number[]>([]);
+  const baselineStartTimeRef = useRef<number>(0);
+  const baselineTimerRef = useRef<number | null>(null);
 
   const initializeModel = useCallback(async () => {
     try {
@@ -145,6 +185,90 @@ export function useBiometrics({
     } catch (error) {
       console.error("Error initializing face landmarker:", error);
     }
+  }, []);
+
+  const startBaselineSession = useCallback(() => {
+    if (baselineSessionStatus === 'collecting') return;
+    
+    console.log('[Biometrics] Starting baseline session with duration:', baselineDuration, 'seconds');
+    
+    baselinePupilSizeSamplesRef.current = [];
+    baselineBlinkRateSamplesRef.current = [];
+    setBaselineProgress(0);
+    setBaselineSessionStatus('collecting');
+    baselineStartTimeRef.current = Date.now();
+    
+    if (!isAnalyzing) {
+      setIsAnalyzing(true);
+    }
+    
+    const durationMs = baselineDuration * 1000;
+    let elapsed = 0;
+    
+    baselineTimerRef.current = window.setInterval(() => {
+      elapsed += 100;
+      const progress = Math.min((elapsed / durationMs) * 100, 100);
+      setBaselineProgress(progress);
+      
+      if (elapsed >= durationMs) {
+        completeBaselineSession();
+      }
+    }, 100);
+  }, [baselineDuration, baselineSessionStatus, isAnalyzing]);
+
+  const completeBaselineSession = useCallback(() => {
+    if (baselineTimerRef.current) {
+      clearInterval(baselineTimerRef.current);
+      baselineTimerRef.current = null;
+    }
+    
+    const pupilSamples = baselinePupilSizeSamplesRef.current;
+    const blinkSamples = baselineBlinkRateSamplesRef.current;
+    
+    const avgPupilSize = pupilSamples.length > 0 
+      ? pupilSamples.reduce((a, b) => a + b, 0) / pupilSamples.length 
+      : 0;
+    
+    const avgBlinkRate = blinkSamples.length > 0 
+      ? blinkSamples.reduce((a, b) => a + b, 0) / blinkSamples.length 
+      : 0;
+    
+    if (avgPupilSize > 0 && avgBlinkRate >= 0) {
+      const newBaseline: BaselineData = {
+        pupilSize: avgPupilSize,
+        blinkRate: avgBlinkRate,
+        timestamp: Date.now(),
+      };
+      
+      setBaselineData(newBaseline);
+      saveBaselineToFile(newBaseline);
+      console.log('[Biometrics] Baseline session completed. Avg Pupil:', avgPupilSize.toFixed(2), 'mm, Avg Blink Rate:', avgBlinkRate.toFixed(1), 'blinks/min');
+    }
+    
+    setBaselineSessionStatus('completed');
+    setBaselineProgress(100);
+  }, []);
+
+  const loadSavedBaseline = useCallback(() => {
+    const saved = loadBaselineFromFile();
+    if (saved) {
+      setBaselineData(saved);
+      setBaselineSessionStatus('completed');
+      console.log('[Biometrics] Loaded saved baseline');
+    }
+  }, []);
+
+  const clearBaseline = useCallback(() => {
+    try {
+      localStorage.removeItem(BASELINE_FILE_KEY);
+    } catch (error) {
+      console.error('[Biometrics] Error clearing baseline:', error);
+    }
+    setBaselineData(null);
+    setBaselineSessionStatus('idle');
+    setBaselineProgress(0);
+    baselinePupilSizeSamplesRef.current = [];
+    baselineBlinkRateSamplesRef.current = [];
   }, []);
 
   const extractMetrics = useCallback(
@@ -215,6 +339,27 @@ export function useBiometrics({
         console.log('[Biometrics] BlinkRate:', blinkRate, 'blinks/min | RecentBlinks:', recentBlinks, '| EyeOpenness:', leftEAR.toFixed(3));
       }
 
+      if (baselineSessionStatus === 'collecting') {
+        let interocularDistance = 0;
+        if (faceLandmarks.length > 0) {
+          const leftEyeLeft = faceLandmarks[362];
+          const rightEyeRight = faceLandmarks[263];
+          interocularDistance = calculateDistance(
+            { x: leftEyeLeft.x, y: leftEyeLeft.y },
+            { x: rightEyeRight.x, y: rightEyeRight.y }
+          );
+        }
+        
+        const normalizedIrisSize = calculateIrisSize(faceLandmarks);
+        const pupilSize = calculatePupilSize(normalizedIrisSize, interocularDistance);
+        
+        if (pupilSize > 0) {
+          baselinePupilSizeSamplesRef.current.push(pupilSize);
+        }
+        
+        baselineBlinkRateSamplesRef.current.push(blinkRate);
+      }
+
       const blendshapes = result.faceBlendshapes?.[0]?.categories || [];
       const getBlendshapeValue = (name: string): number => {
         const shape = blendshapes.find((b) => b.categoryName === name);
@@ -244,14 +389,14 @@ export function useBiometrics({
       const pupilSize = calculatePupilSize(normalizedIrisSize, interocularDistance);
       const pupilSizeMm = pupilSize;
       
-      if (!baselineSetRef.current && pupilSize > 0) {
-        baselinePupilSizeRef.current = pupilSize;
-        baselineSetRef.current = true;
+      let pupilSizeChangePercent = 0;
+      if (baselineData && baselineData.pupilSize > 0 && pupilSize > 0) {
+        pupilSizeChangePercent = ((pupilSize - baselineData.pupilSize) / baselineData.pupilSize) * 100;
       }
       
-      let pupilSizeChangePercent = 0;
-      if (baselinePupilSizeRef.current > 0 && pupilSize > 0) {
-        pupilSizeChangePercent = ((pupilSize - baselinePupilSizeRef.current) / baselinePupilSizeRef.current) * 100;
+      let blinkRateChangePercent = 0;
+      if (baselineData && baselineData.blinkRate > 0 && blinkRate > 0) {
+        blinkRateChangePercent = ((blinkRate - baselineData.blinkRate) / baselineData.blinkRate) * 100;
       }
 
       return {
@@ -268,9 +413,10 @@ export function useBiometrics({
         pupilSize: normalizedIrisSize,
         pupilSizeMm,
         pupilSizeChangePercent,
+        blinkRateChangePercent,
       };
     },
-    []
+    [baselineData, baselineSessionStatus]
   );
 
   const analyzeFrame = useCallback(() => {
@@ -318,6 +464,7 @@ export function useBiometrics({
           pupilSize: 0,
           pupilSizeMm: 0,
           pupilSizeChangePercent: 0,
+          blinkRateChangePercent: 0,
         },
         timestamp: currentTime,
         faceDetected: false,
@@ -336,14 +483,16 @@ export function useBiometrics({
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    if (baselineTimerRef.current) {
+      clearInterval(baselineTimerRef.current);
+      baselineTimerRef.current = null;
+    }
     blinkTimestampsRef.current = [];
     isBlinkingRef.current = false;
     previousEARRef.current = 1;
     totalBlinkCountRef.current = 0;
     analysisStartTimeRef.current = 0;
     logCounterRef.current = 0;
-    baselinePupilSizeRef.current = 0;
-    baselineSetRef.current = false;
   }, []);
 
   const setVideoElement = useCallback((video: HTMLVideoElement | null) => {
@@ -352,16 +501,20 @@ export function useBiometrics({
 
   useEffect(() => {
     initializeModel();
+    loadSavedBaseline();
 
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
+      if (baselineTimerRef.current) {
+        clearInterval(baselineTimerRef.current);
+      }
       if (faceLandmarkerRef.current) {
         faceLandmarkerRef.current.close();
       }
     };
-  }, [initializeModel]);
+  }, [initializeModel, loadSavedBaseline]);
 
   useEffect(() => {
     if (isAnalyzing && isModelLoaded) {
@@ -382,5 +535,10 @@ export function useBiometrics({
     setVideoElement,
     startAnalysis,
     stopAnalysis,
+    baselineSessionStatus,
+    baselineData,
+    baselineProgress,
+    startBaselineSession,
+    clearBaseline,
   };
 }

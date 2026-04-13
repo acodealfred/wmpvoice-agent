@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Video, VideoOff, Loader2, AlertTriangle } from "lucide-react";
+import { Video, VideoOff, Loader2, AlertTriangle, Play, RotateCcw } from "lucide-react";
 import { useVideoCapture, EmotionResult } from "@/hooks/useVideoCapture";
 import { useBiometrics } from "@/hooks/useBiometrics";
 import { BiometricResult } from "@/types";
@@ -10,12 +10,14 @@ interface VideoPanelProps {
   onBiometricsDetected?: (biometrics: BiometricResult) => void;
   isRecording?: boolean;
   enableBiometrics?: boolean;
+  baselineDuration?: number;
+  onBaselineComplete?: () => void;
 }
 
 const ANALYSIS_DELAY_MS = 5000;
 
-// Set to false to disable face biometrics analysis - can be overridden via enableBiometrics prop
 const DEFAULT_BIOMETRICS_ENABLED = false;
+const DEFAULT_BASELINE_DURATION = 10;
 
 const emotionIcons: Record<string, string> = {
   HAPPY: "😊",
@@ -28,9 +30,17 @@ const emotionIcons: Record<string, string> = {
   MULTIPLE_FACES_DETECTED: "👥"
 };
 
-export function VideoPanel({ onEmotionDetected, onBiometricsDetected, isRecording = false, enableBiometrics = DEFAULT_BIOMETRICS_ENABLED }: VideoPanelProps) {
+export function VideoPanel({ 
+  onEmotionDetected, 
+  onBiometricsDetected, 
+  isRecording = false, 
+  enableBiometrics = DEFAULT_BIOMETRICS_ENABLED,
+  baselineDuration = DEFAULT_BASELINE_DURATION,
+  onBaselineComplete,
+}: VideoPanelProps) {
   const [analysisReady, setAnalysisReady] = useState(false);
   const [multipleFacesWarning, setMultipleFacesWarning] = useState(false);
+  const [showBaselinePrompt, setShowBaselinePrompt] = useState(false);
   
   const {
     videoRef,
@@ -50,8 +60,16 @@ export function VideoPanel({ onEmotionDetected, onBiometricsDetected, isRecordin
     isAnalyzing: isBiometricsAnalyzing,
     setVideoElement,
     startAnalysis: startBiometricsAnalysis,
-    stopAnalysis: stopBiometricsAnalysis
-  } = useBiometrics({ onBiometricsDetected });
+    stopAnalysis: stopBiometricsAnalysis,
+    baselineSessionStatus,
+    baselineData,
+    baselineProgress,
+    startBaselineSession,
+    clearBaseline,
+  } = useBiometrics({ 
+    onBiometricsDetected,
+    baselineDuration,
+  });
 
   useEffect(() => {
     if (videoRef.current) {
@@ -85,6 +103,34 @@ export function VideoPanel({ onEmotionDetected, onBiometricsDetected, isRecordin
       setMultipleFacesWarning(currentEmotion.emotion === "multiple_faces_detected");
     }
   }, [currentEmotion]);
+
+  useEffect(() => {
+    if (enableBiometrics && isStreaming && baselineSessionStatus === 'idle') {
+      setShowBaselinePrompt(true);
+    }
+  }, [enableBiometrics, isStreaming, baselineSessionStatus]);
+
+  useEffect(() => {
+    if (baselineSessionStatus === 'completed') {
+      setShowBaselinePrompt(false);
+      onBaselineComplete?.();
+    }
+  }, [baselineSessionStatus, onBaselineComplete]);
+
+  const handleStartBaselineSession = async () => {
+    await startVideo();
+    startBaselineSession();
+    startBiometricsAnalysis();
+  };
+
+  const handleProceedWithoutBaseline = () => {
+    setShowBaselinePrompt(false);
+  };
+
+  const handleRerecordBaseline = () => {
+    clearBaseline();
+    setShowBaselinePrompt(true);
+  };
 
   const getEmotionEmoji = (emotion: string) => {
     return emotionIcons[emotion.toUpperCase()] || "😐";
@@ -135,6 +181,69 @@ export function VideoPanel({ onEmotionDetected, onBiometricsDetected, isRecordin
           </Button>
         )}
       </div>
+
+      {showBaselinePrompt && (
+        <div className="mb-4 w-full rounded-lg bg-blue-900/50 p-4 border border-blue-700">
+          <h3 className="text-lg font-semibold text-white mb-2">Baseline Measurement Required</h3>
+          <p className="text-sm text-gray-300 mb-4">
+            To measure biometric changes during conversation, we need to record a baseline measurement first.
+            Please look at the camera for {baselineDuration} seconds while we record your baseline pupil size and blink rate.
+          </p>
+          
+          {baselineSessionStatus === 'collecting' ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-center">
+                <Loader2 className="mr-2 h-6 w-6 animate-spin text-blue-400" />
+                <span className="text-blue-300">Recording baseline...</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div 
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-100"
+                  style={{ width: `${baselineProgress}%` }}
+                />
+              </div>
+              <p className="text-center text-sm text-gray-400">
+                {Math.round(baselineProgress / 100 * baselineDuration)} / {baselineDuration} seconds
+              </p>
+            </div>
+          ) : baselineSessionStatus === 'completed' && baselineData ? (
+            <div className="space-y-3">
+              <div className="p-3 bg-green-900/30 rounded-lg border border-green-700">
+                <p className="text-green-300 font-medium">Baseline Recorded!</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-400">Pupil Size:</span>
+                    <span className="ml-2 text-white">{baselineData.pupilSize.toFixed(2)} mm</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Blink Rate:</span>
+                    <span className="ml-2 text-white">{baselineData.blinkRate.toFixed(1)} blinks/min</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="flex-1">
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Rerecord
+                </Button>
+                <Button onClick={handleProceedWithoutBaseline} size="sm" className="flex-1">
+                  Proceed
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button onClick={handleStartBaselineSession} size="sm" className="flex-1">
+                <Play className="mr-2 h-4 w-4" />
+                Start Baseline ({baselineDuration}s)
+              </Button>
+              <Button onClick={handleProceedWithoutBaseline} size="sm" variant="outline">
+                Skip
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {isStreaming && (
         <div className="w-full rounded-lg bg-gray-800 p-4 space-y-4">
@@ -273,6 +382,13 @@ export function VideoPanel({ onEmotionDetected, onBiometricsDetected, isRecordin
                   <span className={`text-white ${currentBiometrics.metrics.pupilSizeChangePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {currentBiometrics.metrics.pupilSizeChangePercent >= 0 ? '+' : ''}
                     {currentBiometrics.metrics.pupilSizeChangePercent.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="rounded bg-gray-700 p-2">
+                  <span className="block text-gray-400">Blink Rate Change</span>
+                  <span className={`text-white ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? '+' : ''}
+                    {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
                   </span>
                 </div>
               </div>
