@@ -31,6 +31,7 @@ function App() {
     const [showDetailedReport, setShowDetailedReport] = useState(false);
     const [enableSentiment, setEnableSentiment] = useState(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
+    const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [showOnboarding, setShowOnboarding] = useState(true);
     const [initialGreeting, setInitialGreeting] = useState<string | null>(null);
     const frameCounterRef = useRef(0);
@@ -78,7 +79,8 @@ function App() {
             setSurveyCompleted(message.completed);
             setSurveyTotal(message.total);
             if (message.completed === message.total) {
-                console.log("[App] Survey completed, showing report in 2s");
+                console.log("[App] Survey completed, stopping biometric analysis");
+                setEnableBiometrics(false);
                 setTimeout(() => {
                     console.log("[App] Setting showDetailedReport to true");
                     setShowDetailedReport(true);
@@ -88,6 +90,7 @@ function App() {
     });
 
     const handleBiometricsUpdate = useCallback(async (biometrics: BiometricResult) => {
+        if (!enableBiometrics) return;
         try {
             await fetch("/biometrics", {
                 method: "POST",
@@ -101,7 +104,19 @@ function App() {
         } catch (err) {
             console.error("Failed to update biometrics:", err);
         }
-    }, [sentiment, lastEmotion]);
+    }, [sentiment, lastEmotion, enableBiometrics]);
+
+    const handleStopBiometricsAnalysis = useCallback(async () => {
+        if (!enableBiometrics) return;
+        try {
+            await fetch("/clear-stress", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" }
+            });
+        } catch (err) {
+            console.error("Failed to clear stress state:", err);
+        }
+    }, [enableBiometrics]);
 
     const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
@@ -174,9 +189,10 @@ function App() {
                         <VideoPanel 
                             isRecording={isRecording} 
                             onEmotionDetected={handleEmotionDetected} 
-                            enableBiometrics={true} 
+                            enableBiometrics={enableBiometrics} 
                             onStressStateChanged={() => {}}
                             onBiometricsDetected={handleBiometricsUpdate}
+                            onStopAnalysis={handleStopBiometricsAnalysis}
                         />
                     </div>
                     <div className="flex flex-grow flex-col items-center justify-center">

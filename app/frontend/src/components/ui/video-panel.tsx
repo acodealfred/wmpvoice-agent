@@ -9,6 +9,7 @@ interface VideoPanelProps {
   onEmotionDetected?: (emotion: EmotionResult) => void;
   onBiometricsDetected?: (biometrics: BiometricResult) => void;
   onStressStateChanged?: (state: string) => void;
+  onStopAnalysis?: () => void;
   isRecording?: boolean;
   enableBiometrics?: boolean;
   baselineDuration?: number;
@@ -35,6 +36,7 @@ export function VideoPanel({
   onEmotionDetected, 
   onBiometricsDetected, 
   onStressStateChanged,
+  onStopAnalysis,
   isRecording = false, 
   enableBiometrics = DEFAULT_BIOMETRICS_ENABLED,
   baselineDuration = DEFAULT_BASELINE_DURATION,
@@ -157,6 +159,9 @@ export function VideoPanel({
       if (stressIntervalRef.current) {
         clearInterval(stressIntervalRef.current);
         stressIntervalRef.current = null;
+      }
+      if (onStopAnalysis) {
+        onStopAnalysis();
       }
       return;
     }

@@ -118,6 +118,17 @@ async def update_stress_state(request, rtmt: RTMiddleTier):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def clear_stress_state(request, rtmt: RTMiddleTier):
+    """Clear the stress state after survey completion"""
+    try:
+        rtmt.set_stress_state("normal")
+        logger.info("[APP] ★ Stress state cleared (reset to normal)")
+        return web.json_response({"success": True, "stress_state": "normal"})
+    except Exception as e:
+        logger.error(f"Error clearing stress state: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def update_biometrics(request, rtmt: RTMiddleTier):
     """Update current biometric data for survey response capture"""
     try:
@@ -168,6 +179,9 @@ async def create_app():
     app.router.add_get("/config", get_config)
     app.router.add_post(
         "/stress-state", lambda request: update_stress_state(request, rtmt)
+    )
+    app.router.add_post(
+        "/clear-stress", lambda request: clear_stress_state(request, rtmt)
     )
     app.router.add_post("/biometrics", lambda request: update_biometrics(request, rtmt))
 
