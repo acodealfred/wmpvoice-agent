@@ -91,14 +91,38 @@ function App() {
 
     const handleBiometricsUpdate = useCallback(async (biometrics: BiometricResult) => {
         if (!enableBiometrics) return;
+        
+        // Get values with proper defaults
+        const faceEmotion = lastEmotion?.emotion;
+        const blinkChange = biometrics.metrics.blinkRateChangePercent;
+        
+        // Skip if no face detected or invalid emotion (but still send blink data)
+        const emotionToSend = (faceEmotion && 
+            !faceEmotion.includes("No face") && 
+            !faceEmotion.includes("multiple") &&
+            faceEmotion !== "UNKNOWN") 
+            ? faceEmotion 
+            : "NEUTRAL";
+        
+        // Only skip if blink change is truly 0 or undefined
+        const blinkToSend = (blinkChange !== undefined && blinkChange !== 0) ? blinkChange : 0;
+        
+        console.log('[App] ★ Sending biometrics update:', {
+            sentiment: sentiment?.sentiment || "neutral",
+            blink_rate_change_percent: blinkToSend,
+            face_emotion: emotionToSend,
+            rawEmotion: lastEmotion?.emotion,
+            rawBlinkChange: blinkChange
+        });
+        
         try {
             await fetch("/biometrics", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     sentiment: sentiment?.sentiment || "neutral",
-                    blink_rate_change_percent: biometrics.metrics.blinkRateChangePercent || 0,
-                    face_emotion: lastEmotion?.emotion || "NEUTRAL"
+                    blink_rate_change_percent: blinkToSend,
+                    face_emotion: emotionToSend
                 })
             });
         } catch (err) {

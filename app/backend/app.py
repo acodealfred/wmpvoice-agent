@@ -122,7 +122,15 @@ async def clear_stress_state(request, rtmt: RTMiddleTier):
     """Clear the stress state after survey completion"""
     try:
         rtmt.set_stress_state("normal")
+
+        # Clear biometric history buffers for fresh start on next survey
+        rtmt._blink_rate_history.clear()
+        rtmt._face_emotion_history.clear()
+        rtmt._current_blink_rate_change = 0.0
+        rtmt._current_face_emotion = "NEUTRAL"
+
         logger.info("[APP] ★ Stress state cleared (reset to normal)")
+        logger.info("[APP] ★ Biometric history buffers cleared for new session")
         return web.json_response({"success": True, "stress_state": "normal"})
     except Exception as e:
         logger.error(f"Error clearing stress state: {e}")
@@ -141,8 +149,18 @@ async def update_biometrics(request, rtmt: RTMiddleTier):
         rtmt._current_blink_rate_change = blink_rate_change
         rtmt._current_face_emotion = face_emotion
 
+        # Update history buffers for rolling averages
+        rtmt._update_biometric_history(blink_rate_change, face_emotion)
+
         logger.info(
             f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, emotion={face_emotion}"
+        )
+
+        # Log history buffer status for debugging
+        logger.info(
+            f"[APP] ★ History Debug - blink_history length: {len(rtmt._blink_rate_history)}, "
+            f"emotion_history length: {len(rtmt._face_emotion_history)}, "
+            f"emotion history: {rtmt._face_emotion_history[-5:] if rtmt._face_emotion_history else 'empty'}"
         )
 
         return web.json_response({"success": True})

@@ -171,8 +171,14 @@ export function VideoPanel({
       
       const blinkRate = currentBiometrics.metrics.blinkRate;
       const baselineBlinkRate = baselineData?.blinkRate;
+      const blinkChange = currentBiometrics.metrics.blinkRateChangePercent;
       
-      console.log('[Stress UI] ★★★ Sending stress request:', { blink_rate: blinkRate, baseline_blink_rate: baselineBlinkRate, baselineData });
+      console.log('[Stress UI] ★★★ Sending stress request:', { 
+        blink_rate: blinkRate, 
+        baseline_blink_rate: baselineBlinkRate, 
+        blinkRateChangePercent: blinkChange,
+        baselineData 
+      });
       
       try {
         const response = await fetch("/analyze-stress", {

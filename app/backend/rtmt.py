@@ -111,12 +111,35 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     score = args.get("score")
     user_response = args.get("user_verbal_response", "")
     voice_sentiment = args.get("voice_sentiment") or self._current_sentiment
+
+    # Use aggregated values from history for accurate per-question biometrics
+    provided_blink = args.get("blink_rate_change_percent")
     blink_rate_change_percent = (
-        args.get("blink_rate_change_percent")
-        if args.get("blink_rate_change_percent") is not None
-        else self._current_blink_rate_change
+        provided_blink
+        if provided_blink is not None
+        else self._get_average_blink_rate_change()
     )
-    face_emotion = args.get("face_emotion") or self._current_face_emotion
+
+    provided_emotion = args.get("face_emotion")
+    face_emotion = (
+        provided_emotion if provided_emotion else self._get_dominant_emotion()
+    )
+
+    # Debug logging
+    logger.info(
+        f"[RTMT] ★ Survey Tool Debug - question_id={question_id}, "
+        f"provided_blink={provided_blink}, calculated_blink={blink_rate_change_percent}%, "
+        f"provided_emotion={provided_emotion}, calculated_emotion={face_emotion}"
+    )
+    logger.info(
+        f"[RTMT] ★ Blink History: {self._blink_rate_history[-10:]}, "
+        f"Emotion History: {self._face_emotion_history[-10:]}"
+    )
+
+    provided_emotion = args.get("face_emotion")
+    face_emotion = (
+        provided_emotion if provided_emotion else self._get_dominant_emotion()
+    )
 
     if not hasattr(self, "_survey_results"):
         self._survey_results = {}
@@ -224,6 +247,9 @@ class RTMiddleTier:
     _current_sentiment: str = "neutral"
     _current_blink_rate_change: float = 0.0
     _current_face_emotion: str = "NEUTRAL"
+    _blink_rate_history: list = []
+    _face_emotion_history: list = []
+    _MAX_HISTORY_SIZE = 50
 
     def __init__(
         self,
@@ -312,6 +338,84 @@ class RTMiddleTier:
             state = "normal"
         self._stress_state = state
         logger.info(f"[RTMT] ★ Stress state set to: {state}")
+
+    def _update_biometric_history(self, blink_change: float, face_emotion: str):
+        """Update the rolling history buffers with new biometric readings."""
+        self._blink_rate_history.append(blink_change)
+        self._face_emotion_history.append(face_emotion)
+
+        if len(self._blink_rate_history) > self._MAX_HISTORY_SIZE:
+            self._blink_rate_history.pop(0)
+        if len(self._face_emotion_history) > self._MAX_HISTORY_SIZE:
+            self._face_emotion_history.pop(0)
+
+    def clear_biometric_history(self):
+        """Clear all biometric history buffers."""
+        self._blink_rate_history.clear()
+        self._face_emotion_history.clear()
+        self._current_blink_rate_change = 0.0
+        self._current_face_emotion = "NEUTRAL"
+        logger.info("[RTMT] ★ Biometric history cleared")
+
+    def _get_average_blink_rate_change(self) -> float:
+        """Get average blink rate change from history, excluding zero values."""
+        valid_changes = [c for c in self._blink_rate_history if c != 0]
+
+        if not valid_changes:
+            logger.warning(
+                f"[RTMT] ★ _get_average_blink_rate_change: no valid changes, history: {self._blink_rate_history[-10:]}"
+            )
+            return 0.0
+
+        avg = sum(valid_changes) / len(valid_changes)
+        logger.info(
+            f"[RTMT] ★ _get_average_blink_rate_change: {avg}% (from {len(valid_changes)} valid readings)"
+        )
+        return avg
+
+    def _get_dominant_emotion(self) -> str:
+        """Get the most frequently detected emotion from history."""
+        if not self._face_emotion_history:
+            logger.warning(
+                "[RTMT] ★ _get_dominant_emotion: history is empty, returning NEUTRAL"
+            )
+            return "NEUTRAL"
+
+        # Filter out invalid emotions
+        valid_emotions = [
+            e
+            for e in self._face_emotion_history
+            if e
+            and e
+            not in (
+                "NEUTRAL",
+                "No face detected",
+                "No emotion detected",
+                "UNKNOWN",
+                "multiple_faces_detected",
+            )
+        ]
+
+        if not valid_emotions:
+            logger.warning(
+                f"[RTMT] ★ _get_dominant_emotion: no valid emotions in history: {self._face_emotion_history[-10:]}"
+            )
+            # Return the last emotion if available, even if it's NEUTRAL
+            return (
+                self._face_emotion_history[-1]
+                if self._face_emotion_history
+                else "NEUTRAL"
+            )
+
+        emotion_counts: dict = {}
+        for emotion in valid_emotions:
+            emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+
+        dominant = max(emotion_counts, key=emotion_counts.get)
+        logger.info(
+            f"[RTMT] ★ _get_dominant_emotion: {dominant} (counts: {emotion_counts})"
+        )
+        return dominant
 
     def _get_stress_instructions(self) -> str:
         """Generate instructions based on user's stress state."""
@@ -598,13 +702,13 @@ CRITICAL RULES:
                                             "blink_rate_change_percent"
                                         )
                                         is not None
-                                        else self._current_blink_rate_change
+                                        else self._get_average_blink_rate_change()
                                     )
                                     face_emotion = (
                                         survey_result_data.get("face_emotion")
-                                        or self._current_face_emotion
                                         if survey_result_data
-                                        else self._current_face_emotion
+                                        and survey_result_data.get("face_emotion")
+                                        else self._get_dominant_emotion()
                                     )
 
                                     await client_ws.send_json(
@@ -631,6 +735,10 @@ CRITICAL RULES:
                                     logger.info(
                                         f"Survey biometric update sent: {question_id}, sentiment={voice_sentiment}, blink_change={blink_change}, emotion={face_emotion}"
                                     )
+
+                                    # Clear biometric history if survey is complete for next round
+                                    if completed == total_questions:
+                                        self.clear_biometric_history()
                                 except json.JSONDecodeError as e:
                                     logger.error(f"Failed to parse survey result: {e}")
                         updated_message = None
