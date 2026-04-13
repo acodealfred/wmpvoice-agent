@@ -10,6 +10,7 @@ from azure.identity import AzureDeveloperCliCredential, DefaultAzureCredential
 from dotenv import load_dotenv
 
 from rtmt import RTMiddleTier
+from biometric_interpreter import analyze_stress
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voicerag")
@@ -115,6 +116,7 @@ async def create_app():
     app = web.Application()
 
     app.router.add_post("/analyze", analyze_face)
+    app.router.add_post("/analyze-stress", analyze_stress)
     app.router.add_get("/config", get_config)
 
     rtmt = RTMiddleTier(

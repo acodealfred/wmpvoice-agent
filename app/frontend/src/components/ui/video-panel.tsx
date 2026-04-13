@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Video, VideoOff, Loader2, AlertTriangle, Play, RotateCcw } from "lucide-react";
 import { useVideoCapture, EmotionResult } from "@/hooks/useVideoCapture";
 import { useBiometrics } from "@/hooks/useBiometrics";
-import { BiometricResult } from "@/types";
+import { BiometricResult, StressResult } from "@/types";
 import { Button } from "@/components/ui/button";
 
 interface VideoPanelProps {
@@ -41,6 +41,8 @@ export function VideoPanel({
   const [analysisReady, setAnalysisReady] = useState(false);
   const [multipleFacesWarning, setMultipleFacesWarning] = useState(false);
   const [showBaselinePrompt, setShowBaselinePrompt] = useState(false);
+  const [stressResult, setStressResult] = useState<StressResult | null>(null);
+  const stressIntervalRef = useRef<number | null>(null);
   
   const {
     videoRef,
@@ -146,6 +148,70 @@ export function VideoPanel({
 
   const formatMetric = (value: number, decimals: number = 1): string => {
     return (value * 100).toFixed(decimals) + "%";
+  };
+
+  useEffect(() => {
+    if (!isRecording || !currentBiometrics?.faceDetected || !enableBiometrics) {
+      if (stressIntervalRef.current) {
+        clearInterval(stressIntervalRef.current);
+        stressIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const fetchStressAnalysis = async () => {
+      if (!currentBiometrics?.metrics?.blinkRate) return;
+      
+      const blinkRate = currentBiometrics.metrics.blinkRate;
+      const baselineBlinkRate = baselineData?.blinkRate;
+      
+      console.log('[Stress UI] Sending request:', { blink_rate: blinkRate, baseline_blink_rate: baselineBlinkRate });
+      console.log('[Stress UI] Baseline data:', baselineData);
+      
+      try {
+        const response = await fetch("/analyze-stress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            blink_rate: blinkRate,
+            baseline_blink_rate: baselineBlinkRate
+          }),
+        });
+        const data = await response.json();
+        console.log('[Stress UI] Received response:', data);
+        if (data.state) {
+          setStressResult(data);
+        }
+      } catch (error) {
+        console.error("Stress analysis error:", error);
+      }
+    };
+
+    fetchStressAnalysis();
+    stressIntervalRef.current = window.setInterval(fetchStressAnalysis, 5000);
+
+    return () => {
+      if (stressIntervalRef.current) {
+        clearInterval(stressIntervalRef.current);
+        stressIntervalRef.current = null;
+      }
+    };
+  }, [isRecording, currentBiometrics, enableBiometrics]);
+
+  const getStressColor = (state: string) => {
+    switch (state) {
+      case "stressed": return "text-red-400";
+      case "relaxed": return "text-green-400";
+      default: return "text-yellow-400";
+    }
+  };
+
+  const getStressBgColor = (state: string) => {
+    switch (state) {
+      case "stressed": return "bg-red-900/30 border-red-700";
+      case "relaxed": return "bg-green-900/30 border-green-700";
+      default: return "bg-yellow-900/30 border-yellow-700";
+    }
   };
 
   return (
@@ -413,13 +479,56 @@ export function VideoPanel({
                   </span>
                 </div>
               </div>
-            </div>
-          )}
-          
-          {analysisReady && isBiometricsAnalyzing && !currentBiometrics && (
-            <div className="mt-4 flex items-center justify-center py-2">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-500" />
-              <span className="text-sm text-gray-400">Loading biometrics...</span>
+              
+              {stressResult && (
+                <div className={`mt-4 rounded-lg border p-3 ${getStressBgColor(stressResult.state)}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-gray-300">Blink Rate Stress</h4>
+                    <span className={`text-xs font-medium ${getStressColor(stressResult.state)}`}>
+                      {stressResult.state.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="text-center">
+                      <span className="block text-gray-400">State</span>
+                      <span className={`font-medium ${getStressColor(stressResult.state)}`}>
+                        {stressResult.state}
+                      </span>
+                    </div>
+                    <div className="text-center">
+                      <span className="block text-gray-400">Rate Change</span>
+                      <span className={`font-medium ${
+                        (stressResult.blink_rate_change_percent || 0) >= 0 ? 'text-red-400' : 'text-green-400'
+                      }`}>
+                        {(stressResult.blink_rate_change_percent || 0) >= 0 ? '+' : ''}
+                        {stressResult.blink_rate_change_percent?.toFixed(1) || '0.0'}%
+                      </span>
+                    </div>
+                    <div className="text-center">
+                      <span className="block text-gray-400">Confidence</span>
+                      <span className="text-white">
+                        {(stressResult.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="text-center">
+                      <span className="block text-gray-400">Trend</span>
+                      <span className={`font-medium ${
+                        stressResult.trend === 'increasing' ? 'text-red-400' :
+                        stressResult.trend === 'decreasing' ? 'text-green-400' : 'text-yellow-400'
+                      }`}>
+                        {stressResult.trend}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {analysisReady && isBiometricsAnalyzing && !currentBiometrics && (
+                <div className="mt-4 flex items-center justify-center py-2">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-500" />
+                  <span className="text-sm text-gray-400">Loading biometrics...</span>
+                </div>
+              )}
             </div>
           )}
         </div>

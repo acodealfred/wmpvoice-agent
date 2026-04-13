@@ -145,6 +145,15 @@ export type FaceLandmarks = {
     confidence: number;
 };
 
+export type StressState = "stressed" | "relaxed" | "normal";
+
+export type StressResult = {
+    state: StressState;
+    confidence: number;
+    trend: "increasing" | "decreasing" | "stable";
+    blink_rate_change_percent?: number;
+};
+
 export type SentimentHistoryItem = {
     id: string;
     timestamp: number;
@@ -153,4 +162,7 @@ export type SentimentHistoryItem = {
     faceEmotionConfidence: number;
     voiceSentiment: "positive" | "neutral" | "negative";
     voiceSentimentReason?: string;
+    stressState?: StressState;
+    stressConfidence?: number;
+    stressTrend?: "increasing" | "decreasing" | "stable";
 };
