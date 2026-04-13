@@ -34,7 +34,7 @@ const getIrisPosition = (landmarks: { x: number; y: number }[]): { x: number; y:
   return { x: irisOffset, y: -verticalOffset };
 };
 
-const calculatePupilSize = (landmarks: { x: number; y: number }[]): number => {
+const calculateIrisSize = (landmarks: { x: number; y: number }[]): number => {
   const leftIrisLeft = landmarks[469];
   const leftIrisRight = landmarks[471];
   const leftIrisTop = landmarks[470];
@@ -64,9 +64,27 @@ const calculatePupilSize = (landmarks: { x: number; y: number }[]): number => {
   
   const avgIrisDiameter = (leftIrisDiameter + rightIrisDiameter) / 2;
   
-  const normalizedPupilSize = avgIrisDiameter / avgEyeWidth;
+  const normalizedIrisSize = avgIrisDiameter / avgEyeWidth;
   
-  return normalizedPupilSize;
+  return normalizedIrisSize;
+};
+
+const calculatePupilSize = (
+  normalizedIrisSize: number,
+  interocularDistance: number
+): number => {
+  const AVG_PUPIL_TO_IRIS_RATIO = 0.35;
+  const EYE_WIDTH_MM = 30;
+  
+  if (interocularDistance <= 0) {
+    return 0;
+  }
+  
+  const mmPerUnit = EYE_WIDTH_MM / (interocularDistance * 10);
+  const irisDiameterMm = normalizedIrisSize * mmPerUnit;
+  const pupilDiameterMm = irisDiameterMm * AVG_PUPIL_TO_IRIS_RATIO;
+  
+  return pupilDiameterMm;
 };
 
 const calculateNormalizedEyeOpenness = (landmarks: { x: number; y: number }[]): number => {
@@ -222,10 +240,9 @@ export function useBiometrics({
       }
 
       const irisPosition = getIrisPosition(faceLandmarks);
-      const pupilSize = calculatePupilSize(faceLandmarks);
-      
-      const AVERAGE_EYE_WIDTH_MM = 30;
-      const pupilSizeMm = pupilSize * AVERAGE_EYE_WIDTH_MM;
+      const normalizedIrisSize = calculateIrisSize(faceLandmarks);
+      const pupilSize = calculatePupilSize(normalizedIrisSize, interocularDistance);
+      const pupilSizeMm = pupilSize;
       
       if (!baselineSetRef.current && pupilSize > 0) {
         baselinePupilSizeRef.current = pupilSize;
@@ -248,7 +265,7 @@ export function useBiometrics({
         faceHeight: interocularDistance * 4,
         interocularDistance,
         irisPosition,
-        pupilSize,
+        pupilSize: normalizedIrisSize,
         pupilSizeMm,
         pupilSizeChangePercent,
       };
