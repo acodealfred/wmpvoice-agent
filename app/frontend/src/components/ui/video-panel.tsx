@@ -247,6 +247,21 @@ export function VideoPanel({
 
       {isStreaming && (
         <div className="w-full rounded-lg bg-gray-800 p-4 space-y-4">
+          {baselineSessionStatus === 'completed' && baselineData && (
+            <div className="rounded-lg bg-blue-900/30 p-3 border border-blue-700">
+              <h4 className="text-sm font-semibold text-blue-300 mb-2">Baseline Values</h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Baseline Pupil Size:</span>
+                  <span className="text-white font-medium">{baselineData.pupilSize.toFixed(2)} mm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Baseline Blink Rate:</span>
+                  <span className="text-white font-medium">{baselineData.blinkRate.toFixed(1)} blinks/min</span>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-gray-300">Face & Biometrics</h3>
             {!isModelLoaded && (
@@ -339,6 +354,9 @@ export function VideoPanel({
                   <span className="text-white">
                     {currentBiometrics.metrics.blinkRate.toFixed(1)} blinks/min
                   </span>
+                  <span className="block text-xs text-green-400">
+                    Baseline: {baselineData?.blinkRate.toFixed(1) || '--'} blinks/min
+                  </span>
                 </div>
                 <div className="rounded bg-gray-700 p-2">
                   <span className="block text-gray-400">Blink Count</span>
@@ -375,6 +393,9 @@ export function VideoPanel({
                   <span className="block text-gray-400">Pupil Size</span>
                   <span className="text-white">
                     {currentBiometrics.metrics.pupilSizeMm.toFixed(2)} mm
+                  </span>
+                  <span className="block text-xs text-green-400">
+                    Baseline: {baselineData?.pupilSize.toFixed(2) || '--'} mm
                   </span>
                 </div>
                 <div className="rounded bg-gray-700 p-2">

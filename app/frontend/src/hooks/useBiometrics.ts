@@ -190,6 +190,7 @@ export function useBiometrics({
   const startBaselineSession = useCallback(() => {
     if (baselineSessionStatus === 'collecting') return;
     
+    clearBaseline();
     console.log('[Biometrics] Starting baseline session with duration:', baselineDuration, 'seconds');
     
     baselinePupilSizeSamplesRef.current = [];
@@ -247,15 +248,6 @@ export function useBiometrics({
     
     setBaselineSessionStatus('completed');
     setBaselineProgress(100);
-  }, []);
-
-  const loadSavedBaseline = useCallback(() => {
-    const saved = loadBaselineFromFile();
-    if (saved) {
-      setBaselineData(saved);
-      setBaselineSessionStatus('completed');
-      console.log('[Biometrics] Loaded saved baseline');
-    }
   }, []);
 
   const clearBaseline = useCallback(() => {
@@ -501,7 +493,12 @@ export function useBiometrics({
 
   useEffect(() => {
     initializeModel();
-    loadSavedBaseline();
+
+    const savedBaseline = loadBaselineFromFile();
+    if (savedBaseline) {
+      setBaselineData(savedBaseline);
+      setBaselineSessionStatus('completed');
+    }
 
     return () => {
       if (intervalRef.current) {
@@ -514,7 +511,7 @@ export function useBiometrics({
         faceLandmarkerRef.current.close();
       }
     };
-  }, [initializeModel, loadSavedBaseline]);
+  }, [initializeModel]);
 
   useEffect(() => {
     if (isAnalyzing && isModelLoaded) {
