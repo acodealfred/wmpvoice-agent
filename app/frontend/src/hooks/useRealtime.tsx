@@ -15,7 +15,7 @@ import {
 } from "@/types";
 
 type Parameters = {
-    useDirectAoaiApi?: boolean; // If true, the middle tier will be skipped and the AOAI ws API will be called directly
+    useDirectAoaiApi?: boolean;
     aoaiEndpointOverride?: string;
     aoaiApiKeyOverride?: string;
     aoaiModelOverride?: string;
@@ -62,7 +62,10 @@ export default function useRealTime({
         : `/realtime`;
 
     const { sendJsonMessage } = useWebSocket(wsEndpoint, {
-        onOpen: () => onWebSocketOpen?.(),
+        onOpen: () => {
+            console.log('[Realtime] WebSocket connected');
+            onWebSocketOpen?.();
+        },
         onClose: () => onWebSocketClose?.(),
         onError: event => onWebSocketError?.(event),
         onMessage: event => onMessageReceived(event),

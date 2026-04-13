@@ -2,19 +2,14 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Literal, Optional
+from aiohttp import web
 
-try:
-    from dotenv import load_dotenv
-except ImportError:
-    load_dotenv = None
-
-try:
-    from aiohttp import web
-except ImportError:
-    web = None
-
-
+# Configure logging at module level
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+)
 logger = logging.getLogger("biometric_interpreter")
+logger.setLevel(logging.INFO)
 
 
 @dataclass
@@ -26,7 +21,7 @@ class StressResult:
 
 
 class BiometricInterpreter:
-    BR_THRESHOLD_HIGH_LIMIT = 50
+    BR_THRESHOLD_HIGH_LIMIT = 35
     BR_THRESHOLD_LOW_LIMIT = 25
 
     def __init__(self):
@@ -52,30 +47,50 @@ class BiometricInterpreter:
 
         state: Literal["stressed", "relaxed", "normal"]
 
+        logger.info(
+            f"[STRESS] ★ Baseline: {self._baseline_blink_rate}, Current: {blink_rate}, Change: {blink_rate_change_percent}%"
+        )
+
         if self._baseline_blink_rate > 0:
-            if blink_rate_change_percent > 50:
+            if blink_rate_change_percent > 30:
                 state = "stressed"
-                excess = blink_rate_change_percent - 50
+                excess = blink_rate_change_percent - 30
                 confidence = min(0.95, 0.7 + (excess / 100))
-            elif blink_rate_change_percent < -50:
+                logger.info(
+                    f"[STRESS] ★★★ DETECTED STRESSED: change={blink_rate_change_percent}%, excess={excess}%"
+                )
+            elif blink_rate_change_percent < -30:
                 state = "relaxed"
-                deficit = abs(blink_rate_change_percent) - 50
+                deficit = abs(blink_rate_change_percent) - 30
                 confidence = min(0.95, 0.7 + (deficit / 100))
+                logger.info(
+                    f"[STRESS] ★★★ DETECTED RELAXED: change={blink_rate_change_percent}%, deficit={deficit}%"
+                )
             else:
                 state = "normal"
                 confidence = 0.75
+                logger.info(
+                    f"[STRESS] ★★★ DETECTED NORMAL: change={blink_rate_change_percent}% (within +/-30%)"
+                )
         else:
             if blink_rate > self.BR_THRESHOLD_HIGH_LIMIT:
                 state = "stressed"
                 excess = blink_rate - self.BR_THRESHOLD_HIGH_LIMIT
                 confidence = min(0.95, 0.7 + (excess / 20))
+                logger.info(
+                    f"[STRESS] ★★★ DETECTED STRESSED: blink_rate={blink_rate}, threshold={self.BR_THRESHOLD_HIGH_LIMIT}"
+                )
             elif blink_rate < self.BR_THRESHOLD_LOW_LIMIT:
                 state = "relaxed"
                 deficit = self.BR_THRESHOLD_LOW_LIMIT - blink_rate
                 confidence = min(0.95, 0.7 + (deficit / 20))
+                logger.info(
+                    f"[STRESS] ★★★ DETECTED RELAXED: blink_rate={blink_rate}, threshold={self.BR_THRESHOLD_LOW_LIMIT}"
+                )
             else:
                 state = "normal"
                 confidence = 0.75
+                logger.info(f"[STRESS] ★★★ DETECTED NORMAL: blink_rate={blink_rate}")
 
         trend: Literal["increasing", "decreasing", "stable"]
         if len(self._blink_rate_history) >= 3:
@@ -123,7 +138,7 @@ async def analyze_stress(request):
         baseline_blink_rate = data.get("baseline_blink_rate")
 
         logger.info(
-            f"[STRESS] Request: blink_rate={blink_rate}, baseline_blink_rate={baseline_blink_rate}"
+            f"[STRESS] ★★★ Request received: blink_rate={blink_rate}, baseline_blink_rate={baseline_blink_rate}"
         )
 
         if blink_rate is None:
@@ -133,17 +148,14 @@ async def analyze_stress(request):
 
         if baseline_blink_rate is not None and baseline_blink_rate > 0:
             logger.info(
-                f"[STRESS] Setting baseline blink rate to: {baseline_blink_rate}"
+                f"[STRESS] ★ Setting baseline blink rate to: {baseline_blink_rate}"
             )
             interpreter.set_baseline_blink_rate(baseline_blink_rate)
 
         result = interpreter.analyze_blink_rate(blink_rate)
 
         logger.info(
-            f"[STRESS] Result: state={result.state}, confidence={result.confidence}, trend={result.trend}, change_percent={result.blink_rate_change_percent}"
-        )
-        logger.info(
-            f"[STRESS] Thresholds: HIGH={interpreter.BR_THRESHOLD_HIGH_LIMIT}, LOW={interpreter.BR_THRESHOLD_LOW_LIMIT}, baseline_used={interpreter._baseline_blink_rate}"
+            f"[STRESS] ★★★ RESULT: state={result.state}, blink_rate={blink_rate}, baseline={interpreter._baseline_blink_rate}, change_percent={result.blink_rate_change_percent}"
         )
 
         return web.json_response(

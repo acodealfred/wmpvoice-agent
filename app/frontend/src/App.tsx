@@ -134,7 +134,7 @@ function App() {
             <main className="flex flex-grow flex-col items-center justify-center p-4">
                 <div className="flex w-full max-w-6xl flex-wrap items-start justify-center gap-8">
                     <div className="flex-shrink-0">
-                        <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} enableBiometrics={true} />
+                        <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} enableBiometrics={true} onStressStateChanged={() => {}} />
                     </div>
                     <div className="flex flex-grow flex-col items-center justify-center">
                         <h1 className="mb-8 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-4xl font-bold text-transparent md:text-7xl">

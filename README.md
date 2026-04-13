@@ -195,4 +195,10 @@ join the Azure AI Foundry Developer Community:
 # Extending the application for Voice sentiment 
 Branch : ciq-voice-demo-p1 (phase-1)
 Branch : biometric-integration-1 
--This brahc is created to integrate biometrics for the APP.
+-This branch is created to integrate biometrics for the APP.
+Branch : biometric-llm-tools
+-This branch is for biometric tools to be used by LLM
+-Implementation of rule base state decision 
+-Consider blink rate change as a parameter for LLM instruction 
+-Passing stress level to LLM failed in this branch - feature reverted only Stress analyzer added.
+

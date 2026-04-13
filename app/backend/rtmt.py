@@ -9,7 +9,11 @@ from aiohttp import web
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+)
 logger = logging.getLogger("voicerag")
+logger.setLevel(logging.INFO)
 
 _tool_sentiment_schema = {
     "type": "function",
@@ -149,6 +153,7 @@ class RTMiddleTier:
     _token_provider = None
     _survey_results: dict = {}
     _survey_config: dict = {}
+    _stress_state: str = "normal"
 
     def __init__(
         self,
@@ -228,6 +233,38 @@ class RTMiddleTier:
             },
         }
         logger.info("Survey mode enabled with record_survey_response tool")
+
+    def set_stress_state(self, state: str) -> None:
+        """Set the user's stress state for adaptive communication."""
+        valid_states = ["stressed", "relaxed", "normal"]
+        if state not in valid_states:
+            logger.warning(f"Invalid stress state: {state}, defaulting to normal")
+            state = "normal"
+        self._stress_state = state
+        logger.info(f"[RTMT] ★ Stress state set to: {state}")
+
+    def _get_stress_instructions(self) -> str:
+        """Generate instructions based on user's stress state."""
+        logger.info(
+            f"[RTMT] ★ Generating stress instructions for state: {self._stress_state}"
+        )
+        if self._stress_state == "stressed":
+            return """EMOTIONAL ADAPTATION - USER APPEARS STRESSED:
+- Speak slowly and gently
+- Reassure the user that it's okay to take their time
+- Offer short breaks if needed
+- Keep explanations simple and not overwhelming
+- Be patient and empathetic
+- Acknowledge their stress: "I can see this might be a bit overwhelming. Let's take it one step at a time." """
+        elif self._stress_state == "relaxed":
+            return """EMOTIONAL ADAPTATION - USER APPEARS RELAXED:
+- Proceed at a normal pace
+- Maintain a calm, friendly tone
+- The user seems comfortable, so continue normally """
+        else:
+            return """EMOTIONAL ADAPTATION - USER STATE IS NORMAL:
+- Proceed with normal conversation
+- Maintain a helpful, friendly tone """
 
     def _get_survey_instructions(self) -> str:
         config = self._survey_config
@@ -395,6 +432,13 @@ CRITICAL RULES:
                                     "tool_name": item["name"],
                                     "tool_result": result.to_text(),
                                 }
+                            )
+
+                            logger.info(
+                                f"[RTMT] ★ Tool called: {item['name']} with args: {args}"
+                            )
+                            logger.info(
+                                f"[RTMT] ★ Tool result: {result.to_text()[:200]}"
                             )
 
                             # Handle sentiment tool response
@@ -588,9 +632,13 @@ CRITICAL RULES:
     ) -> Optional[str]:
         message = json.loads(msg.data)
         updated_message = msg.data
+        logger.info(
+            f"[RTMT] ★ Message received from client: {message.get('type', 'unknown')}"
+        )
         if message is not None:
             match message["type"]:
                 case "session.update":
+                    logger.info(f"[RTMT] ★★★ Processing session.update!")
                     session = message["session"]
                     if self.system_message is not None:
                         base_instructions = self.system_message
@@ -608,7 +656,19 @@ CRITICAL RULES:
                     if self.enable_survey_mode:
                         survey_instructions = "\n\n" + self._get_survey_instructions()
                         extra_instructions += survey_instructions
+
+                    stress_instructions = "\n\n" + self._get_stress_instructions()
+                    extra_instructions += stress_instructions
+
                     session["instructions"] = base_instructions + extra_instructions
+
+                    logger.info(f"[RTMT] ★ Stress state: {self._stress_state}")
+                    logger.info(
+                        f"[RTMT] ★ Generating stress instructions for state: {self._stress_state}"
+                    )
+                    logger.info(
+                        f"[RTMT] ★ Sending instructions to LLM: {session['instructions'][:500]}..."
+                    )
 
                     if self.temperature is not None:
                         session["temperature"] = self.temperature

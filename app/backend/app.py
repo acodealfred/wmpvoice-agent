@@ -12,8 +12,11 @@ from dotenv import load_dotenv
 from rtmt import RTMiddleTier
 from biometric_interpreter import analyze_stress
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+)
 logger = logging.getLogger("voicerag")
+logger.setLevel(logging.INFO)
 
 
 async def analyze_face(request):
@@ -92,6 +95,29 @@ async def get_config(request):
     )
 
 
+async def update_stress_state(request, rtmt: RTMiddleTier):
+    """Update the stress state for adaptive communication"""
+    try:
+        data = await request.json()
+        stress_state = data.get("stress_state", "normal")
+
+        valid_states = ["stressed", "relaxed", "normal"]
+        if stress_state not in valid_states:
+            return web.json_response(
+                {"error": f"Invalid stress state. Must be one of: {valid_states}"},
+                status=400,
+            )
+
+        logger.info(f"[APP] ★ Received stress state update request: {stress_state}")
+        rtmt.set_stress_state(stress_state)
+        logger.info(f"[APP] ★ Stress state updated to: {stress_state}")
+
+        return web.json_response({"success": True, "stress_state": stress_state})
+    except Exception as e:
+        logger.error(f"Error updating stress state: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def create_app():
     if not os.environ.get("RUNNING_IN_PRODUCTION"):
         logger.info("Running in development mode, loading from .env file")
@@ -118,6 +144,9 @@ async def create_app():
     app.router.add_post("/analyze", analyze_face)
     app.router.add_post("/analyze-stress", analyze_stress)
     app.router.add_get("/config", get_config)
+    app.router.add_post(
+        "/stress-state", lambda request: update_stress_state(request, rtmt)
+    )
 
     rtmt = RTMiddleTier(
         credentials=llm_credential,

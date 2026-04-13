@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 interface VideoPanelProps {
   onEmotionDetected?: (emotion: EmotionResult) => void;
   onBiometricsDetected?: (biometrics: BiometricResult) => void;
+  onStressStateChanged?: (state: string) => void;
   isRecording?: boolean;
   enableBiometrics?: boolean;
   baselineDuration?: number;
@@ -33,6 +34,7 @@ const emotionIcons: Record<string, string> = {
 export function VideoPanel({ 
   onEmotionDetected, 
   onBiometricsDetected, 
+  onStressStateChanged,
   isRecording = false, 
   enableBiometrics = DEFAULT_BIOMETRICS_ENABLED,
   baselineDuration = DEFAULT_BASELINE_DURATION,
@@ -165,8 +167,7 @@ export function VideoPanel({
       const blinkRate = currentBiometrics.metrics.blinkRate;
       const baselineBlinkRate = baselineData?.blinkRate;
       
-      console.log('[Stress UI] Sending request:', { blink_rate: blinkRate, baseline_blink_rate: baselineBlinkRate });
-      console.log('[Stress UI] Baseline data:', baselineData);
+      console.log('[Stress UI] ★★★ Sending stress request:', { blink_rate: blinkRate, baseline_blink_rate: baselineBlinkRate, baselineData });
       
       try {
         const response = await fetch("/analyze-stress", {
@@ -178,9 +179,13 @@ export function VideoPanel({
           }),
         });
         const data = await response.json();
-        console.log('[Stress UI] Received response:', data);
+        console.log('[Stress UI] ★★★ Received response:', data);
         if (data.state) {
           setStressResult(data);
+          const newState = data.state;
+          const previousState = stressResult?.state;
+          console.log('[Stress UI] State check - newState:', newState, 'previousState:', previousState);
+          // Only log - no API call needed, stress state is just for UI display
         }
       } catch (error) {
         console.error("Stress analysis error:", error);
@@ -196,7 +201,7 @@ export function VideoPanel({
         stressIntervalRef.current = null;
       }
     };
-  }, [isRecording, currentBiometrics, enableBiometrics]);
+  }, [isRecording, currentBiometrics, enableBiometrics, stressResult, onStressStateChanged]);
 
   const getStressColor = (state: string) => {
     switch (state) {
