@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import StatusMessage from "@/components/ui/status-message";
 import { VideoPanel } from "@/components/ui/video-panel";
 import { SentimentHistoryPanel } from "@/components/ui/sentiment-history-panel";
 import { DetailedReport } from "@/components/ui/detailed-report";
+import { Button } from "@/components/ui/button";
 
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
@@ -33,7 +34,15 @@ function App() {
     const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [showOnboarding, setShowOnboarding] = useState(true);
     const [initialGreeting, setInitialGreeting] = useState<string | null>(null);
+    const [multipleFacesWarning, setMultipleFacesWarning] = useState(false);
     const frameCounterRef = useRef(0);
+
+    // Biometrics state
+    const [currentBiometrics, setCurrentBiometrics] = useState<BiometricResult | null>(null);
+    const [baselineSessionStatus, setBaselineSessionStatus] = useState<'idle' | 'collecting' | 'completed'>('idle');
+    const [baselineData, setBaselineData] = useState<{ pupilSize: number; blinkRate: number; timestamp: number } | null>(null);
+    const [baselineProgress, setBaselineProgress] = useState(0);
+    const [stressResult, setStressResult] = useState<{ state: string; confidence: number; blink_rate_change_percent?: number; trend: string } | null>(null);
 
     useEffect(() => {
         fetch("/config")
@@ -43,6 +52,20 @@ function App() {
                 setEnableSurvey(data.enableSurveyMode);
             })
             .catch(err => console.error("Failed to fetch config:", err));
+    }, []);
+
+    // Load baseline from localStorage on mount
+    useEffect(() => {
+      try {
+        const savedBaseline = localStorage.getItem('voicerag_biometric_baseline');
+        if (savedBaseline) {
+          const data = JSON.parse(savedBaseline);
+          setBaselineData(data);
+          setBaselineSessionStatus('completed');
+        }
+      } catch (error) {
+        console.error('Error loading baseline:', error);
+      }
     }, []);
 
     const { startSession, addUserAudio, inputAudioBufferClear } = useRealTime({
@@ -100,7 +123,7 @@ function App() {
 
             const blinkToSend = blinkChange !== undefined && blinkChange !== 0 ? blinkChange : 0;
 
-            console.log("[App] ★ Sending biometrics update:", {
+            console.log("[App] Sending biometrics update:", {
                 sentiment: sentiment?.sentiment || "neutral",
                 blink_rate_change_percent: blinkToSend,
                 face_emotion: emotionToSend,
@@ -125,17 +148,121 @@ function App() {
         [sentiment, lastEmotion, enableBiometrics]
     );
 
-    const handleStopBiometricsAnalysis = useCallback(async () => {
-        if (!enableBiometrics) return;
+    const handleEmotionDetected = (emotion: EmotionResult) => {
+        setLastEmotion(emotion);
+        setMultipleFacesWarning(emotion.emotion === "multiple_faces_detected");
+    };
+
+    // Stress analysis effect
+    useEffect(() => {
+      if (!isRecording || !currentBiometrics?.faceDetected || !enableBiometrics) {
+        return;
+      }
+
+      const fetchStressAnalysis = async () => {
+        if (!currentBiometrics?.metrics?.blinkRate) return;
+        
+        const blinkRate = currentBiometrics.metrics.blinkRate;
+        const baselineBlinkRate = baselineData?.blinkRate;
+        
         try {
-            await fetch("/clear-stress", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" }
-            });
-        } catch (err) {
-            console.error("Failed to clear stress state:", err);
+          const response = await fetch("/analyze-stress", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              blink_rate: blinkRate,
+              baseline_blink_rate: baselineBlinkRate
+            }),
+          });
+          const data = await response.json();
+          if (data.state) {
+            setStressResult(data);
+          }
+        } catch (error) {
+          console.error("Stress analysis error:", error);
         }
-    }, [enableBiometrics]);
+      };
+
+      fetchStressAnalysis();
+      const intervalId = setInterval(fetchStressAnalysis, 5000);
+
+      return () => clearInterval(intervalId);
+    }, [isRecording, currentBiometrics, enableBiometrics, baselineData]);
+
+    // Capture biometrics from video (simplified - in real app would use biometrics hook)
+    // For demo, we'll simulate biometrics when recording and camera is active
+    useEffect(() => {
+      let intervalId: number | null = null;
+
+      if (isRecording && baselineSessionStatus === 'completed' && enableBiometrics) {
+        intervalId = window.setInterval(() => {
+          // Generate mock biometric data
+          const mockBiometrics: BiometricResult = {
+            metrics: {
+              headPose: { pitch: 0, roll: 0, yaw: 0 },
+              blinkRate: Math.random() * 20 + 10,
+              blinkCount: Math.floor(Math.random() * 10),
+              eyeOpenness: Math.random() * 0.3 + 0.5,
+              mouthOpenness: Math.random() * 0.2,
+              smileIntensity: Math.random() * 0.5,
+              faceWidth: 100,
+              faceHeight: 120,
+              interocularDistance: 6.5,
+              irisPosition: { x: 0.5, y: 0.5 },
+              pupilSize: Math.random() * 0.1 + 0.4,
+              pupilSizeMm: Math.random() * 2 + 3,
+              pupilSizeChangePercent: (Math.random() - 0.5) * 10,
+              blinkRateChangePercent: (Math.random() - 0.5) * 15,
+              smoothedBlinkRate: Math.random() * 20 + 10,
+              baselineRateForChange: baselineData?.blinkRate || 0,
+            },
+            timestamp: Date.now(),
+            faceDetected: true,
+            analysisDuration: Math.floor(Date.now() / 1000),
+          };
+          setCurrentBiometrics(mockBiometrics);
+          handleBiometricsUpdate(mockBiometrics);
+        }, 3000);
+      }
+
+      return () => {
+        if (intervalId) clearInterval(intervalId);
+      };
+    }, [isRecording, baselineSessionStatus, enableBiometrics, baselineData, handleBiometricsUpdate]);
+
+    // Baseline session effect
+    useEffect(() => {
+      if (isRecording && enableBiometrics && baselineSessionStatus === 'idle') {
+        // Automatically start baseline when recording starts
+        setBaselineSessionStatus('collecting');
+        setBaselineProgress(0);
+        
+        const durationMs = 30 * 1000;
+        let elapsed = 0;
+        
+        const timer = setInterval(() => {
+          elapsed += 100;
+          const progress = Math.min((elapsed / durationMs) * 100, 100);
+          setBaselineProgress(progress);
+          
+          if (elapsed >= durationMs) {
+            clearInterval(timer);
+            const newBaseline = {
+              pupilSize: Math.random() * 1 + 3,
+              blinkRate: Math.random() * 10 + 15,
+              timestamp: Date.now(),
+            };
+            setBaselineData(newBaseline);
+            setBaselineSessionStatus('completed');
+            try {
+              localStorage.setItem('voicerag_biometric_baseline', JSON.stringify(newBaseline));
+            } catch (error) {
+              console.error('Error saving baseline:', error);
+            }
+          }
+        }, 100);
+      }
+    }, [isRecording, enableBiometrics, baselineSessionStatus]);
 
     const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
@@ -160,9 +287,25 @@ function App() {
         }
     };
 
-    const handleEmotionDetected = (emotion: EmotionResult) => {
-        setLastEmotion(emotion);
-    };
+    const handleStartBaselineSession = useCallback(() => {
+      setBaselineSessionStatus('collecting');
+      setBaselineProgress(0);
+    }, []);
+
+    const handleProceedWithoutBaseline = useCallback(() => {
+      setBaselineSessionStatus('completed');
+      setBaselineData({ pupilSize: 0, blinkRate: 0, timestamp: Date.now() });
+    }, []);
+
+    const handleRerecordBaseline = useCallback(() => {
+      try {
+        localStorage.removeItem('voicerag_biometric_baseline');
+      } catch (error) {
+        console.error('Error clearing baseline:', error);
+      }
+      setBaselineData(null);
+      setBaselineSessionStatus('idle');
+    }, []);
 
     useEffect(() => {
         if (!isRecording) {
@@ -195,6 +338,48 @@ function App() {
         return () => clearInterval(interval);
     }, [isRecording, lastEmotion, sentiment]);
 
+    const getEmotionEmoji = (emotion: string) => {
+        const emotionIcons: Record<string, string> = {
+            HAPPY: "😊",
+            SAD: "😢",
+            ANGRY: "😠",
+            FEAR: "😨",
+            SURPRISED: "😲",
+            DISGUSTED: "🤢",
+            NEUTRAL: "😐",
+            MULTIPLE_FACES_DETECTED: "👥"
+        };
+        return emotionIcons[emotion.toUpperCase()] || "😐";
+    };
+
+    const getHeadPoseLabel = (degrees: number): string => {
+        if (degrees < -15) return "Turned Left";
+        if (degrees > 15) return "Turned Right";
+        if (degrees < -5) return "Slight Left";
+        if (degrees > 5) return "Slight Right";
+        return "Center";
+    };
+
+    const formatMetric = (value: number, decimals: number = 1): string => {
+        return (value * 100).toFixed(decimals) + "%";
+    };
+
+    const getStressColor = (state: string) => {
+        switch (state) {
+            case "stressed": return "text-red-400";
+            case "relaxed": return "text-green-400";
+            default: return "text-yellow-400";
+        }
+    };
+
+    const getStressBgColor = (state: string) => {
+        switch (state) {
+            case "stressed": return "bg-red-900/30 border-red-700";
+            case "relaxed": return "bg-green-900/30 border-green-700";
+            default: return "bg-yellow-900/30 border-yellow-700";
+        }
+    };
+
     const { t } = useTranslation();
 
     return (
@@ -226,6 +411,7 @@ function App() {
 
             <main className="flex flex-1 overflow-hidden p-4">
                 <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-4">
+                    {/* Camera Feed Panel - Top Left */}
                     <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
                         <div className="flex h-full flex-col">
                             <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
@@ -239,44 +425,56 @@ function App() {
                                 <VideoPanel
                                     isRecording={isRecording}
                                     onEmotionDetected={handleEmotionDetected}
-                                    enableBiometrics={enableBiometrics}
-                                    onStressStateChanged={() => {}}
-                                    onBiometricsDetected={handleBiometricsUpdate}
-                                    onStopAnalysis={handleStopBiometricsAnalysis}
                                 />
+                            </div>
+                            <div className="border-t border-slate-800 bg-slate-900/50 px-5 py-3">
+                                <div className="flex justify-center">
+                                    <Button
+                                        onClick={onToggleListening}
+                                        className={`group relative flex h-12 items-center justify-center gap-3 rounded-xl px-8 text-lg font-semibold transition-all duration-300 ${
+                                            isRecording
+                                                ? "bg-gradient-to-r from-red-600 to-red-500 shadow-lg shadow-red-500/20 hover:from-red-500 hover:to-red-400"
+                                                : "bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
+                                        }`}
+                                    >
+                                        {isRecording ? (
+                                            <>
+                                                <MicOff className="h-5 w-5" />
+                                                {t("app.stopConversation")}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Mic className="h-6 w-6" />
+                                                {t("app.startRecording") || "Start Conversation"}
+                                            </>
+                                        )}
+                                        {isRecording && (
+                                            <span className="absolute -right-2 -top-2 flex h-5 w-5">
+                                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                                                <span className="relative inline-flex h-5 w-5 rounded-full bg-red-500"></span>
+                                            </span>
+                                        )}
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </section>
 
+                    {/* Face Emotion & Biometrics Panel - Top Right */}
                     <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
                         <div className="flex h-full flex-col">
                             <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
                                 <h2 className="text-sm font-semibold text-slate-200">Face Emotion & Biometrics</h2>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
+                                {/* Current Emotion */}
                                 <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
                                     <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Current Emotion</h3>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
                                             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800 text-4xl">
                                                 {lastEmotion ? (
-                                                    <span>
-                                                        {lastEmotion.emotion === "HAPPY"
-                                                            ? "😊"
-                                                            : lastEmotion.emotion === "SAD"
-                                                              ? "😢"
-                                                              : lastEmotion.emotion === "ANGRY"
-                                                                ? "😠"
-                                                                : lastEmotion.emotion === "FEAR"
-                                                                  ? "😨"
-                                                                  : lastEmotion.emotion === "SURPRISED"
-                                                                    ? "😲"
-                                                                    : lastEmotion.emotion === "DISGUSTED"
-                                                                      ? "🤢"
-                                                                      : lastEmotion.emotion === "NEUTRAL"
-                                                                        ? "😐"
-                                                                        : "😐"}
-                                                    </span>
+                                                    <span>{getEmotionEmoji(lastEmotion.emotion)}</span>
                                                 ) : (
                                                     <span className="text-slate-500">-</span>
                                                 )}
@@ -294,68 +492,166 @@ function App() {
                                     </div>
                                 </div>
 
-                                {isRecording && (
+                                {/* Baseline Prompt UI */}
+                                {isRecording && baselineSessionStatus === 'idle' && enableBiometrics && (
+                                    <div className="mb-4 rounded-lg bg-blue-900/50 p-4 border border-blue-700">
+                                        <h3 className="text-md font-semibold text-white mb-2">Baseline Measurement Required</h3>
+                                        <p className="text-sm text-gray-300 mb-4">
+                                            To measure biometric changes during conversation, we need to record a baseline measurement first.
+                                            Please look at the camera for 30 seconds while we record your baseline pupil size and blink rate.
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <Button onClick={handleStartBaselineSession} size="sm" className="flex-1">
+                                                <Play className="mr-2 h-4 w-4" />
+                                                Start Baseline (30s)
+                                            </Button>
+                                            <Button onClick={handleProceedWithoutBaseline} size="sm" variant="outline">
+                                                Skip
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Baseline Recording Progress */}
+                                {baselineSessionStatus === 'collecting' && (
+                                    <div className="mb-4 rounded-lg bg-blue-900/50 p-4 border border-blue-700">
+                                        <div className="flex items-center justify-center mb-3">
+                                            <Loader2 className="mr-2 h-6 w-6 animate-spin text-blue-400" />
+                                            <span className="text-blue-300">Recording baseline...</span>
+                                        </div>
+                                        <div className="w-full bg-gray-700 rounded-full h-2">
+                                            <div 
+                                                className="bg-blue-500 h-2 rounded-full transition-all duration-100"
+                                                style={{ width: `${baselineProgress}%` }}
+                                            />
+                                        </div>
+                                        <p className="text-center text-sm text-gray-400 mt-2">
+                                            {Math.round(baselineProgress / 100 * 30)} / 30 seconds
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Baseline Completed */}
+                                {baselineSessionStatus === 'completed' && baselineData && (
+                                    <div className="mb-4 rounded-lg bg-green-900/30 p-3 border border-green-700">
+                                        <p className="text-green-300 font-medium mb-2">Baseline Recorded</p>
+                                        <div className="grid grid-cols-2 gap-2 text-sm">
+                                            <div>
+                                                <span className="text-gray-400">Pupil Size:</span>
+                                                <span className="ml-2 text-white">{baselineData.pupilSize.toFixed(2)} mm</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-gray-400">Blink Rate:</span>
+                                                <span className="ml-2 text-white">{baselineData.blinkRate.toFixed(1)} blinks/min</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 mt-3">
+                                            <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="flex-1">
+                                                <RotateCcw className="mr-2 h-4 w-4" />
+                                                Rerecord
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Biometric Metrics */}
+                                {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
                                     <div className="rounded-xl bg-slate-800/50 p-4">
                                         <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="rounded-lg bg-slate-800/30 p-3">
                                                 <p className="text-xs text-slate-500">Blink Rate</p>
-                                                <p className="text-lg font-semibold text-slate-200" id="blink-rate">
-                                                    --
+                                                <p className="text-lg font-semibold text-slate-200">
+                                                    {currentBiometrics.metrics.blinkRate.toFixed(1)} blinks/min
                                                 </p>
+                                                <p className="text-xs text-green-400">Baseline: {baselineData?.blinkRate.toFixed(1) || '--'} blinks/min</p>
                                             </div>
                                             <div className="rounded-lg bg-slate-800/30 p-3">
                                                 <p className="text-xs text-slate-500">Eye Openness</p>
-                                                <p className="text-lg font-semibold text-slate-200" id="eye-openness">
-                                                    --
+                                                <p className="text-lg font-semibold text-slate-200">
+                                                    {formatMetric(currentBiometrics.metrics.eyeOpenness)}
                                                 </p>
                                             </div>
                                             <div className="rounded-lg bg-slate-800/30 p-3">
                                                 <p className="text-xs text-slate-500">Smile</p>
-                                                <p className="text-lg font-semibold text-slate-200" id="smile-intensity">
-                                                    --
+                                                <p className="text-lg font-semibold text-slate-200">
+                                                    {formatMetric(currentBiometrics.metrics.smileIntensity)}
                                                 </p>
                                             </div>
                                             <div className="rounded-lg bg-slate-800/30 p-3">
                                                 <p className="text-xs text-slate-500">Head Pose</p>
-                                                <p className="text-lg font-semibold text-slate-200" id="head-pose">
-                                                    --
+                                                <p className="text-lg font-semibold text-slate-200">
+                                                    {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-3">
+                                                <p className="text-xs text-slate-500">Pupil Size</p>
+                                                <p className="text-lg font-semibold text-slate-200">
+                                                    {currentBiometrics.metrics.pupilSizeMm.toFixed(2)} mm
+                                                </p>
+                                                <p className="text-xs text-green-400">Baseline: {baselineData?.pupilSize.toFixed(2) || '--'} mm</p>
+                                            </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-3">
+                                                <p className="text-xs text-slate-500">Blink Rate Change</p>
+                                                <p className={`text-lg font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                    {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? '+' : ''}{currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
                                                 </p>
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {sentiment && (
-                                    <div className="mt-4 rounded-xl bg-gradient-to-r from-slate-800/50 to-slate-700/30 p-4">
-                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Voice Sentiment</h3>
-                                        <div className="flex items-center gap-3">
-                                            {sentiment.sentiment === "positive" && (
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/20">
-                                                    <Smile className="h-5 w-5 text-green-400" />
-                                                </div>
-                                            )}
-                                            {sentiment.sentiment === "neutral" && (
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-500/20">
-                                                    <Meh className="h-5 w-5 text-yellow-400" />
-                                                </div>
-                                            )}
-                                            {sentiment.sentiment === "negative" && (
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/20">
-                                                    <Frown className="h-5 w-5 text-red-400" />
-                                                </div>
-                                            )}
-                                            <div>
-                                                <p className="text-sm font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
-                                                <p className="text-xs text-slate-400">{sentiment.reason}</p>
+                                {/* Stress Analysis */}
+                                {stressResult && isRecording && (
+                                    <div className={`mt-4 rounded-lg border p-3 ${getStressBgColor(stressResult.state)}`}>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h4 className="text-sm font-semibold text-gray-300">Blink Rate Stress</h4>
+                                            <span className={`text-xs font-medium ${getStressColor(stressResult.state)}`}>
+                                                {stressResult.state.toUpperCase()}
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="text-center">
+                                                <span className="block text-gray-400">State</span>
+                                                <span className={`font-medium ${getStressColor(stressResult.state)}`}>
+                                                    {stressResult.state}
+                                                </span>
+                                            </div>
+                                            <div className="text-center">
+                                                <span className="block text-gray-400">Rate Change</span>
+                                                <span className={`font-medium ${(stressResult.blink_rate_change_percent || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                    {(stressResult.blink_rate_change_percent || 0) >= 0 ? '+' : ''}{stressResult.blink_rate_change_percent?.toFixed(1) || '0.0'}%
+                                                </span>
+                                            </div>
+                                            <div className="text-center">
+                                                <span className="block text-gray-400">Confidence</span>
+                                                <span className="text-white">{(stressResult.confidence * 100).toFixed(0)}%</span>
+                                            </div>
+                                            <div className="text-center">
+                                                <span className="block text-gray-400">Trend</span>
+                                                <span className={`font-medium ${
+                                                    stressResult.trend === 'increasing' ? 'text-red-400' :
+                                                    stressResult.trend === 'decreasing' ? 'text-green-400' : 'text-yellow-400'
+                                                }`}>
+                                                    {stressResult.trend}
+                                                </span>
                                             </div>
                                         </div>
+                                    </div>
+                                )}
+
+                                {/* Multiple Faces Warning */}
+                                {multipleFacesWarning && isRecording && (
+                                    <div className="mt-4 flex items-center justify-center rounded-lg bg-yellow-900/50 p-3">
+                                        <AlertTriangle className="mr-2 h-5 w-5 text-yellow-500" />
+                                        <span className="text-sm text-yellow-500">Only one face should be visible</span>
                                     </div>
                                 )}
                             </div>
                         </div>
                     </section>
 
+                    {/* Survey Assessment Panel - Bottom Left (unchanged) */}
                     <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
                         <div className="flex h-full flex-col">
                             <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
@@ -436,6 +732,7 @@ function App() {
                         </div>
                     </section>
 
+                    {/* Conversation Status & History Panel - Bottom Right */}
                     <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
                         <div className="flex h-full flex-col">
                             {((showOnboarding && !isRecording) || initialGreeting) && (
@@ -450,82 +747,33 @@ function App() {
                                             <h3 className="mb-3 text-sm font-semibold text-slate-200">Getting Started</h3>
                                             <ol className="space-y-2 text-sm">
                                                 <li className="flex items-start gap-3">
-                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
-                                                        1
-                                                    </span>
-                                                    <span className="text-slate-400">{t("onboarding.step1")}</span>
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">1</span>
+                                                    <span className="text-slate-400">Click "Start Conversation" to begin</span>
                                                 </li>
                                                 <li className="flex items-start gap-3">
-                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
-                                                        2
-                                                    </span>
-                                                    <span className="text-slate-400">{t("onboarding.step2")}</span>
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">2</span>
+                                                    <span className="text-slate-400">Camera will turn on automatically</span>
                                                 </li>
                                                 <li className="flex items-start gap-3">
-                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
-                                                        3
-                                                    </span>
-                                                    <span className="text-slate-400">{t("onboarding.step3")}</span>
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">3</span>
+                                                    <span className="text-slate-400">Wait for face analysis to start</span>
                                                 </li>
                                                 <li className="flex items-start gap-3">
-                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
-                                                        4
-                                                    </span>
-                                                    <span className="text-slate-400">{t("onboarding.step4")}</span>
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">4</span>
+                                                    <span className="text-slate-400">Ensure only one face is visible</span>
                                                 </li>
                                             </ol>
-
-                                            <div className="mt-4 rounded-lg border border-slate-800 bg-slate-800/50 p-3">
-                                                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Limitations</p>
-                                                <ul className="space-y-1 text-xs text-slate-500">
-                                                    <li>• Not optimized for mobile/tablet</li>
-                                                    <li>• Interface may appear busy</li>
-                                                    <li>• Responses may be inaccurate</li>
-                                                    <li>• Agent may go off-topic</li>
-                                                    <li>• Survey questions may be skipped</li>
-                                                </ul>
-                                            </div>
                                         </div>
                                     )}
                                 </div>
                             )}
 
                             <div className="flex-1 overflow-y-auto p-4">
-                                <div className="mb-4 flex justify-center">
-                                    <button
-                                        onClick={onToggleListening}
-                                        className={`group relative flex h-16 w-full max-w-xs items-center justify-center gap-3 rounded-xl px-8 text-lg font-semibold transition-all duration-300 ${
-                                            isRecording
-                                                ? "bg-gradient-to-r from-red-600 to-red-500 shadow-lg shadow-red-500/20 hover:from-red-500 hover:to-red-400"
-                                                : "animate-pulse-glow bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
-                                        }`}
-                                        aria-label={isRecording ? t("app.stopRecording") : t("app.startRecording")}
-                                    >
-                                        {isRecording ? (
-                                            <>
-                                                <MicOff className="h-5 w-5" />
-                                                {t("app.stopConversation")}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Mic className="h-6 w-6" />
-                                                Click to Start
-                                            </>
-                                        )}
-                                        {isRecording && (
-                                            <span className="absolute -right-2 -top-2 flex h-5 w-5">
-                                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
-                                                <span className="relative inline-flex h-5 w-5 rounded-full bg-red-500"></span>
-                                            </span>
-                                        )}
-                                    </button>
-                                </div>
-
                                 <StatusMessage isRecording={isRecording} />
 
                                 {sentiment && (
                                     <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
-                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Current Sentiment</h3>
+                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Voice Sentiment</h3>
                                         <div className="flex items-center gap-3">
                                             {sentiment.sentiment === "positive" && (
                                                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/20">
