@@ -339,6 +339,55 @@ class RTMiddleTier:
         self._stress_state = state
         logger.info(f"[RTMT] ★ Stress state set to: {state}")
 
+    async def analyze_with_prompt(self, system_prompt: str) -> str:
+        """Analyze report data using chat completions API with provided prompt."""
+        try:
+            headers = {
+                "Content-Type": "application/json",
+            }
+            if hasattr(self, "key"):
+                headers["api-key"] = self.key
+            else:
+                auth_token = self._token_provider()
+                headers["Authorization"] = f"Bearer {auth_token}"
+
+            api_url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version=2024-02-15-preview"
+
+            payload = {
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": "Please analyze the provided data and return JSON results.",
+                    },
+                ],
+                "max_tokens": 2000,
+                "temperature": 0.3,
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    api_url, json=payload, headers=headers
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(
+                            f"Analysis API error: {response.status} - {error_text}"
+                        )
+                        return json.dumps({"error": f"API error: {response.status}"})
+
+                    result = await response.json()
+                    content = (
+                        result.get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "{}")
+                    )
+                    return content
+
+        except Exception as e:
+            logger.error(f"Analysis error: {e}")
+            return json.dumps({"error": str(e)})
+
     def _update_biometric_history(self, blink_change: float, face_emotion: str):
         """Update the rolling history buffers with new biometric readings."""
         self._blink_rate_history.append(blink_change)
@@ -874,7 +923,7 @@ CRITICAL RULES:
         if message is not None:
             match message["type"]:
                 case "session.update":
-                    logger.info(f"[RTMT] ★★★ Processing session.update!")
+                    logger.info("[RTMT] ★★★ Processing session.update!")
                     session = message["session"]
                     if self.system_message is not None:
                         base_instructions = self.system_message

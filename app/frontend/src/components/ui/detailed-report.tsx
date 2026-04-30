@@ -1,12 +1,20 @@
-import { BiometricSnapshot } from "@/types";
+import { useState } from "react";
+import { BiometricSnapshot, AnalysisResult } from "@/types";
+import { Loader2, AlertCircle } from "lucide-react";
 
 interface DetailedReportProps {
     snapshots: BiometricSnapshot[];
     totalScore: number;
     onClose?: () => void;
+    onAgentSpeaking?: (text: string) => void;
 }
 
-export function DetailedReport({ snapshots, totalScore, onClose }: DetailedReportProps) {
+export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking }: DetailedReportProps) {
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+    const [analysisError, setAnalysisError] = useState<string | null>(null);
+    const [agentResponse, setAgentResponse] = useState<string | null>(null);
+
     const getStressLevel = (blinkRateChange: number): string => {
         if (blinkRateChange > 30) return "High";
         if (blinkRateChange < -30) return "Low";
@@ -27,20 +35,175 @@ export function DetailedReport({ snapshots, totalScore, onClose }: DetailedRepor
         return "text-gray-600";
     };
 
+    const getConfidenceBadge = (confidence: string) => {
+        switch (confidence) {
+            case "high":
+                return <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">High</span>;
+            case "medium":
+                return <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">Medium</span>;
+            case "low":
+                return <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">Low</span>;
+            default:
+                return null;
+        }
+    };
+
+    const handleAnalyzeReport = async () => {
+        setIsAnalyzing(true);
+        setAnalysisError(null);
+        setAnalysisResult(null);
+
+        try {
+            const response = await fetch("/analyze-report", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ snapshots })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Analysis failed: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.analysis) {
+                try {
+                    const parsed = JSON.parse(data.analysis);
+                    setAnalysisResult(parsed);
+                } catch {
+                    setAnalysisResult({
+                        correlations: [],
+                        contradictions: [],
+                        patterns: [],
+                        summary: data.analysis
+                    });
+                }
+            } else if (data.error) {
+                setAnalysisError(data.error);
+            }
+
+            // If there's an agent response, display it and notify parent
+            if (data.agentResponse) {
+                setAgentResponse(data.agentResponse);
+                onAgentSpeaking?.(data.agentResponse);
+            }
+        } catch (err) {
+            setAnalysisError(err instanceof Error ? err.message : "Unknown error occurred");
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     return (
         <div className="w-full max-w-4xl rounded-lg bg-white p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-gray-800">Detailed Burnout Assessment Report</h2>
-                {onClose && (
+                <div className="flex items-center gap-2">
                     <button
-                        onClick={onClose}
-                        className="rounded-full p-2 hover:bg-gray-100"
-                        aria-label="Close report"
+                        onClick={handleAnalyzeReport}
+                        disabled={isAnalyzing || snapshots.length === 0}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
                     >
-                        ✕
+                        {isAnalyzing ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Analyzing...
+                            </>
+                        ) : (
+                            "Analyze Report"
+                        )}
                     </button>
-                )}
+                    {onClose && (
+                        <button
+                            onClick={onClose}
+                            className="rounded-full p-2 hover:bg-gray-100"
+                            aria-label="Close report"
+                        >
+                            ✕
+                        </button>
+                    )}
+                </div>
             </div>
+
+            {analysisError && (
+                <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 p-3 text-red-700">
+                    <AlertCircle className="h-5 w-5" />
+                    <span>{analysisError}</span>
+                </div>
+            )}
+
+            {agentResponse && (
+                <div className="mb-4 rounded-lg bg-green-50 p-4">
+                    <h3 className="mb-2 text-lg font-semibold text-green-800">Consultant Response</h3>
+                    <p className="text-sm text-gray-700 whitespace-pre-line">{agentResponse}</p>
+                </div>
+            )}
+
+            {analysisResult && (
+                <div className="mb-6 rounded-lg bg-blue-50 p-4">
+                    <h3 className="mb-3 text-lg font-semibold text-blue-800">Behavioral Analysis</h3>
+                    
+                    {analysisResult.summary && (
+                        <div className="mb-4 rounded-lg bg-white p-3">
+                            <p className="text-sm text-gray-700">{analysisResult.summary}</p>
+                        </div>
+                    )}
+
+                    {analysisResult.correlations && analysisResult.correlations.length > 0 && (
+                        <div className="mb-3">
+                            <h4 className="mb-2 text-sm font-medium text-blue-700">Correlations</h4>
+                            <div className="space-y-2">
+                                {analysisResult.correlations.map((item, idx) => (
+                                    <div key={idx} className="rounded border border-blue-200 bg-white p-2">
+                                        <div className="flex items-start justify-between">
+                                            <p className="text-sm text-gray-700">{item.insight}</p>
+                                            {getConfidenceBadge(item.confidence)}
+                                        </div>
+                                        <p className="mt-1 text-xs text-gray-500">Rule: {item.rule}</p>
+                                        <p className="text-xs text-gray-500">Data: {item.dataPoint}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {analysisResult.contradictions && analysisResult.contradictions.length > 0 && (
+                        <div className="mb-3">
+                            <h4 className="mb-2 text-sm font-medium text-orange-700">Contradictions</h4>
+                            <div className="space-y-2">
+                                {analysisResult.contradictions.map((item, idx) => (
+                                    <div key={idx} className="rounded border border-orange-200 bg-white p-2">
+                                        <div className="flex items-start justify-between">
+                                            <p className="text-sm text-gray-700">{item.insight}</p>
+                                            {getConfidenceBadge(item.confidence)}
+                                        </div>
+                                        <p className="mt-1 text-xs text-gray-500">Rule: {item.rule}</p>
+                                        <p className="text-xs text-gray-500">Data: {item.dataPoint}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {analysisResult.patterns && analysisResult.patterns.length > 0 && (
+                        <div>
+                            <h4 className="mb-2 text-sm font-medium text-purple-700">Patterns</h4>
+                            <div className="space-y-2">
+                                {analysisResult.patterns.map((item, idx) => (
+                                    <div key={idx} className="rounded border border-purple-200 bg-white p-2">
+                                        <div className="flex items-start justify-between">
+                                            <p className="text-sm text-gray-700">{item.insight}</p>
+                                            {getConfidenceBadge(item.confidence)}
+                                        </div>
+                                        <p className="mt-1 text-xs text-gray-500">Rule: {item.rule}</p>
+                                        <p className="text-xs text-gray-500">Data: {item.dataPoint}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className="mb-6 rounded-lg bg-purple-50 p-4">
                 <div className="text-center">

@@ -185,3 +185,17 @@ export type SentimentHistoryItem = {
     stressConfidence?: number;
     stressTrend?: "increasing" | "decreasing" | "stable";
 };
+
+export type AnalysisInsight = {
+    insight: string;
+    rule: string;
+    dataPoint: string;
+    confidence: "high" | "medium" | "low";
+};
+
+export type AnalysisResult = {
+    correlations: AnalysisInsight[];
+    contradictions: AnalysisInsight[];
+    patterns: AnalysisInsight[];
+    summary: string;
+};

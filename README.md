@@ -201,4 +201,7 @@ Branch : biometric-llm-tools
 -Implementation of rule base state decision 
 -Consider blink rate change as a parameter for LLM instruction 
 -Passing stress level to LLM failed in this branch - feature reverted only Stress analyzer added.
+Branch : report-analyzer-integration
+-Integrate another LLM prompt with policy and research. 
+-Arrange explict and propoer prompts for a good detailed analysis report. 
 

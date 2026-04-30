@@ -1,7 +1,7 @@
 import logging
-import os
 from dataclasses import dataclass
 from typing import Literal, Optional
+
 from aiohttp import web
 
 # Configure logging at module level

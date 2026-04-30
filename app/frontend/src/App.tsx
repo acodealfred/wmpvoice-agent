@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Mic, MicOff, Smile, Meh, Frown, ClipboardList } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@/components/ui/button";
 import StatusMessage from "@/components/ui/status-message";
 import { VideoPanel } from "@/components/ui/video-panel";
 import { SentimentHistoryPanel } from "@/components/ui/sentiment-history-panel";
@@ -89,46 +88,42 @@ function App() {
         }
     });
 
-    const handleBiometricsUpdate = useCallback(async (biometrics: BiometricResult) => {
-        if (!enableBiometrics) return;
-        
-        // Get values with proper defaults
-        const faceEmotion = lastEmotion?.emotion;
-        const blinkChange = biometrics.metrics.blinkRateChangePercent;
-        
-        // Skip if no face detected or invalid emotion (but still send blink data)
-        const emotionToSend = (faceEmotion && 
-            !faceEmotion.includes("No face") && 
-            !faceEmotion.includes("multiple") &&
-            faceEmotion !== "UNKNOWN") 
-            ? faceEmotion 
-            : "NEUTRAL";
-        
-        // Only skip if blink change is truly 0 or undefined
-        const blinkToSend = (blinkChange !== undefined && blinkChange !== 0) ? blinkChange : 0;
-        
-        console.log('[App] ★ Sending biometrics update:', {
-            sentiment: sentiment?.sentiment || "neutral",
-            blink_rate_change_percent: blinkToSend,
-            face_emotion: emotionToSend,
-            rawEmotion: lastEmotion?.emotion,
-            rawBlinkChange: blinkChange
-        });
-        
-        try {
-            await fetch("/biometrics", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    sentiment: sentiment?.sentiment || "neutral",
-                    blink_rate_change_percent: blinkToSend,
-                    face_emotion: emotionToSend
-                })
+    const handleBiometricsUpdate = useCallback(
+        async (biometrics: BiometricResult) => {
+            if (!enableBiometrics) return;
+
+            const faceEmotion = lastEmotion?.emotion;
+            const blinkChange = biometrics.metrics.blinkRateChangePercent;
+
+            const emotionToSend =
+                faceEmotion && !faceEmotion.includes("No face") && !faceEmotion.includes("multiple") && faceEmotion !== "UNKNOWN" ? faceEmotion : "NEUTRAL";
+
+            const blinkToSend = blinkChange !== undefined && blinkChange !== 0 ? blinkChange : 0;
+
+            console.log("[App] ★ Sending biometrics update:", {
+                sentiment: sentiment?.sentiment || "neutral",
+                blink_rate_change_percent: blinkToSend,
+                face_emotion: emotionToSend,
+                rawEmotion: lastEmotion?.emotion,
+                rawBlinkChange: blinkChange
             });
-        } catch (err) {
-            console.error("Failed to update biometrics:", err);
-        }
-    }, [sentiment, lastEmotion, enableBiometrics]);
+
+            try {
+                await fetch("/biometrics", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        sentiment: sentiment?.sentiment || "neutral",
+                        blink_rate_change_percent: blinkToSend,
+                        face_emotion: emotionToSend
+                    })
+                });
+            } catch (err) {
+                console.error("Failed to update biometrics:", err);
+            }
+        },
+        [sentiment, lastEmotion, enableBiometrics]
+    );
 
     const handleStopBiometricsAnalysis = useCallback(async () => {
         if (!enableBiometrics) return;
@@ -203,178 +198,403 @@ function App() {
     const { t } = useTranslation();
 
     return (
-        <div className="flex min-h-screen flex-col bg-gray-100 text-gray-900">
-            <div className="p-4 sm:absolute sm:left-4 sm:top-4">
-                <img src={logo} alt="Azure logo" className="h-16 w-16" />
-            </div>
-            <main className="flex flex-grow flex-col items-center justify-center p-4">
-                <div className="flex w-full max-w-6xl flex-wrap items-start justify-center gap-8">
-                    <div className="flex-shrink-0">
-                        <VideoPanel 
-                            isRecording={isRecording} 
-                            onEmotionDetected={handleEmotionDetected} 
-                            enableBiometrics={enableBiometrics} 
-                            onStressStateChanged={() => {}}
-                            onBiometricsDetected={handleBiometricsUpdate}
-                            onStopAnalysis={handleStopBiometricsAnalysis}
-                        />
-                    </div>
-                    <div className="flex flex-grow flex-col items-center justify-center">
-                        <h1 className="mb-8 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-4xl font-bold text-transparent md:text-7xl">
-                            {t("app.title")}
-                        </h1>
-                        <div className="mb-4 flex flex-col items-center justify-center">
-                            {showOnboarding && !isRecording && (
-                                <div className="animate-fade-in mb-4 w-80 rounded-lg border border-purple-200 bg-purple-100 p-4 shadow-md">
-                                    <h3 className="mb-2 font-semibold text-purple-800">{t("onboarding.title") || "How to use"}</h3>
-                                    <ol className="space-y-1 text-sm text-purple-700">
-                                        <li>1. {t("onboarding.step1") || "Click the microphone button"}</li>
-                                        <li>2. {t("onboarding.step2") || "Camera will turn on automatically"}</li>
-                                        <li>3. {t("onboarding.step3") || "Wait 5 seconds for face analysis to start"}</li>
-                                        <li>4. {t("onboarding.step4") || "Make sure only one face is visible"}</li>
-                                        <li>5. {t("onboarding.step5") || 'Say "Hi, Who are you?" to start'}</li>
-                                    </ol>
-                                    <div className="mt-3 border-t border-purple-200 pt-3">
-                                        <h4 className="mb-1 font-semibold text-red-800">{t("onboarding.limitationsTitle") || "Limitations"}</h4>
-                                        <div className="space-y-1 text-sm text-red-700">
-                                            <p>• {t("onboarding.limitation1") || "Not optimized for mobile/tablet — use a desktop browser"}</p>
-                                            <p>
-                                                •{" "}
-                                                {t("onboarding.limitation2") ||
-                                                    "The interface displays all processing steps, which may make the results page appear cluttered"}
-                                            </p>
-                                            <p>• {t("onboarding.limitation3") || "Responses may occasionally be inaccurate"}</p>
-                                            <p>• {t("onboarding.limitation4") || "The agent may go off-topic — you can guide it back"}</p>
-                                            <p>• {t("onboarding.limitation5") || "Some survey questions may be skipped"}</p>
-                                            <p>• {t("onboarding.limitation6") || "Detailed burnout report — Not implemented"}</p>
-                                            <p>• {t("onboarding.limitation7") || "Post-survey consultant — Not implemented"}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            {initialGreeting && (
-                                <div className="animate-fade-in mb-4 rounded-lg border border-green-200 bg-green-100 px-4 py-2 shadow-md">
-                                    <p className="text-sm font-medium text-green-800">{initialGreeting}</p>
-                                </div>
-                            )}
-                            <Button
-                                onClick={onToggleListening}
-                                className={`h-12 w-60 ${isRecording ? "bg-red-600 hover:bg-red-700" : "animate-pulse-glow bg-purple-500 hover:bg-purple-600"}`}
-                                aria-label={isRecording ? t("app.stopRecording") : t("app.startRecording")}
-                            >
-                                {isRecording ? (
-                                    <>
-                                        <MicOff className="mr-2 h-4 w-4" />
-                                        {t("app.stopConversation")}
-                                    </>
-                                ) : (
-                                    <>
-                                        <Mic className="mr-2 h-6 w-6" />
-                                    </>
-                                )}
-                            </Button>
-                            <StatusMessage isRecording={isRecording} />
-                        </div>
-                        <div className="mb-4 flex gap-3">
-                            {enableSentiment && (
-                                <div className="flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
-                                    <Smile className="h-3 w-3" />
-                                    Sentiment
-                                </div>
-                            )}
-                            {enableSurvey && (
-                                <div className="flex items-center gap-1 rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
-                                    <ClipboardList className="h-3 w-3" />
-                                    Survey
-                                </div>
-                            )}
-                        </div>
-                        {sentiment && (
-                            <div className="mb-6 flex items-center gap-2 rounded-lg bg-white px-4 py-2 shadow-md">
-                                <span className="text-sm font-medium text-gray-600">Sentiment:</span>
-                                {sentiment.sentiment === "positive" && (
-                                    <>
-                                        <Smile className="h-5 w-5 text-green-500" />
-                                        <span className="text-sm font-medium text-green-600">Positive</span>
-                                    </>
-                                )}
-                                {sentiment.sentiment === "neutral" && (
-                                    <>
-                                        <Meh className="h-5 w-5 text-yellow-500" />
-                                        <span className="text-sm font-medium text-yellow-600">Neutral</span>
-                                    </>
-                                )}
-                                {sentiment.sentiment === "negative" && (
-                                    <>
-                                        <Frown className="h-5 w-5 text-red-500" />
-                                        <span className="text-sm font-medium text-red-600">Negative</span>
-                                    </>
-                                )}
-                                {sentiment.reason && <span className="text-xs text-gray-500">- {sentiment.reason}</span>}
-                            </div>
-                        )}
-                        {surveyTotal > 0 && (
-                            <div className="mb-6 w-full max-w-md rounded-lg bg-white p-4 shadow-md">
-                                <h3 className="mb-3 text-lg font-semibold text-gray-700">Burnout Assessment - Demostration Purpose Only</h3>
-                                <div className="mb-2 flex justify-between text-sm text-gray-600">
-                                    <span>
-                                        Progress: {surveyCompleted} / {surveyTotal}
-                                    </span>
-                                    <span>{surveyQuestions.length > 0 ? `Current: ${surveyQuestions[surveyQuestions.length - 1].score}/5` : ""}</span>
-                                </div>
-                                <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-                                    <div
-                                        className="h-full bg-purple-500 transition-all duration-300"
-                                        style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
-                                    />
-                                </div>
-                                {surveyQuestions.length > 0 && (
-                                    <>
-                                        <div className="mt-3 text-sm text-gray-700 italic">
-                                            <span className="font-medium">Current question: </span>
-                                            {surveyQuestions[surveyQuestions.length - 1].text}
-                                        </div>
-                                        {surveyOptions.length > 0 && (
-                                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
-                                                <span className="font-medium">Options:</span>
-                                                {surveyOptions.map(opt => (
-                                                    <span key={opt.value} className="rounded bg-gray-100 px-2 py-1">
-                                                        {opt.value}={opt.label}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                        <div className="mt-2 text-xs text-gray-500">
-                                            <span>Responses: </span>
-                                            {surveyQuestions.map(q => (
-                                                <span key={q.id} className="mr-2">
-                                                    {q.id}:{q.score}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        )}
-                        
-                        {showDetailedReport && biometricSnapshots.length > 0 && (
-                            <div className="mb-6 flex justify-center">
-                                <DetailedReport 
-                                    snapshots={biometricSnapshots} 
-                                    totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
-                                    onClose={() => setShowDetailedReport(false)}
-                                />
-                            </div>
-                        )}
-                        
-                        <SentimentHistoryPanel history={sentimentHistory} timeFrameSeconds={TIME_FRAME_SECONDS} />
+        <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900 text-gray-100">
+            <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-slate-800 bg-slate-950/80 px-6 backdrop-blur-md">
+                <div className="flex items-center gap-3">
+                    <img src={logo} alt="CIQ logo" className="h-10 w-10" />
+                    <div>
+                        <h1 className="text-lg font-bold tracking-tight text-white">CIQ Voice Agent</h1>
+                        <p className="text-xs text-slate-400">Burnout Assessment Platform</p>
                     </div>
                 </div>
-            </main>
+                <div className="flex items-center gap-3">
+                    {enableSentiment && (
+                        <div className="flex items-center gap-1 rounded-full bg-green-900/50 px-3 py-1.5 text-xs font-medium text-green-400 ring-1 ring-green-800/50">
+                            <Smile className="h-3.5 w-3.5" />
+                            Sentiment
+                        </div>
+                    )}
+                    {enableSurvey && (
+                        <div className="flex items-center gap-1 rounded-full bg-purple-900/50 px-3 py-1.5 text-xs font-medium text-purple-400 ring-1 ring-purple-800/50">
+                            <ClipboardList className="h-3.5 w-3.5" />
+                            Survey
+                        </div>
+                    )}
+                    {!isRecording && <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">Ready</span>}
+                </div>
+            </header>
 
-            <footer className="py-4 text-center">
-                <p>{t("app.footer")}</p>
-            </footer>
+            <main className="flex flex-1 overflow-hidden p-4">
+                <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-4">
+                    <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
+                        <div className="flex h-full flex-col">
+                            <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="h-2 w-2 rounded-full bg-green-500/70 ring-2 ring-green-500/20"></div>
+                                    <h2 className="text-sm font-semibold text-slate-200">Camera Feed</h2>
+                                    <span className="ml-auto text-xs text-slate-500">LIVE</span>
+                                </div>
+                            </div>
+                            <div className="flex-1 p-4">
+                                <VideoPanel
+                                    isRecording={isRecording}
+                                    onEmotionDetected={handleEmotionDetected}
+                                    enableBiometrics={enableBiometrics}
+                                    onStressStateChanged={() => {}}
+                                    onBiometricsDetected={handleBiometricsUpdate}
+                                    onStopAnalysis={handleStopBiometricsAnalysis}
+                                />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
+                        <div className="flex h-full flex-col">
+                            <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
+                                <h2 className="text-sm font-semibold text-slate-200">Face Emotion & Biometrics</h2>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4">
+                                <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
+                                    <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Current Emotion</h3>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800 text-4xl">
+                                                {lastEmotion ? (
+                                                    <span>
+                                                        {lastEmotion.emotion === "HAPPY"
+                                                            ? "😊"
+                                                            : lastEmotion.emotion === "SAD"
+                                                              ? "😢"
+                                                              : lastEmotion.emotion === "ANGRY"
+                                                                ? "😠"
+                                                                : lastEmotion.emotion === "FEAR"
+                                                                  ? "😨"
+                                                                  : lastEmotion.emotion === "SURPRISED"
+                                                                    ? "😲"
+                                                                    : lastEmotion.emotion === "DISGUSTED"
+                                                                      ? "🤢"
+                                                                      : lastEmotion.emotion === "NEUTRAL"
+                                                                        ? "😐"
+                                                                        : "😐"}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-500">-</span>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <p className="text-lg font-semibold text-slate-200">
+                                                    {lastEmotion
+                                                        ? lastEmotion.emotion.charAt(0) + lastEmotion.emotion.slice(1).toLowerCase()
+                                                        : "No face detected"}
+                                                </p>
+                                                <p className="text-xs text-slate-500">Confidence: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%</p>
+                                            </div>
+                                        </div>
+                                        {isRecording && <div className="h-3 w-3 animate-pulse rounded-full bg-green-500/70 ring-2 ring-green-500/20"></div>}
+                                    </div>
+                                </div>
+
+                                {isRecording && (
+                                    <div className="rounded-xl bg-slate-800/50 p-4">
+                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="rounded-lg bg-slate-800/30 p-3">
+                                                <p className="text-xs text-slate-500">Blink Rate</p>
+                                                <p className="text-lg font-semibold text-slate-200" id="blink-rate">
+                                                    --
+                                                </p>
+                                            </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-3">
+                                                <p className="text-xs text-slate-500">Eye Openness</p>
+                                                <p className="text-lg font-semibold text-slate-200" id="eye-openness">
+                                                    --
+                                                </p>
+                                            </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-3">
+                                                <p className="text-xs text-slate-500">Smile</p>
+                                                <p className="text-lg font-semibold text-slate-200" id="smile-intensity">
+                                                    --
+                                                </p>
+                                            </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-3">
+                                                <p className="text-xs text-slate-500">Head Pose</p>
+                                                <p className="text-lg font-semibold text-slate-200" id="head-pose">
+                                                    --
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {sentiment && (
+                                    <div className="mt-4 rounded-xl bg-gradient-to-r from-slate-800/50 to-slate-700/30 p-4">
+                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Voice Sentiment</h3>
+                                        <div className="flex items-center gap-3">
+                                            {sentiment.sentiment === "positive" && (
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/20">
+                                                    <Smile className="h-5 w-5 text-green-400" />
+                                                </div>
+                                            )}
+                                            {sentiment.sentiment === "neutral" && (
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-500/20">
+                                                    <Meh className="h-5 w-5 text-yellow-400" />
+                                                </div>
+                                            )}
+                                            {sentiment.sentiment === "negative" && (
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/20">
+                                                    <Frown className="h-5 w-5 text-red-400" />
+                                                </div>
+                                            )}
+                                            <div>
+                                                <p className="text-sm font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
+                                                <p className="text-xs text-slate-400">{sentiment.reason}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
+                        <div className="flex h-full flex-col">
+                            <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-sm font-semibold text-slate-200">Survey Assessment</h2>
+                                    {surveyTotal > 0 && (
+                                        <span className="ml-auto rounded-full bg-purple-500/20 px-2 py-0.5 text-xs text-purple-400">
+                                            {surveyCompleted} / {surveyTotal}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4">
+                                {surveyTotal > 0 && (
+                                    <>
+                                        <div className="mb-4">
+                                            <div className="mb-2 flex justify-between text-xs text-slate-400">
+                                                <span>Assessment Progress</span>
+                                                <span>{Math.round((surveyCompleted / surveyTotal) * 100)}%</span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                                                <div
+                                                    className="h-full rounded-full bg-gradient-to-r from-purple-600 to-pink-500 transition-all duration-500"
+                                                    style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {surveyQuestions.length > 0 && (
+                                            <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
+                                                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Current Question</p>
+                                                <p className="text-sm text-slate-200">{surveyQuestions[surveyQuestions.length - 1].text}</p>
+                                                <div className="mt-3">
+                                                    <span className="text-xs text-slate-500">Score: </span>
+                                                    <span className="text-lg font-semibold text-purple-400">
+                                                        {surveyQuestions[surveyQuestions.length - 1].score}/5
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {surveyOptions.length > 0 && (
+                                            <div className="mb-4">
+                                                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Available Options</p>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {surveyOptions.map(opt => (
+                                                        <div key={opt.value} className="rounded-lg bg-slate-800/30 p-2 text-center">
+                                                            <p className="text-xs text-slate-400">{opt.label}</p>
+                                                            <p className="text-lg font-semibold text-slate-200">{opt.value}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div>
+                                            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Response History</p>
+                                            <div className="space-y-2">
+                                                {surveyQuestions.map(q => (
+                                                    <div key={q.id} className="flex items-center justify-between rounded-lg bg-slate-800/30 px-3 py-2">
+                                                        <span className="text-xs text-slate-400">{q.id}</span>
+                                                        <span className="text-sm font-semibold text-slate-200">{q.score}/5</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+
+                                {!surveyTotal && (
+                                    <div className="flex h-full flex-col items-center justify-center text-center">
+                                        <ClipboardList className="mb-3 h-12 w-12 text-slate-600" />
+                                        <p className="text-sm text-slate-500">No active survey</p>
+                                        <p className="text-xs text-slate-600">Begin conversation to start assessment</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
+                        <div className="flex h-full flex-col">
+                            {((showOnboarding && !isRecording) || initialGreeting) && (
+                                <div className="border-b border-slate-800 bg-slate-800/30 px-5 py-4">
+                                    {initialGreeting && (
+                                        <div className="mb-3 rounded-lg border border-green-500/20 bg-green-500/10 px-4 py-3">
+                                            <p className="text-sm font-medium text-green-400">{initialGreeting}</p>
+                                        </div>
+                                    )}
+                                    {showOnboarding && !isRecording && (
+                                        <div>
+                                            <h3 className="mb-3 text-sm font-semibold text-slate-200">Getting Started</h3>
+                                            <ol className="space-y-2 text-sm">
+                                                <li className="flex items-start gap-3">
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
+                                                        1
+                                                    </span>
+                                                    <span className="text-slate-400">{t("onboarding.step1")}</span>
+                                                </li>
+                                                <li className="flex items-start gap-3">
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
+                                                        2
+                                                    </span>
+                                                    <span className="text-slate-400">{t("onboarding.step2")}</span>
+                                                </li>
+                                                <li className="flex items-start gap-3">
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
+                                                        3
+                                                    </span>
+                                                    <span className="text-slate-400">{t("onboarding.step3")}</span>
+                                                </li>
+                                                <li className="flex items-start gap-3">
+                                                    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/20 text-xs font-semibold text-purple-400">
+                                                        4
+                                                    </span>
+                                                    <span className="text-slate-400">{t("onboarding.step4")}</span>
+                                                </li>
+                                            </ol>
+
+                                            <div className="mt-4 rounded-lg border border-slate-800 bg-slate-800/50 p-3">
+                                                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Limitations</p>
+                                                <ul className="space-y-1 text-xs text-slate-500">
+                                                    <li>• Not optimized for mobile/tablet</li>
+                                                    <li>• Interface may appear busy</li>
+                                                    <li>• Responses may be inaccurate</li>
+                                                    <li>• Agent may go off-topic</li>
+                                                    <li>• Survey questions may be skipped</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="flex-1 overflow-y-auto p-4">
+                                <div className="mb-4 flex justify-center">
+                                    <button
+                                        onClick={onToggleListening}
+                                        className={`group relative flex h-16 w-full max-w-xs items-center justify-center gap-3 rounded-xl px-8 text-lg font-semibold transition-all duration-300 ${
+                                            isRecording
+                                                ? "bg-gradient-to-r from-red-600 to-red-500 shadow-lg shadow-red-500/20 hover:from-red-500 hover:to-red-400"
+                                                : "animate-pulse-glow bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
+                                        }`}
+                                        aria-label={isRecording ? t("app.stopRecording") : t("app.startRecording")}
+                                    >
+                                        {isRecording ? (
+                                            <>
+                                                <MicOff className="h-5 w-5" />
+                                                {t("app.stopConversation")}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Mic className="h-6 w-6" />
+                                                Click to Start
+                                            </>
+                                        )}
+                                        {isRecording && (
+                                            <span className="absolute -right-2 -top-2 flex h-5 w-5">
+                                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                                                <span className="relative inline-flex h-5 w-5 rounded-full bg-red-500"></span>
+                                            </span>
+                                        )}
+                                    </button>
+                                </div>
+
+                                <StatusMessage isRecording={isRecording} />
+
+                                {sentiment && (
+                                    <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
+                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Current Sentiment</h3>
+                                        <div className="flex items-center gap-3">
+                                            {sentiment.sentiment === "positive" && (
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/20">
+                                                    <Smile className="h-5 w-5 text-green-400" />
+                                                </div>
+                                            )}
+                                            {sentiment.sentiment === "neutral" && (
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-500/20">
+                                                    <Meh className="h-5 w-5 text-yellow-400" />
+                                                </div>
+                                            )}
+                                            {sentiment.sentiment === "negative" && (
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/20">
+                                                    <Frown className="h-5 w-5 text-red-400" />
+                                                </div>
+                                            )}
+                                            <div>
+                                                <p className="text-sm font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
+                                                <p className="text-xs text-slate-500">{sentiment.reason}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {surveyTotal > 0 && (
+                                    <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
+                                        <div className="mb-2 flex items-center justify-between">
+                                            <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">Burnout Assessment</h3>
+                                            <span className="text-xs text-purple-400">
+                                                {surveyCompleted} / {surveyTotal}
+                                            </span>
+                                        </div>
+                                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                                            <div
+                                                className="h-full rounded-full bg-gradient-to-r from-purple-600 to-pink-500 transition-all duration-500"
+                                                style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
+                                            />
+                                        </div>
+                                        {surveyQuestions.length > 0 && (
+                                            <p className="mt-2 text-xs text-slate-400">
+                                                Current score: <span className="text-slate-200">{surveyQuestions[surveyQuestions.length - 1].score}/5</span>
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {showDetailedReport && biometricSnapshots.length > 0 && (
+                                    <div className="mb-4">
+                                        <DetailedReport
+                                            snapshots={biometricSnapshots}
+                                            totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
+                                            onClose={() => setShowDetailedReport(false)}
+                                            onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
+                                        />
+                                    </div>
+                                )}
+
+                                <div>
+                                    <SentimentHistoryPanel history={sentimentHistory} timeFrameSeconds={TIME_FRAME_SECONDS} />
+                                </div>
+                            </div>
+
+                            <div className="border-t border-slate-800 bg-slate-900/50 px-5 py-3">
+                                <p className="text-center text-xs text-slate-500">{t("app.footer")}</p>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </main>
         </div>
     );
 }

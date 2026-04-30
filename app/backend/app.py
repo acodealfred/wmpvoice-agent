@@ -9,8 +9,8 @@ from azure.core.credentials import AzureKeyCredential
 from azure.identity import AzureDeveloperCliCredential, DefaultAzureCredential
 from dotenv import load_dotenv
 
-from rtmt import RTMiddleTier
 from biometric_interpreter import analyze_stress
+from rtmt import RTMiddleTier
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
@@ -19,7 +19,140 @@ logger = logging.getLogger("voicerag")
 logger.setLevel(logging.INFO)
 
 
-async def analyze_face(request):
+async def analyze_report(request):
+    """Analyze the detailed burnout report using behavioral analysis engine"""
+    try:
+        data = await request.json()
+        snapshots = data.get("snapshots", [])
+
+        if not snapshots:
+            return web.json_response({"error": "No snapshot data provided"}, status=400)
+
+        # Ground truth for analysis - blink rate behavioral rules
+        research_rules = """
+Blink Rate (BR): The blink-rate varies with emotional and physical stimulus. When humans are 
+captivated, interested or otherwise curious about something in their field of view, the blink 
+rate will slow and gradually decline as the interest piquies. Conversely, an increasing or 
+rapid blink rate is indicative of high-stress and associated with low levels of concentration 
+and interest. A rapid blinking during conversation can also be interpreted as a feeling of 
+superiority and contempt.
+"""
+
+        # Build input data from snapshots - only using required fields
+        input_data = []
+        for s in snapshots:
+            # Calculate BR Stress Level
+            br_change = s.get("blinkRateChange", 0)
+            if br_change > 30:
+                br_stress = "High"
+            elif br_change < -30:
+                br_stress = "Low"
+            else:
+                br_stress = "Normal"
+
+            input_data.append(
+                {
+                    "question": s.get("questionId", ""),
+                    "domain": s.get("domain", ""),
+                    "score": s.get("score", 0),
+                    "voice_sentiment": s.get("voiceSentiment", "neutral"),
+                    "blink_rate_change": br_change,
+                    "br_stress": br_stress,
+                }
+            )
+
+        # System prompt for the analysis engine
+        system_prompt = f"""You are a behavioral analysis engine.
+
+You MUST follow these rules strictly:
+
+GROUNDING RULES:
+- Use ONLY the provided "Research Rules" and "Input Data"
+- Do NOT use external knowledge, assumptions, or general psychology
+- If a conclusion cannot be derived from the rules, return "insufficient_evidence"
+
+RESEARCH RULES:
+{research_rules}
+
+INPUT DATA:
+{input_data}
+
+EVIDENCE REQUIREMENT:
+- Every insight MUST include: the exact rule used, the exact data point used
+
+OUTPUT RULES:
+- Output MUST be valid JSON
+- No explanations outside JSON
+- No additional commentary
+
+ANALYSIS RULES:
+- Identify correlations between score and biometric change
+- Highlight contradictions (e.g., high score + stress signal)
+- Detect repeated patterns across questions
+- Be conservative: prefer "insufficient_evidence" over guessing
+
+CONFIDENCE:
+- High: clear rule match + strong signal
+- Medium: partial match
+- Low: weak or borderline signal
+
+Output JSON format:
+{{
+  "correlations": [{{"insight": "...", "rule": "...", "dataPoint": "...", "confidence": "high|medium|low"}}],
+  "contradictions": [{{"insight": "...", "rule": "...", "dataPoint": "...", "confidence": "high|medium|low"}}],
+  "patterns": [{{"insight": "...", "rule": "...", "dataPoint": "...", "confidence": "high|medium|low"}}],
+  "summary": "Consultative summary of findings"
+}}
+"""
+
+        # Use RTMiddleTier to call OpenAI for analysis
+        # Get the rtmt instance from app
+        rtmt = request.app.get("rtmt")
+
+        if not rtmt:
+            return web.json_response(
+                {"error": "Analysis service not available"}, status=503
+            )
+
+        # Call the LLM for analysis
+        try:
+            analysis_result = await rtmt.analyze_with_prompt(system_prompt)
+
+            # Now trigger the agent to speak with the analysis results using consultative tone
+            consultative_prompt = f"""You are a workplace wellbeing consultant reviewing the burnout assessment results.
+
+Based on the analysis results:
+{analysis_result}
+
+Please provide a consultative response to the user that:
+1. Acknowledges their assessment results in a supportive way
+2. Highlights key findings from the analysis (correlations, contradictions, patterns)
+3. Offers actionable insights based on the biometric data
+4. Maintains a warm, professional tone - like a caring workplace coach
+
+Keep your response conversational and audio-friendly (short paragraphs, clear points).
+Begin your response with a brief greeting acknowledging completion of their assessment.
+"""
+
+            # Get the session to send a conversational response
+            response_text = await rtmt.analyze_with_prompt(consultative_prompt)
+
+            return web.json_response(
+                {"analysis": analysis_result, "agentResponse": response_text}
+            )
+        except Exception as e:
+            logger.error(f"LLM analysis error: {e}")
+            return web.json_response(
+                {"error": f"Analysis failed: {str(e)}"}, status=500
+            )
+
+    except Exception as e:
+        logger.error(f"Report analysis error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def analyze_face(request, rtmt: RTMiddleTier):
+    """Analyze face from image data using AWS Rekognition"""
     try:
         data = await request.json()
         image_data = data.get("image", "")
@@ -192,17 +325,7 @@ async def create_app():
 
     app = web.Application()
 
-    app.router.add_post("/analyze", analyze_face)
-    app.router.add_post("/analyze-stress", analyze_stress)
-    app.router.add_get("/config", get_config)
-    app.router.add_post(
-        "/stress-state", lambda request: update_stress_state(request, rtmt)
-    )
-    app.router.add_post(
-        "/clear-stress", lambda request: clear_stress_state(request, rtmt)
-    )
-    app.router.add_post("/biometrics", lambda request: update_biometrics(request, rtmt))
-
+    # Create RTMiddleTier instance first
     rtmt = RTMiddleTier(
         credentials=llm_credential,
         endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -234,6 +357,15 @@ async def create_app():
             You are a helpful voice assistant. Provide clear, concise answers to the user's questions.
             Keep responses short since the user is listening to audio.
         """.strip()
+
+    # Store rtmt in app for access by request handlers
+    app["rtmt"] = rtmt
+
+    app.router.add_post("/biometrics", lambda request: update_biometrics(request, rtmt))
+    app.router.add_post("/analyze-report", analyze_report)
+    app.router.add_post("/analyze", lambda request: analyze_face(request, rtmt))
+    app.router.add_post("/analyze-stress", analyze_stress)
+    app.router.add_get("/config", get_config)
 
     # RAG tools disabled - kept for future extensibility
     # attach_rag_tools(rtmt,

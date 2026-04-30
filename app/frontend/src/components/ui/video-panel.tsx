@@ -1,9 +1,8 @@
 import { useEffect, useState, useRef } from "react";
-import { Video, VideoOff, Loader2, AlertTriangle, Play, RotateCcw } from "lucide-react";
+import { Video, VideoOff, Loader2, AlertTriangle } from "lucide-react";
 import { useVideoCapture, EmotionResult } from "@/hooks/useVideoCapture";
 import { useBiometrics } from "@/hooks/useBiometrics";
 import { BiometricResult, StressResult } from "@/types";
-import { Button } from "@/components/ui/button";
 
 interface VideoPanelProps {
   onEmotionDetected?: (emotion: EmotionResult) => void;
@@ -14,12 +13,10 @@ interface VideoPanelProps {
   enableBiometrics?: boolean;
   baselineDuration?: number;
   onBaselineComplete?: () => void;
+  showBaselines?: boolean;
 }
 
 const ANALYSIS_DELAY_MS = 5000;
-
-const DEFAULT_BIOMETRICS_ENABLED = false;
-const DEFAULT_BASELINE_DURATION = 30;
 
 const emotionIcons: Record<string, string> = {
   HAPPY: "😊",
@@ -38,8 +35,8 @@ export function VideoPanel({
   onStressStateChanged,
   onStopAnalysis,
   isRecording = false, 
-  enableBiometrics = DEFAULT_BIOMETRICS_ENABLED,
-  baselineDuration = DEFAULT_BASELINE_DURATION,
+  enableBiometrics = false,
+  baselineDuration = 30,
   onBaselineComplete,
 }: VideoPanelProps) {
   const [analysisReady, setAnalysisReady] = useState(false);
@@ -74,7 +71,7 @@ export function VideoPanel({
     clearBaseline,
   } = useBiometrics({ 
     onBiometricsDetected,
-    baselineDuration,
+    baselineDuration, 
   });
 
   useEffect(() => {
