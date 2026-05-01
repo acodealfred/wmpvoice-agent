@@ -63,13 +63,11 @@ export function SentimentHistoryPanel({ history, timeFrameSeconds }: SentimentHi
                 <div className="flex items-center gap-1.5">
                     <span className="text-[9px] text-gray-500">{latestItem.timeFrameLabel}</span>
                     <span className="text-sm">{getEmotionEmoji(latestItem.faceEmotion)}</span>
-                    <span className="text-[10px] text-gray-300 uppercase truncate max-w-[4rem]">{latestItem.faceEmotion || "N/A"}</span>
+                    <span className="max-w-[4rem] truncate text-[10px] uppercase text-gray-300">{latestItem.faceEmotion || "N/A"}</span>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex shrink-0 items-center gap-1">
                     {getSentimentIcon(latestItem.voiceSentiment)}
-                    <span className={`text-[10px] font-medium capitalize ${getSentimentColor(latestItem.voiceSentiment)}`}>
-                        {latestItem.voiceSentiment}
-                    </span>
+                    <span className={`text-[10px] font-medium capitalize ${getSentimentColor(latestItem.voiceSentiment)}`}>{latestItem.voiceSentiment}</span>
                 </div>
             </div>
         </div>
