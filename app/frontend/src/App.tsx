@@ -464,51 +464,51 @@ function App() {
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
                                 {/* Current Emotion & Voice Sentiment - Side by Side */}
-                                <div className="mb-4 grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-2 gap-2">
                                     {/* Current Emotion */}
-                                    <div className="rounded-xl bg-slate-800/50 p-4">
-                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Current Emotion</h3>
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800 text-4xl">
+                                    <div className="rounded bg-slate-800/50 px-2 py-1.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-xl">
                                                     {lastEmotion ? <span>{getEmotionEmoji(lastEmotion.emotion)}</span> : <span className="text-slate-500">-</span>}
                                                 </div>
                                                 <div>
-                                                    <p className="text-lg font-semibold text-slate-200">
+                                                    <p className="text-xs font-semibold text-slate-200 truncate max-w-20">
                                                         {lastEmotion
                                                             ? lastEmotion.emotion.charAt(0) + lastEmotion.emotion.slice(1).toLowerCase()
-                                                            : "No face detected"}
+                                                            : "No face"}
                                                     </p>
-                                                    <p className="text-xs text-slate-500">Confidence: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%</p>
+                                                    <p className="text-[9px] text-slate-500">Conf: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%</p>
                                                 </div>
                                             </div>
-                                            {isRecording && <div className="h-3 w-3 animate-pulse rounded-full bg-green-500/70 ring-2 ring-green-500/20"></div>}
+                                            {isRecording && <div className="h-2 w-2 animate-pulse rounded-full bg-green-500/70 ring-1 ring-green-500/20 shrink-0"></div>}
                                         </div>
                                     </div>
 
                                     {/* Voice Sentiment */}
                                     {sentiment && (
-                                        <div className="rounded-xl bg-gradient-to-r from-slate-800/50 to-slate-700/30 p-4">
-                                            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Voice Sentiment</h3>
-                                            <div className="flex items-center gap-3">
-                                                {sentiment.sentiment === "positive" && (
-                                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/20">
-                                                        <Smile className="h-5 w-5 text-green-400" />
+                                        <div className="rounded bg-gradient-to-r from-slate-800/50 to-slate-700/30 px-2 py-1.5">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    {sentiment.sentiment === "positive" && (
+                                                        <div className="flex h-7 w-7 items-center justify-center rounded bg-green-500/20">
+                                                            <Smile className="h-3.5 w-3.5 text-green-400" />
+                                                        </div>
+                                                    )}
+                                                    {sentiment.sentiment === "neutral" && (
+                                                        <div className="flex h-7 w-7 items-center justify-center rounded bg-yellow-500/20">
+                                                            <Meh className="h-3.5 w-3.5 text-yellow-400" />
+                                                        </div>
+                                                    )}
+                                                    {sentiment.sentiment === "negative" && (
+                                                        <div className="flex h-7 w-7 items-center justify-center rounded bg-red-500/20">
+                                                            <Frown className="h-3.5 w-3.5 text-red-400" />
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <p className="text-[10px] font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
+                                                        <p className="text-[9px] text-slate-500 truncate max-w-24">{sentiment.reason}</p>
                                                     </div>
-                                                )}
-                                                {sentiment.sentiment === "neutral" && (
-                                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-500/20">
-                                                        <Meh className="h-5 w-5 text-yellow-400" />
-                                                    </div>
-                                                )}
-                                                {sentiment.sentiment === "negative" && (
-                                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/20">
-                                                        <Frown className="h-5 w-5 text-red-400" />
-                                                    </div>
-                                                )}
-                                                <div>
-                                                    <p className="text-sm font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
-                                                    <p className="text-xs text-slate-500">{sentiment.reason}</p>
                                                 </div>
                                             </div>
                                         </div>

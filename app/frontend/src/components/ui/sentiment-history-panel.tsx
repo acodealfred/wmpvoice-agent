@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Smile, Meh, Frown, Clock } from "lucide-react";
+import { Smile, Meh, Frown } from "lucide-react";
 import { SentimentHistoryItem } from "../../types";
 
 interface SentimentHistoryPanelProps {
@@ -49,12 +49,8 @@ export function SentimentHistoryPanel({ history, timeFrameSeconds }: SentimentHi
 
     if (history.length === 0) {
         return (
-            <div className="rounded-lg bg-gray-800 p-4">
-                <h3 className="mb-2 flex items-center text-sm font-medium text-gray-300">
-                    <Clock className="mr-2 h-4 w-4" />
-                    Sentiment History ({timeFrameLabel})
-                </h3>
-                <p className="text-center text-sm text-gray-500">No data yet</p>
+            <div className="rounded bg-gray-800 px-2 py-1.5">
+                <p className="text-center text-[10px] text-gray-500">No sentiment data</p>
             </div>
         );
     }
@@ -62,20 +58,16 @@ export function SentimentHistoryPanel({ history, timeFrameSeconds }: SentimentHi
     const latestItem = history[history.length - 1];
 
     return (
-        <div className="rounded-lg bg-gray-800 p-4">
-            <h3 className="mb-2 flex items-center text-sm font-medium text-gray-300">
-                <Clock className="mr-2 h-4 w-4" />
-                Sentiment History ({timeFrameLabel})
-            </h3>
-            <div className="flex items-center justify-between rounded bg-gray-700 p-3">
-                <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-gray-300">{latestItem.timeFrameLabel}</span>
-                    <span className="text-lg">{getEmotionEmoji(latestItem.faceEmotion)}</span>
-                    <span className="text-sm text-gray-300">{latestItem.faceEmotion || "N/A"}</span>
+        <div className="rounded bg-gray-800 px-2 py-1.5" title={`Sentiment ${timeFrameLabel}: ${latestItem.voiceSentiment}`}>
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-gray-500">{latestItem.timeFrameLabel}</span>
+                    <span className="text-sm">{getEmotionEmoji(latestItem.faceEmotion)}</span>
+                    <span className="text-[10px] text-gray-300 uppercase truncate max-w-[4rem]">{latestItem.faceEmotion || "N/A"}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 shrink-0">
                     {getSentimentIcon(latestItem.voiceSentiment)}
-                    <span className={`text-sm font-medium ${getSentimentColor(latestItem.voiceSentiment)}`}>
+                    <span className={`text-[10px] font-medium capitalize ${getSentimentColor(latestItem.voiceSentiment)}`}>
                         {latestItem.voiceSentiment}
                     </span>
                 </div>
