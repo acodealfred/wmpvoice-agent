@@ -577,43 +577,90 @@ function App() {
 
                                 {/* Biometric Metrics */}
                                 {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
-                                    <div className="rounded-xl bg-slate-800/50 p-2">
-                                        <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
-                                        <div className="grid grid-cols-3 gap-1">
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
-                                                <p className="text-[9px] text-slate-500">Blink Rate</p>
-                                                <p className="text-xs font-semibold text-slate-200">
-                                                    {currentBiometrics.metrics.blinkRate.toFixed(1)}/min
-                                                </p>
-                                                <p className="text-[9px] text-green-400">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
+                                    <div className="rounded bg-slate-800/50 px-1.5 py-1">
+                                        <h3 className="mb-1 text-[9px] font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
+                                        <div className="flex gap-1 overflow-x-auto">
+                                            {/* Blink Rate - Blue */}
+                                            <div className="flex shrink-0 items-center gap-1.5 rounded bg-blue-900/20 px-1.5 py-1">
+                                                <div className="h-1.5 w-1.5 rounded-full bg-blue-400"></div>
+                                                <div>
+                                                    <p className="text-[8px] text-blue-300">Blink</p>
+                                                    <p className="text-[9px] font-semibold text-blue-200">
+                                                        {currentBiometrics.metrics.blinkRate.toFixed(0)}/min
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
-                                                <p className="text-[9px] text-slate-500">Eye Openness</p>
-                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.eyeOpenness)}</p>
+
+                                            {/* Eye Openness - Cyan */}
+                                            <div className="flex shrink-0 items-center gap-1.5 rounded bg-cyan-900/20 px-1.5 py-1">
+                                                <div className="h-1.5 w-1.5 rounded-full bg-cyan-400"></div>
+                                                <div>
+                                                    <p className="text-[8px] text-cyan-300">Eye</p>
+                                                    <p className="text-[9px] font-semibold text-cyan-200">
+                                                        {formatMetric(currentBiometrics.metrics.eyeOpenness)}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
-                                                <p className="text-[9px] text-slate-500">Smile</p>
-                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.smileIntensity)}</p>
+
+                                            {/* Smile - Pink */}
+                                            <div className="flex shrink-0 items-center gap-1.5 rounded bg-pink-900/20 px-1.5 py-1">
+                                                <div className="h-1.5 w-1.5 rounded-full bg-pink-400"></div>
+                                                <div>
+                                                    <p className="text-[8px] text-pink-300">Smile</p>
+                                                    <p className="text-[9px] font-semibold text-pink-200">
+                                                        {formatMetric(currentBiometrics.metrics.smileIntensity)}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
-                                                <p className="text-[9px] text-slate-500">Head Pose</p>
-                                                <p className="text-xs font-semibold text-slate-200">
-                                                    {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
-                                                </p>
+
+                                            {/* Head Pose - Amber */}
+                                            <div className="flex shrink-0 items-center gap-1.5 rounded bg-amber-900/20 px-1.5 py-1">
+                                                <div className="h-1.5 w-1.5 rounded-full bg-amber-400"></div>
+                                                <div>
+                                                    <p className="text-[8px] text-amber-300">Pose</p>
+                                                    <p className="text-[9px] font-semibold text-amber-200 truncate max-w-12">
+                                                        {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
-                                                <p className="text-[9px] text-slate-500">Pupil Size</p>
-                                                <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.pupilSizeMm.toFixed(1)} mm</p>
-                                                <p className="text-[9px] text-green-400">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
+
+                                            {/* Pupil Size - Purple */}
+                                            <div className="flex shrink-0 items-center gap-1.5 rounded bg-purple-900/20 px-1.5 py-1">
+                                                <div className="h-1.5 w-1.5 rounded-full bg-purple-400"></div>
+                                                <div>
+                                                    <p className="text-[8px] text-purple-300">Pupil</p>
+                                                    <p className="text-[9px] font-semibold text-purple-200">
+                                                        {currentBiometrics.metrics.pupilSizeMm.toFixed(1)}mm
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
-                                                <p className="text-[9px] text-slate-500">Blink Change</p>
-                                                <p
-                                                    className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-400" : "text-green-400"}`}
-                                                >
-                                                    {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
-                                                    {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
-                                                </p>
+
+                                            {/* Blink Rate Change - Conditional */}
+                                            <div className={`flex shrink-0 items-center gap-1.5 rounded px-1.5 py-1 ${
+                                                currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                    ? "bg-red-900/20"
+                                                    : "bg-green-900/20"
+                                            }`}>
+                                                <div className={`h-1.5 w-1.5 rounded-full ${
+                                                    currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                        ? "bg-red-400"
+                                                        : "bg-green-400"
+                                                }`}></div>
+                                                <div>
+                                                    <p className={`text-[8px] ${
+                                                        currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                            ? "text-red-300"
+                                                            : "text-green-300"
+                                                    }`}>Change</p>
+                                                    <p className={`text-[9px] font-semibold ${
+                                                        currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                            ? "text-red-200"
+                                                            : "text-green-200"
+                                                    }`}>
+                                                        {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
+                                                        {currentBiometrics.metrics.blinkRateChangePercent.toFixed(0)}%
+                                                    </p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
