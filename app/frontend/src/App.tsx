@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, AlertTriangle, Video, VideoOff } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { VideoPanel, VideoPanelRef } from "@/components/ui/video-panel";
+import { VideoPanel } from "@/components/ui/video-panel";
 import { SentimentHistoryPanel } from "@/components/ui/sentiment-history-panel";
 import { DetailedReport } from "@/components/ui/detailed-report";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,6 @@ function App() {
     const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [multipleFacesWarning, setMultipleFacesWarning] = useState(false);
     const frameCounterRef = useRef(0);
-    const videoPanelRef = useRef<VideoPanelRef>(null);
 
     // Biometrics state
     const [currentBiometrics, setCurrentBiometrics] = useState<BiometricResult | null>(null);
@@ -422,33 +421,13 @@ function App() {
                                 </div>
                             </div>
                             <div className="flex-1 p-4">
-                                <VideoPanel ref={videoPanelRef} isRecording={isRecording} onEmotionDetected={handleEmotionDetected} />
+                                <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} />
                             </div>
                             <div className="border-t border-slate-800 bg-slate-900/50 px-5 py-3">
-                                <div className="flex gap-2">
-                                    <Button
-                                        onClick={() =>
-                                            videoPanelRef.current?.isStreaming ? videoPanelRef.current?.stopVideo() : videoPanelRef.current?.startVideo()
-                                        }
-                                        size="sm"
-                                        variant={videoPanelRef.current?.isStreaming ? "destructive" : "secondary"}
-                                        className="flex-1"
-                                    >
-                                        {videoPanelRef.current?.isStreaming ? (
-                                            <>
-                                                <VideoOff className="mr-2 h-4 w-4" />
-                                                Stop Camera
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Video className="mr-2 h-4 w-4" />
-                                                Start Camera
-                                            </>
-                                        )}
-                                    </Button>
+                                <div className="flex justify-center">
                                     <Button
                                         onClick={onToggleListening}
-                                        className={`group relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-all duration-300 ${
+                                        className={`group relative flex h-12 items-center justify-center gap-3 rounded-xl px-8 text-lg font-semibold transition-all duration-300 ${
                                             isRecording
                                                 ? "bg-gradient-to-r from-red-600 to-red-500 shadow-lg shadow-red-500/20 hover:from-red-500 hover:to-red-400"
                                                 : "bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
@@ -456,19 +435,19 @@ function App() {
                                     >
                                         {isRecording ? (
                                             <>
-                                                <MicOff className="h-4 w-4" />
+                                                <MicOff className="h-5 w-5" />
                                                 {t("app.stopConversation")}
                                             </>
                                         ) : (
                                             <>
-                                                <Mic className="h-4 w-4" />
+                                                <Mic className="h-6 w-6" />
                                                 {t("app.startRecording") || "Start Conversation"}
                                             </>
                                         )}
                                         {isRecording && (
-                                            <span className="absolute -right-1 -top-1 flex h-3 w-3">
+                                            <span className="absolute -right-2 -top-2 flex h-5 w-5">
                                                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
-                                                <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500"></span>
+                                                <span className="relative inline-flex h-5 w-5 rounded-full bg-red-500"></span>
                                             </span>
                                         )}
                                     </Button>
@@ -602,92 +581,41 @@ function App() {
 
                                 {/* Biometric Metrics */}
                                 {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
-                                    <div className="rounded bg-slate-800/50 px-1.5 py-1">
-                                        <h3 className="mb-1 text-[9px] font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
-                                        <div className="flex gap-1">
-                                            {/* Blink Rate - Blue */}
-                                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-blue-900/20 px-1.5 py-1">
-                                                <div className="h-1.5 w-1.5 rounded-full bg-blue-400"></div>
-                                                <div className="min-w-0">
-                                                    <p className="text-[8px] text-blue-300">Blink</p>
-                                                    <p className="text-[9px] font-semibold text-blue-200">
-                                                        {currentBiometrics.metrics.blinkRate.toFixed(0)}/min
-                                                    </p>
-                                                </div>
+                                    <div className="rounded-xl bg-slate-800/50 p-2">
+                                        <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
+                                        <div className="grid grid-cols-3 gap-1">
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Blink Rate</p>
+                                                <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.blinkRate.toFixed(1)}/min</p>
+                                                <p className="text-[9px] text-green-400">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
                                             </div>
-
-                                            {/* Eye Openness - Cyan */}
-                                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-cyan-900/20 px-1.5 py-1">
-                                                <div className="h-1.5 w-1.5 rounded-full bg-cyan-400"></div>
-                                                <div className="min-w-0">
-                                                    <p className="text-[8px] text-cyan-300">Eye</p>
-                                                    <p className="text-[9px] font-semibold text-cyan-200">
-                                                        {formatMetric(currentBiometrics.metrics.eyeOpenness)}
-                                                    </p>
-                                                </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Eye Openness</p>
+                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.eyeOpenness)}</p>
                                             </div>
-
-                                            {/* Smile - Pink */}
-                                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-pink-900/20 px-1.5 py-1">
-                                                <div className="h-1.5 w-1.5 rounded-full bg-pink-400"></div>
-                                                <div className="min-w-0">
-                                                    <p className="text-[8px] text-pink-300">Smile</p>
-                                                    <p className="text-[9px] font-semibold text-pink-200">
-                                                        {formatMetric(currentBiometrics.metrics.smileIntensity)}
-                                                    </p>
-                                                </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Smile</p>
+                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.smileIntensity)}</p>
                                             </div>
-
-                                            {/* Head Pose - Amber */}
-                                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-amber-900/20 px-1.5 py-1">
-                                                <div className="h-1.5 w-1.5 rounded-full bg-amber-400"></div>
-                                                <div className="min-w-0">
-                                                    <p className="text-[8px] text-amber-300">Pose</p>
-                                                    <p className="truncate text-[9px] font-semibold text-amber-200">
-                                                        {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
-                                                    </p>
-                                                </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Head Pose</p>
+                                                <p className="text-xs font-semibold text-slate-200">
+                                                    {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
+                                                </p>
                                             </div>
-
-                                            {/* Pupil Size - Purple */}
-                                            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-purple-900/20 px-1.5 py-1">
-                                                <div className="h-1.5 w-1.5 rounded-full bg-purple-400"></div>
-                                                <div className="min-w-0">
-                                                    <p className="text-[8px] text-purple-300">Pupil</p>
-                                                    <p className="text-[9px] font-semibold text-purple-200">
-                                                        {currentBiometrics.metrics.pupilSizeMm.toFixed(1)}mm
-                                                    </p>
-                                                </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Pupil Size</p>
+                                                <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.pupilSizeMm.toFixed(1)} mm</p>
+                                                <p className="text-[9px] text-green-400">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
                                             </div>
-
-                                            {/* Blink Rate Change - Conditional */}
-                                            <div
-                                                className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 ${
-                                                    currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "bg-red-900/20" : "bg-green-900/20"
-                                                }`}
-                                            >
-                                                <div
-                                                    className={`h-1.5 w-1.5 rounded-full ${
-                                                        currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "bg-red-400" : "bg-green-400"
-                                                    }`}
-                                                ></div>
-                                                <div className="min-w-0">
-                                                    <p
-                                                        className={`text-[8px] ${
-                                                            currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-300" : "text-green-300"
-                                                        }`}
-                                                    >
-                                                        Change
-                                                    </p>
-                                                    <p
-                                                        className={`text-[9px] font-semibold ${
-                                                            currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-200" : "text-green-200"
-                                                        }`}
-                                                    >
-                                                        {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
-                                                        {currentBiometrics.metrics.blinkRateChangePercent.toFixed(0)}%
-                                                    </p>
-                                                </div>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Blink Change</p>
+                                                <p
+                                                    className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-400" : "text-green-400"}`}
+                                                >
+                                                    {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
+                                                    {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
+                                                </p>
                                             </div>
                                         </div>
                                     </div>

@@ -1,26 +1,15 @@
-import { useEffect, forwardRef, useImperativeHandle } from "react";
-import { VideoOff } from "lucide-react";
+import { useEffect } from "react";
+import { Video, VideoOff } from "lucide-react";
 import { useVideoCapture, EmotionResult } from "@/hooks/useVideoCapture";
+import { Button } from "@/components/ui/button";
 
 interface VideoPanelProps {
     isRecording?: boolean;
     onEmotionDetected?: (emotion: EmotionResult) => void;
 }
 
-export interface VideoPanelRef {
-    isStreaming: boolean;
-    startVideo: () => Promise<void>;
-    stopVideo: () => void;
-}
-
-export const VideoPanel = forwardRef<VideoPanelRef, VideoPanelProps>(({ isRecording = false, onEmotionDetected }, ref) => {
+export function VideoPanel({ isRecording = false, onEmotionDetected }: VideoPanelProps) {
     const { videoRef, canvasRef, isStreaming, startVideo, stopVideo, startAnalysis, stopAnalysis } = useVideoCapture({ onEmotionDetected });
-
-    useImperativeHandle(ref, () => ({
-        isStreaming,
-        startVideo,
-        stopVideo
-    }));
 
     useEffect(() => {
         if (isRecording && !isStreaming) {
@@ -47,6 +36,20 @@ export const VideoPanel = forwardRef<VideoPanelRef, VideoPanelProps>(({ isRecord
                     </div>
                 )}
             </div>
+
+            <div className="mt-3 flex gap-2">
+                {!isStreaming ? (
+                    <Button onClick={startVideo} size="sm" variant="secondary" className="flex-1">
+                        <Video className="mr-2 h-4 w-4" />
+                        Start Camera
+                    </Button>
+                ) : (
+                    <Button onClick={stopVideo} size="sm" variant="destructive" className="flex-1">
+                        <VideoOff className="mr-2 h-4 w-4" />
+                        Stop Camera
+                    </Button>
+                )}
+            </div>
         </div>
     );
-});
+}
