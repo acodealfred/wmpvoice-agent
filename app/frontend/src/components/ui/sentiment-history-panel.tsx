@@ -59,30 +59,26 @@ export function SentimentHistoryPanel({ history, timeFrameSeconds }: SentimentHi
         );
     }
 
+    const latestItem = history[history.length - 1];
+
     return (
         <div className="rounded-lg bg-gray-800 p-4">
-            <h3 className="mb-3 flex items-center text-sm font-medium text-gray-300">
+            <h3 className="mb-2 flex items-center text-sm font-medium text-gray-300">
                 <Clock className="mr-2 h-4 w-4" />
                 Sentiment History ({timeFrameLabel})
             </h3>
-            <div className="max-h-64 space-y-2 overflow-y-auto">
-                {history.map(item => (
-                    <div key={item.id} className="flex items-center justify-between rounded bg-gray-700 p-2">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-400">{item.timeFrameLabel}</span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-1">
-                                <span className="text-lg">{getEmotionEmoji(item.faceEmotion)}</span>
-                                <span className="text-xs text-gray-300">{item.faceEmotion || "N/A"}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                                {getSentimentIcon(item.voiceSentiment)}
-                                <span className={`text-xs font-medium ${getSentimentColor(item.voiceSentiment)}`}>{item.voiceSentiment}</span>
-                            </div>
-                        </div>
-                    </div>
-                ))}
+            <div className="flex items-center justify-between rounded bg-gray-700 p-3">
+                <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-gray-300">{latestItem.timeFrameLabel}</span>
+                    <span className="text-lg">{getEmotionEmoji(latestItem.faceEmotion)}</span>
+                    <span className="text-sm text-gray-300">{latestItem.faceEmotion || "N/A"}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    {getSentimentIcon(latestItem.voiceSentiment)}
+                    <span className={`text-sm font-medium ${getSentimentColor(latestItem.voiceSentiment)}`}>
+                        {latestItem.voiceSentiment}
+                    </span>
+                </div>
             </div>
         </div>
     );

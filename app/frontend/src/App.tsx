@@ -463,54 +463,57 @@ function App() {
                                 <h2 className="text-sm font-semibold text-slate-200">Face Emotion & Sentiment</h2>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
-                                {/* Current Emotion */}
-                                <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
-                                    <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Current Emotion</h3>
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800 text-4xl">
-                                                {lastEmotion ? <span>{getEmotionEmoji(lastEmotion.emotion)}</span> : <span className="text-slate-500">-</span>}
+                                {/* Current Emotion & Voice Sentiment - Side by Side */}
+                                <div className="mb-4 grid grid-cols-2 gap-4">
+                                    {/* Current Emotion */}
+                                    <div className="rounded-xl bg-slate-800/50 p-4">
+                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Current Emotion</h3>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800 text-4xl">
+                                                    {lastEmotion ? <span>{getEmotionEmoji(lastEmotion.emotion)}</span> : <span className="text-slate-500">-</span>}
+                                                </div>
+                                                <div>
+                                                    <p className="text-lg font-semibold text-slate-200">
+                                                        {lastEmotion
+                                                            ? lastEmotion.emotion.charAt(0) + lastEmotion.emotion.slice(1).toLowerCase()
+                                                            : "No face detected"}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">Confidence: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-lg font-semibold text-slate-200">
-                                                    {lastEmotion
-                                                        ? lastEmotion.emotion.charAt(0) + lastEmotion.emotion.slice(1).toLowerCase()
-                                                        : "No face detected"}
-                                                </p>
-                                                <p className="text-xs text-slate-500">Confidence: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%</p>
-                                            </div>
+                                            {isRecording && <div className="h-3 w-3 animate-pulse rounded-full bg-green-500/70 ring-2 ring-green-500/20"></div>}
                                         </div>
-                                        {isRecording && <div className="h-3 w-3 animate-pulse rounded-full bg-green-500/70 ring-2 ring-green-500/20"></div>}
                                     </div>
-                                </div>
 
-                                {/* Voice Sentiment */}
-                                {sentiment && (
-                                    <div className="mb-4 rounded-xl bg-gradient-to-r from-slate-800/50 to-slate-700/30 p-4">
-                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Voice Sentiment</h3>
-                                        <div className="flex items-center gap-3">
-                                            {sentiment.sentiment === "positive" && (
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/20">
-                                                    <Smile className="h-5 w-5 text-green-400" />
+                                    {/* Voice Sentiment */}
+                                    {sentiment && (
+                                        <div className="rounded-xl bg-gradient-to-r from-slate-800/50 to-slate-700/30 p-4">
+                                            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Voice Sentiment</h3>
+                                            <div className="flex items-center gap-3">
+                                                {sentiment.sentiment === "positive" && (
+                                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/20">
+                                                        <Smile className="h-5 w-5 text-green-400" />
+                                                    </div>
+                                                )}
+                                                {sentiment.sentiment === "neutral" && (
+                                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-500/20">
+                                                        <Meh className="h-5 w-5 text-yellow-400" />
+                                                    </div>
+                                                )}
+                                                {sentiment.sentiment === "negative" && (
+                                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/20">
+                                                        <Frown className="h-5 w-5 text-red-400" />
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <p className="text-sm font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
+                                                    <p className="text-xs text-slate-500">{sentiment.reason}</p>
                                                 </div>
-                                            )}
-                                            {sentiment.sentiment === "neutral" && (
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-500/20">
-                                                    <Meh className="h-5 w-5 text-yellow-400" />
-                                                </div>
-                                            )}
-                                            {sentiment.sentiment === "negative" && (
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/20">
-                                                    <Frown className="h-5 w-5 text-red-400" />
-                                                </div>
-                                            )}
-                                            <div>
-                                                <p className="text-sm font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
-                                                <p className="text-xs text-slate-500">{sentiment.reason}</p>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
 
                                 {/* Baseline Prompt UI */}
                                 {isRecording && baselineSessionStatus === "idle" && enableBiometrics && (
@@ -551,62 +554,62 @@ function App() {
 
                                 {/* Baseline Completed */}
                                 {baselineSessionStatus === "completed" && baselineData && (
-                                    <div className="mb-4 rounded-lg border border-green-700 bg-green-900/30 p-3">
-                                        <p className="mb-2 font-medium text-green-300">Baseline Recorded</p>
-                                        <div className="grid grid-cols-2 gap-2 text-sm">
-                                            <div>
-                                                <span className="text-gray-400">Pupil Size:</span>
-                                                <span className="ml-2 text-white">{baselineData.pupilSize.toFixed(2)} mm</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-gray-400">Blink Rate:</span>
-                                                <span className="ml-2 text-white">{baselineData.blinkRate.toFixed(1)} blinks/min</span>
-                                            </div>
-                                        </div>
-                                        <div className="mt-3 flex gap-2">
-                                            <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="flex-1">
-                                                <RotateCcw className="mr-2 h-4 w-4" />
+                                    <div className="mb-3 rounded-lg border border-green-700 bg-green-900/30 p-2">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-xs font-medium text-green-300">Baseline Recorded</p>
+                                            <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 px-2 text-[10px]">
+                                                <RotateCcw className="mr-1 h-3 w-3" />
                                                 Rerecord
                                             </Button>
+                                        </div>
+                                        <div className="mt-1 flex items-center gap-3 text-[10px]">
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-gray-400">Pupil:</span>
+                                                <span className="text-white">{baselineData.pupilSize.toFixed(1)} mm</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-gray-400">Blink:</span>
+                                                <span className="text-white">{baselineData.blinkRate.toFixed(1)}/min</span>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
 
                                 {/* Biometric Metrics */}
                                 {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
-                                    <div className="rounded-xl bg-slate-800/50 p-4">
-                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div className="rounded-lg bg-slate-800/30 p-3">
-                                                <p className="text-xs text-slate-500">Blink Rate</p>
-                                                <p className="text-lg font-semibold text-slate-200">
-                                                    {currentBiometrics.metrics.blinkRate.toFixed(1)} blinks/min
+                                    <div className="rounded-xl bg-slate-800/50 p-2">
+                                        <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
+                                        <div className="grid grid-cols-3 gap-1">
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Blink Rate</p>
+                                                <p className="text-xs font-semibold text-slate-200">
+                                                    {currentBiometrics.metrics.blinkRate.toFixed(1)}/min
                                                 </p>
-                                                <p className="text-xs text-green-400">Baseline: {baselineData?.blinkRate.toFixed(1) || "--"} blinks/min</p>
+                                                <p className="text-[9px] text-green-400">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-3">
-                                                <p className="text-xs text-slate-500">Eye Openness</p>
-                                                <p className="text-lg font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.eyeOpenness)}</p>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Eye Openness</p>
+                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.eyeOpenness)}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-3">
-                                                <p className="text-xs text-slate-500">Smile</p>
-                                                <p className="text-lg font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.smileIntensity)}</p>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Smile</p>
+                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.smileIntensity)}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-3">
-                                                <p className="text-xs text-slate-500">Head Pose</p>
-                                                <p className="text-lg font-semibold text-slate-200">
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Head Pose</p>
+                                                <p className="text-xs font-semibold text-slate-200">
                                                     {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
                                                 </p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-3">
-                                                <p className="text-xs text-slate-500">Pupil Size</p>
-                                                <p className="text-lg font-semibold text-slate-200">{currentBiometrics.metrics.pupilSizeMm.toFixed(2)} mm</p>
-                                                <p className="text-xs text-green-400">Baseline: {baselineData?.pupilSize.toFixed(2) || "--"} mm</p>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Pupil Size</p>
+                                                <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.pupilSizeMm.toFixed(1)} mm</p>
+                                                <p className="text-[9px] text-green-400">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-3">
-                                                <p className="text-xs text-slate-500">Blink Rate Change</p>
+                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                                <p className="text-[9px] text-slate-500">Blink Change</p>
                                                 <p
-                                                    className={`text-lg font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-400" : "text-green-400"}`}
+                                                    className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-400" : "text-green-400"}`}
                                                 >
                                                     {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
                                                     {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
@@ -618,42 +621,37 @@ function App() {
 
                                 {/* Stress Analysis */}
                                 {stressResult && isRecording && (
-                                    <div className={`mt-4 rounded-lg border p-3 ${getStressBgColor(stressResult.state)}`}>
-                                        <div className="mb-2 flex items-center justify-between">
-                                            <h4 className="text-sm font-semibold text-gray-300">Blink Rate Stress</h4>
-                                            <span className={`text-xs font-medium ${getStressColor(stressResult.state)}`}>
+                                    <div className={`mt-3 rounded-lg border p-2 ${getStressBgColor(stressResult.state)}`}>
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-xs font-semibold text-gray-300">Blink Rate Stress</h4>
+                                            <span className={`text-[10px] font-medium ${getStressColor(stressResult.state)}`}>
                                                 {stressResult.state.toUpperCase()}
                                             </span>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-2 text-xs">
-                                            <div className="text-center">
-                                                <span className="block text-gray-400">State</span>
+                                        <div className="mt-1 flex items-center gap-3 text-[10px]">
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-gray-400">State:</span>
                                                 <span className={`font-medium ${getStressColor(stressResult.state)}`}>{stressResult.state}</span>
                                             </div>
-                                            <div className="text-center">
-                                                <span className="block text-gray-400">Rate Change</span>
-                                                <span
-                                                    className={`font-medium ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-red-400" : "text-green-400"}`}
-                                                >
-                                                    {(stressResult.blink_rate_change_percent || 0) >= 0 ? "+" : ""}
-                                                    {stressResult.blink_rate_change_percent?.toFixed(1) || "0.0"}%
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-gray-400">Change:</span>
+                                                <span className={`font-medium ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-red-400" : "text-green-400"}`}>
+                                                    {(stressResult.blink_rate_change_percent || 0) >= 0 ? "+" : ""}{stressResult.blink_rate_change_percent?.toFixed(1) || "0.0"}%
                                                 </span>
                                             </div>
-                                            <div className="text-center">
-                                                <span className="block text-gray-400">Confidence</span>
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-gray-400">Conf:</span>
                                                 <span className="text-white">{(stressResult.confidence * 100).toFixed(0)}%</span>
                                             </div>
-                                            <div className="text-center">
-                                                <span className="block text-gray-400">Trend</span>
-                                                <span
-                                                    className={`font-medium ${
-                                                        stressResult.trend === "increasing"
-                                                            ? "text-red-400"
-                                                            : stressResult.trend === "decreasing"
-                                                              ? "text-green-400"
-                                                              : "text-yellow-400"
-                                                    }`}
-                                                >
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-gray-400">Trend:</span>
+                                                <span className={`font-medium ${
+                                                    stressResult.trend === "increasing"
+                                                        ? "text-red-400"
+                                                        : stressResult.trend === "decreasing"
+                                                        ? "text-green-400"
+                                                        : "text-yellow-400"
+                                                }`}>
                                                     {stressResult.trend}
                                                 </span>
                                             </div>
