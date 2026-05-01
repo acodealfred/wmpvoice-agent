@@ -66,7 +66,7 @@ export default function useRealTime({
 
     const { sendJsonMessage } = useWebSocket(wsEndpoint, {
         onOpen: () => {
-            console.log('[Realtime] WebSocket connected');
+            console.log("[Realtime] WebSocket connected");
             onWebSocketOpen?.();
         },
         onClose: () => onWebSocketClose?.(),

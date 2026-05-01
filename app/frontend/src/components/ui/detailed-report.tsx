@@ -23,9 +23,12 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
 
     const getSentimentColor = (sentiment: string): string => {
         switch (sentiment) {
-            case "positive": return "text-green-600";
-            case "negative": return "text-red-600";
-            default: return "text-yellow-600";
+            case "positive":
+                return "text-green-600";
+            case "negative":
+                return "text-red-600";
+            default:
+                return "text-yellow-600";
         }
     };
 
@@ -65,7 +68,7 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
             }
 
             const data = await response.json();
-            
+
             if (data.analysis) {
                 try {
                     const parsed = JSON.parse(data.analysis);
@@ -102,7 +105,7 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
                     <button
                         onClick={handleAnalyzeReport}
                         disabled={isAnalyzing || snapshots.length === 0}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
                     >
                         {isAnalyzing ? (
                             <>
@@ -114,11 +117,7 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
                         )}
                     </button>
                     {onClose && (
-                        <button
-                            onClick={onClose}
-                            className="rounded-full p-2 hover:bg-gray-100"
-                            aria-label="Close report"
-                        >
+                        <button onClick={onClose} className="rounded-full p-2 hover:bg-gray-100" aria-label="Close report">
                             ✕
                         </button>
                     )}
@@ -135,14 +134,14 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
             {agentResponse && (
                 <div className="mb-4 rounded-lg bg-green-50 p-4">
                     <h3 className="mb-2 text-lg font-semibold text-green-800">Consultant Response</h3>
-                    <p className="text-sm text-gray-700 whitespace-pre-line">{agentResponse}</p>
+                    <p className="whitespace-pre-line text-sm text-gray-700">{agentResponse}</p>
                 </div>
             )}
 
             {analysisResult && (
                 <div className="mb-6 rounded-lg bg-blue-50 p-4">
                     <h3 className="mb-3 text-lg font-semibold text-blue-800">Behavioral Analysis</h3>
-                    
+
                     {analysisResult.summary && (
                         <div className="mb-4 rounded-lg bg-white p-3">
                             <p className="text-sm text-gray-700">{analysisResult.summary}</p>
@@ -208,9 +207,7 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
             <div className="mb-6 rounded-lg bg-purple-50 p-4">
                 <div className="text-center">
                     <span className="text-lg font-medium text-gray-700">Total Burnout Score</span>
-                    <div className="mt-2 text-4xl font-bold text-purple-600">
-                        {totalScore} / 25
-                    </div>
+                    <div className="mt-2 text-4xl font-bold text-purple-600">{totalScore} / 25</div>
                     <div className="mt-2 text-sm">
                         {totalScore <= 12 && <span className="text-green-600">Low burnout risk</span>}
                         {totalScore > 12 && totalScore <= 22 && <span className="text-yellow-600">Moderate burnout risk</span>}
