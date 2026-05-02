@@ -238,6 +238,9 @@ class RTMiddleTier:
     voice_choice: Optional[str] = None
     enable_sentiment_analysis: bool = False
     enable_survey_mode: bool = False
+    # Meta intent layer - provides LLM with app context, users, and limitations
+    enable_meta_intent: bool = True
+    meta_intent_config: Optional[dict] = None
     api_version: str = "2024-10-01-preview"
     _tools_pending = {}
     _token_provider = None
@@ -465,6 +468,40 @@ class RTMiddleTier:
             f"[RTMT] ★ _get_dominant_emotion: {dominant} (counts: {emotion_counts})"
         )
         return dominant
+
+    def _get_meta_intent_instructions(self) -> str:
+        """Generate meta intent instructions from APP.md for LLM context."""
+        if not self.enable_meta_intent:
+            return ""
+        cfg = self.meta_intent_config or {}
+        app_overview = cfg.get("app_overview", "")
+        capabilities = cfg.get("capabilities", "")
+        limitations = cfg.get("limitations", "")
+        privacy = cfg.get("privacy", "")
+        biometrics_note = cfg.get("biometrics_note", "")
+        disclaimer = cfg.get("disclaimer", "")
+        parts = []
+        if app_overview:
+            parts.append(f"APP OVERVIEW:\\n{app_overview}\\n")
+        if capabilities:
+            parts.append(f"CAPABILITIES:\\n{capabilities}\\n")
+        if limitations:
+            parts.append(f"LIMITATIONS:\\n{limitations}\\n")
+        if privacy:
+            parts.append(f"PRIVACY:\\n{privacy}\\n")
+        if biometrics_note:
+            parts.append(f"BIOMETRICS:\\n{biometrics_note}\\n")
+        if disclaimer:
+            parts.append(f"DISCLAIMER:\\n{disclaimer}\\n")
+        body = "\\n".join(parts)
+        return f"""APPLICATION META INTENT - CONTEXT FOR ASSISTANT:
+{body}
+BEHAVIORAL GUIDELINES:
+- Use the above information to answer user questions about the application
+- Stay within the defined scope and limitations
+- If asked about medical advice, direct to the disclaimer
+- Use biometrics info only as conversational context, not for diagnosis
+"""
 
     def _get_stress_instructions(self) -> str:
         """Generate instructions based on user's stress state."""
@@ -927,11 +964,12 @@ CRITICAL RULES:
                     session = message["session"]
                     if self.system_message is not None:
                         base_instructions = self.system_message
-                    else:
-                        base_instructions = ""
 
-                    # Add sentiment analysis and/or survey instructions if enabled
                     extra_instructions = ""
+                    if self.enable_meta_intent:
+                        meta_instructions = self._get_meta_intent_instructions()
+                        extra_instructions = meta_instructions
+                    # Add sentiment analysis and/or survey instructions if enabled
                     if self.enable_sentiment_analysis:
                         sentiment_instructions = """ Additionally, you must analyze the sentiment of the user's input.
                         After each user message, determine if the sentiment is "positive", "neutral", or "negative".
