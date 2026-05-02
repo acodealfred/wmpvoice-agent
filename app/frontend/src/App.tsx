@@ -32,6 +32,7 @@ function App() {
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [multipleFacesWarning, setMultipleFacesWarning] = useState(false);
+    const [isReasonExpanded, setIsReasonExpanded] = useState(false);
     const frameCounterRef = useRef(0);
 
     // Biometrics state
@@ -499,7 +500,7 @@ function App() {
                                     {/* Voice Sentiment */}
                                     {sentiment && (
                                         <div className="rounded bg-gradient-to-r from-slate-800/50 to-slate-700/30 px-2 py-1.5">
-                                            <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-start justify-between gap-2">
                                                 <div className="flex shrink-0 items-center gap-2">
                                                     {sentiment.sentiment === "positive" && (
                                                         <div className="flex h-7 w-7 items-center justify-center rounded bg-green-500/20">
@@ -518,10 +519,20 @@ function App() {
                                                     )}
                                                     <div>
                                                         <p className="text-[10px] font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
-                                                        <p className="max-w-24 truncate text-[9px] text-slate-500">{sentiment.reason}</p>
+                                                        <button
+                                                            onClick={() => setIsReasonExpanded(!isReasonExpanded)}
+                                                            className="mt-1 cursor-pointer text-[9px] text-slate-500 hover:text-slate-300 focus:outline-none"
+                                                        >
+                                                            {isReasonExpanded ? "Show less" : "Show reason"}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>
+                                            {sentiment.reason && isReasonExpanded && (
+                                                <div className="mt-2 rounded bg-slate-800/50 p-2">
+                                                    <p className="text-[10px] leading-relaxed text-slate-300">{sentiment.reason}</p>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

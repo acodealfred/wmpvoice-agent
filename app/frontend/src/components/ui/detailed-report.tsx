@@ -24,18 +24,18 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
     const getSentimentColor = (sentiment: string): string => {
         switch (sentiment) {
             case "positive":
-                return "text-green-600";
+                return "text-green-700";
             case "negative":
-                return "text-red-600";
+                return "text-red-700";
             default:
-                return "text-yellow-600";
+                return "text-yellow-700";
         }
     };
 
     const getStressColor = (blinkRateChange: number): string => {
-        if (blinkRateChange > 30) return "text-red-600";
-        if (blinkRateChange < -30) return "text-green-600";
-        return "text-gray-600";
+        if (blinkRateChange > 30) return "text-red-700";
+        if (blinkRateChange < -30) return "text-green-700";
+        return "text-gray-700";
     };
 
     const getConfidenceBadge = (confidence: string) => {
@@ -219,35 +219,35 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
             <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                     <thead>
-                        <tr className="bg-gray-100">
-                            <th className="border border-gray-200 px-3 py-2 text-left font-semibold">Question ID</th>
-                            <th className="border border-gray-200 px-3 py-2 text-left font-semibold">Domain</th>
-                            <th className="border border-gray-200 px-3 py-2 text-center font-semibold">Score</th>
-                            <th className="border border-gray-200 px-3 py-2 text-center font-semibold">Voice Sentiment</th>
-                            <th className="border border-gray-200 px-3 py-2 text-center font-semibold">Blink Rate Change</th>
-                            <th className="border border-gray-200 px-3 py-2 text-center font-semibold">BR Stress Level</th>
-                            <th className="border border-gray-200 px-3 py-2 text-center font-semibold">Face Emotion</th>
+                        <tr className="bg-gray-800">
+                            <th className="border border-gray-300 px-3 py-2 text-left font-semibold text-white">Question ID</th>
+                            <th className="border border-gray-300 px-3 py-2 text-left font-semibold text-white">Domain</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Score</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Voice Sentiment</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Blink Rate Change</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">BR Stress Level</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Face Emotion</th>
                         </tr>
                     </thead>
                     <tbody>
                         {snapshots.map((snapshot, index) => (
                             <tr key={snapshot.questionId} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                                <td className="border border-gray-200 px-3 py-2">{snapshot.questionId}</td>
-                                <td className="border border-gray-200 px-3 py-2">{snapshot.domain}</td>
-                                <td className="border border-gray-200 px-3 py-2 text-center">{snapshot.score}/5</td>
-                                <td className={`border border-gray-200 px-3 py-2 text-center capitalize ${getSentimentColor(snapshot.voiceSentiment)}`}>
+                                <td className="border border-gray-200 px-3 py-2 text-gray-900">{snapshot.questionId}</td>
+                                <td className="border border-gray-200 px-3 py-2 text-gray-900">{snapshot.domain}</td>
+                                <td className="border border-gray-200 px-3 py-2 text-center text-gray-900 font-medium">{snapshot.score}/5</td>
+                                <td className={`border border-gray-200 px-3 py-2 text-center capitalize font-medium ${getSentimentColor(snapshot.voiceSentiment)}`}>
                                     {snapshot.voiceSentiment}
                                 </td>
                                 <td className="border border-gray-200 px-3 py-2 text-center">
-                                    <span className={snapshot.blinkRateChange >= 0 ? "text-green-600" : "text-red-600"}>
+                                    <span className={snapshot.blinkRateChange >= 0 ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
                                         {snapshot.blinkRateChange >= 0 ? "+" : ""}
                                         {snapshot.blinkRateChange.toFixed(1)}%
                                     </span>
                                 </td>
-                                <td className={`border border-gray-200 px-3 py-2 text-center ${getStressColor(snapshot.blinkRateChange)}`}>
+                                <td className={`border border-gray-200 px-3 py-2 text-center font-medium ${getStressColor(snapshot.blinkRateChange)}`}>
                                     {getStressLevel(snapshot.blinkRateChange)}
                                 </td>
-                                <td className="border border-gray-200 px-3 py-2 text-center">{snapshot.faceEmotion}</td>
+                                <td className="border border-gray-200 px-3 py-2 text-center text-gray-900">{snapshot.faceEmotion}</td>
                             </tr>
                         ))}
                     </tbody>
