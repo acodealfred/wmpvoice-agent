@@ -206,3 +206,6 @@ Branch : report-analyzer-integration
 -Arrange explict and propoer prompts for a good detailed analysis report. 
 Branch : phase2-UI-chnage
 -Restructuring UIs
+Branch : agent-optimization
+-optimizing Agent for clear , precise communication about the APP
+-building capability to analyze the report 
