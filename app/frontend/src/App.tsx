@@ -421,7 +421,14 @@ function App() {
                                 </div>
                             </div>
                             <div className="flex-1 p-4">
-                                <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} surveyQuestions={surveyQuestions} surveyTotal={surveyTotal} surveyCompleted={surveyCompleted} surveyOptions={surveyOptions} />
+                                <VideoPanel
+                                    isRecording={isRecording}
+                                    onEmotionDetected={handleEmotionDetected}
+                                    surveyQuestions={surveyQuestions}
+                                    surveyTotal={surveyTotal}
+                                    surveyCompleted={surveyCompleted}
+                                    surveyOptions={surveyOptions}
+                                />
                             </div>
                             <div className="border-t border-slate-800 bg-slate-900/50 px-5 py-3">
                                 <div className="flex justify-center">
@@ -677,87 +684,6 @@ function App() {
                                     <div className="mt-4 flex items-center justify-center rounded-lg bg-yellow-900/50 p-3">
                                         <AlertTriangle className="mr-2 h-5 w-5 text-yellow-500" />
                                         <span className="text-sm text-yellow-500">Only one face should be visible</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* Survey Assessment Panel - Rectangle (spans 2 columns, row 2) */}
-                    <section className="col-span-2 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
-                        <div className="flex h-full flex-col">
-                            <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
-                                <div className="flex items-center gap-2">
-                                    <h2 className="text-sm font-semibold text-slate-200">Survey Assessment</h2>
-                                    {surveyTotal > 0 && (
-                                        <span className="ml-auto rounded-full bg-purple-500/20 px-2 py-0.5 text-xs text-purple-400">
-                                            {surveyCompleted} / {surveyTotal}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-4">
-                                {surveyTotal > 0 && (
-                                    <>
-                                        <div className="mb-4">
-                                            <div className="mb-2 flex justify-between text-xs text-slate-400">
-                                                <span>Assessment Progress</span>
-                                                <span>{Math.round((surveyCompleted / surveyTotal) * 100)}%</span>
-                                            </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-                                                <div
-                                                    className="h-full rounded-full bg-gradient-to-r from-purple-600 to-pink-500 transition-all duration-500"
-                                                    style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {surveyQuestions.length > 0 && (
-                                            <div className="mb-4 rounded-xl bg-slate-800/50 p-4">
-                                                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Current Question</p>
-                                                <p className="text-sm text-slate-200">{surveyQuestions[surveyQuestions.length - 1].text}</p>
-                                                <div className="mt-3">
-                                                    <span className="text-xs text-slate-500">Score: </span>
-                                                    <span className="text-lg font-semibold text-purple-400">
-                                                        {surveyQuestions[surveyQuestions.length - 1].score}/5
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {surveyOptions.length > 0 && (
-                                            <div className="mb-4">
-                                                <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Available Options</p>
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    {surveyOptions.map(opt => (
-                                                        <div key={opt.value} className="rounded-lg bg-slate-800/30 p-2 text-center">
-                                                            <p className="text-xs text-slate-400">{opt.label}</p>
-                                                            <p className="text-lg font-semibold text-slate-200">{opt.value}</p>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div>
-                                            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Response History</p>
-                                            <div className="space-y-2">
-                                                {surveyQuestions.map(q => (
-                                                    <div key={q.id} className="flex items-center justify-between rounded-lg bg-slate-800/30 px-3 py-2">
-                                                        <span className="text-xs text-slate-400">{q.id}</span>
-                                                        <span className="text-sm font-semibold text-slate-200">{q.score}/5</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-
-                                {!surveyTotal && (
-                                    <div className="flex h-full flex-col items-center justify-center text-center">
-                                        <ClipboardList className="mb-3 h-12 w-12 text-slate-600" />
-                                        <p className="text-sm text-slate-500">No active survey</p>
-                                        <p className="text-xs text-slate-600">Begin conversation to start assessment</p>
                                     </div>
                                 )}
                             </div>
