@@ -421,7 +421,7 @@ function App() {
                                 </div>
                             </div>
                             <div className="flex-1 p-4">
-                                <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} />
+                                <VideoPanel isRecording={isRecording} onEmotionDetected={handleEmotionDetected} surveyQuestions={surveyQuestions} surveyTotal={surveyTotal} surveyCompleted={surveyCompleted} surveyOptions={surveyOptions} />
                             </div>
                             <div className="border-t border-slate-800 bg-slate-900/50 px-5 py-3">
                                 <div className="flex justify-center">
