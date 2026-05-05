@@ -94,6 +94,23 @@ export default function useRealTime({
         sendJsonMessage(command);
     };
 
+    const refreshSession = () => {
+        const command: SessionUpdateCommand = {
+            type: "session.update",
+            session: {
+                turn_detection: {
+                    type: "server_vad"
+                }
+            }
+        };
+        if (enableInputAudioTranscription) {
+            command.session.input_audio_transcription = {
+                model: "whisper-1"
+            };
+        }
+        sendJsonMessage(command);
+    };
+
     const addUserAudio = (base64Audio: string) => {
         const command: InputAudioBufferAppendCommand = {
             type: "input_audio_buffer.append",
@@ -156,5 +173,5 @@ export default function useRealTime({
         }
     };
 
-    return { startSession, addUserAudio, inputAudioBufferClear };
+    return { startSession, refreshSession, addUserAudio, inputAudioBufferClear };
 }

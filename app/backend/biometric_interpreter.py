@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 from aiohttp import web
 
@@ -17,7 +17,7 @@ class StressResult:
     state: Literal["stressed", "relaxed", "normal"]
     confidence: float
     trend: Literal["increasing", "decreasing", "stable"]
-    blink_rate_change_percent: Optional[float] = None
+    blink_rate_change_percent: float | None = None
 
 
 class BiometricInterpreter:

@@ -42,25 +42,30 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, surveyQuest
                 )}
 
                 {isStreaming && (
-                    <div className="absolute left-0 right-0 bottom-2 p-4 bg-gray-800/50 backdrop-blur-md text-white text-sm rounded-lg">
+                    <div className="absolute bottom-2 left-0 right-0 rounded-lg bg-gray-800/50 p-4 text-sm text-white backdrop-blur-md">
                         <div className="space-y-2">
                             <div className="font-medium">Survey Assessment</div>
                             {surveyTotal && surveyTotal > 0 && surveyQuestions && surveyQuestions.length > 0 ? (
                                 <>
-                                    <div className="text-xs text-slate-400">Progress: {surveyCompleted ?? 0}/{surveyTotal}</div>
+                                    <div className="text-xs text-slate-400">
+                                        Progress: {surveyCompleted ?? 0}/{surveyTotal}
+                                    </div>
                                     <div className="text-xs">{surveyQuestions[surveyQuestions.length - 1].text}</div>
                                     {surveyOptions && surveyOptions.length > 0 && (
-                                        <div className="flex flex-wrap gap-2 mt-1">
-                                            {surveyOptions.map((opt) => (
-                                                <button key={opt.value} className="px-2 py-0.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">
+                                        <div className="mt-1 flex flex-wrap gap-2">
+                                            {surveyOptions.map(opt => (
+                                                <button key={opt.value} className="rounded bg-gray-700 px-2 py-0.5 text-xs hover:bg-gray-600">
                                                     {opt.label}
                                                 </button>
                                             ))}
                                         </div>
                                     )}
                                     <div className="mt-2">
-                                        <div className="h-1 w-full bg-gray-700 rounded-full overflow-hidden">
-                                            <div className="h-full bg-purple-500 transition-all duration-300" style={{ width: `${((surveyCompleted ?? 0) / surveyTotal) * 100}%` }}></div>
+                                        <div className="h-1 w-full overflow-hidden rounded-full bg-gray-700">
+                                            <div
+                                                className="h-full bg-purple-500 transition-all duration-300"
+                                                style={{ width: `${((surveyCompleted ?? 0) / surveyTotal) * 100}%` }}
+                                            ></div>
                                         </div>
                                     </div>
                                 </>

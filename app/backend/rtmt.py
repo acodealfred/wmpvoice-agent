@@ -1,8 +1,9 @@
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 import aiohttp
 from aiohttp import web
@@ -77,6 +78,28 @@ _tool_survey_schema = {
     },
 }
 
+_tool_query_survey_schema = {
+    "type": "function",
+    "name": "query_survey_results",
+    "description": "Query the survey results to answer user questions about their burnout assessment. Use this to provide insights about burnout score, contributing domains, stress indicators, and specific question responses.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query_type": {
+                "type": "string",
+                "enum": ["burnout_score", "contributing_domains", "stress_questions", "domain_scores", "summary"],
+                "description": "Type of query to perform on survey results",
+            },
+            "domain": {
+                "type": "string",
+                "description": "Specific domain to query (optional, for domain-specific questions)",
+            },
+        },
+        "required": ["query_type"],
+        "additionalProperties": False,
+    },
+}
+
 
 class ToolResultDirection(Enum):
     TO_SERVER = 1
@@ -94,7 +117,92 @@ class ToolResult:
     def to_text(self) -> str:
         if self.text is None:
             return ""
-        return self.text if type(self.text) == str else json.dumps(self.text)
+        return self.text if isinstance(self.text, str) else json.dumps(self.text)
+
+
+def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
+    """Tool to query survey results and provide insights."""
+    query_type = args.get("query_type", "summary")
+    domain = args.get("domain")
+
+    if not hasattr(self, "_survey_results") or not self._survey_results:
+        return ToolResult(
+            json.dumps({"error": "No survey results available. Complete the survey first."}),
+            ToolResultDirection.TO_CLIENT,
+        )
+
+    results = self._survey_results
+    total_score = sum(r["score"] for r in results.values())
+    num_questions = len(results)
+
+    response_data = {"query_type": query_type, "has_data": True}
+
+    if query_type == "burnout_score":
+        response_data["total_score"] = total_score
+        response_data["max_score"] = num_questions * 5
+        if total_score <= 12:
+            level = "low"
+            interpretation = "Low burnout risk"
+        elif total_score <= 22:
+            level = "moderate"
+            interpretation = "Moderate burnout risk"
+        else:
+            level = "high"
+            interpretation = "High burnout risk"
+        response_data["risk_level"] = level
+        response_data["interpretation"] = interpretation
+
+    elif query_type == "contributing_domains":
+        domain_scores = {}
+        for qid, result in results.items():
+            dom = _get_question_domain(qid)
+            domain_scores[dom] = domain_scores.get(dom, 0) + result["score"]
+        response_data["domains"] = domain_scores
+        # Identify highest contributing domain (highest score indicates more burnout in that domain)
+        if domain_scores:
+            highest = max(domain_scores, key=domain_scores.get)
+            response_data["highest_contributor"] = highest
+            response_data["highest_score"] = domain_scores[highest]
+
+    elif query_type == "stress_questions":
+        # Identify questions where score indicates high stress (4-5)
+        high_stress = [
+            {"question_id": qid, "score": r["score"], "domain": _get_question_domain(qid)}
+            for qid, r in results.items()
+            if r["score"] >= 4
+        ]
+        response_data["high_stress_questions"] = high_stress
+        response_data["count"] = len(high_stress)
+
+    elif query_type == "domain_scores":
+        if domain:
+            domain_total = sum(
+                r["score"] for qid, r in results.items()
+                if _get_question_domain(qid) == domain
+            )
+            response_data["domain"] = domain
+            response_data["domain_score"] = domain_total
+        else:
+            domain_scores = {}
+            for qid, result in results.items():
+                dom = _get_question_domain(qid)
+                domain_scores[dom] = domain_scores.get(dom, 0) + result["score"]
+            response_data["domain_scores"] = domain_scores
+
+    elif query_type == "summary":
+        response_data["summary"] = {
+            "total_score": total_score,
+            "questions_answered": num_questions,
+            "average_score": total_score / num_questions if num_questions else 0,
+            "risk_level": (
+                "low" if total_score <= 12 else "moderate" if total_score <= 22 else "high"
+            ),
+        }
+
+    return ToolResult(
+        json.dumps(response_data),
+        ToolResultDirection.TO_CLIENT,
+    )
 
 
 async def _sentiment_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
@@ -222,7 +330,7 @@ class RTToolCall:
 class RTMiddleTier:
     endpoint: str
     deployment: str
-    key: Optional[str] = None
+    key: str | None = None
 
     # Tools are server-side only for now, though the case could be made for client-side tools
     # in addition to server-side tools that are invisible to the client
@@ -230,17 +338,17 @@ class RTMiddleTier:
 
     # Server-enforced configuration, if set, these will override the client's configuration
     # Typically at least the model name and system message will be set by the server
-    model: Optional[str] = None
-    system_message: Optional[str] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    disable_audio: Optional[bool] = None
-    voice_choice: Optional[str] = None
+    model: str | None = None
+    system_message: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    disable_audio: bool | None = None
+    voice_choice: str | None = None
     enable_sentiment_analysis: bool = False
     enable_survey_mode: bool = False
     # Meta intent layer - provides LLM with app context, users, and limitations
     enable_meta_intent: bool = True
-    meta_intent_config: Optional[dict] = None
+    meta_intent_config: dict | None = None
     api_version: str = "2024-10-01-preview"
     _tools_pending = {}
     _token_provider = None
@@ -253,13 +361,17 @@ class RTMiddleTier:
     _blink_rate_history: list = []
     _face_emotion_history: list = []
     _MAX_HISTORY_SIZE = 50
+    # Conversation state management for post-report Q&A continuity
+    _conversation_state: str = "active"  # "active", "report_delivered", "qa_mode"
+    _report_context: str | None = None
+    _last_agent_response_type: str | None = None
 
     def __init__(
         self,
         endpoint: str,
         deployment: str,
         credentials: AzureKeyCredential | DefaultAzureCredential,
-        voice_choice: Optional[str] = None,
+        voice_choice: str | None = None,
     ):
         self.endpoint = endpoint
         self.deployment = deployment
@@ -282,11 +394,14 @@ class RTMiddleTier:
         )
         logger.info("Sentiment analysis enabled with report_sentiment tool")
 
-    def enable_survey(self, survey_config: Optional[dict] = None) -> None:
+    def enable_survey(self, survey_config: dict | None = None) -> None:
         """Enable survey mode for conversational surveys like burnout assessment."""
         self.enable_survey_mode = True
         self.tools["record_survey_response"] = Tool(
             schema=_tool_survey_schema, target=lambda args: _survey_tool(self, args)
+        )
+        self.tools["query_survey_results"] = Tool(
+            schema=_tool_query_survey_schema, target=lambda args: _query_survey_tool(self, args)
         )
 
         self._survey_config = survey_config or {
@@ -331,7 +446,7 @@ class RTMiddleTier:
                 "high": "High burnout risk - Please consider reaching out to HR or a mental health professional.",
             },
         }
-        logger.info("Survey mode enabled with record_survey_response tool")
+        logger.info("Survey mode enabled with record_survey_response and query_survey_results tools")
 
     def set_stress_state(self, state: str) -> None:
         """Set the user's stress state for adaptive communication."""
@@ -341,6 +456,28 @@ class RTMiddleTier:
             state = "normal"
         self._stress_state = state
         logger.info(f"[RTMT] ★ Stress state set to: {state}")
+
+    def set_conversation_state(self, state: str, report_context: str | None = None) -> None:
+        """Set the conversation state and optionally store report context for Q&A."""
+        valid_states = ["active", "report_delivered", "qa_mode"]
+        if state not in valid_states:
+            logger.warning(f"Invalid conversation state: {state}, defaulting to active")
+            state = "active"
+        self._conversation_state = state
+        if report_context is not None:
+            self._report_context = report_context
+        logger.info(f"[RTMT] ★ Conversation state set to: {state}")
+
+    def get_conversation_state(self) -> str:
+        """Get current conversation state."""
+        return self._conversation_state
+
+    def clear_conversation_state(self) -> None:
+        """Reset conversation state to active and clear report context."""
+        self._conversation_state = "active"
+        self._report_context = None
+        self._last_agent_response_type = None
+        logger.info("[RTMT] ★ Conversation state cleared (reset to active)")
 
     async def analyze_with_prompt(self, system_prompt: str) -> str:
         """Analyze report data using chat completions API with provided prompt."""
@@ -469,6 +606,51 @@ class RTMiddleTier:
         )
         return dominant
 
+    def _detect_and_handle_report_delivery(self, message: dict) -> bool:
+        """Detect if the agent's response contains a report delivery and update conversation state.
+        Returns True if report delivery was detected."""
+        if "response" not in message:
+            return False
+
+        # If we already set context via explicit API, don't override
+        if self._conversation_state in ("report_delivered", "qa_mode"):
+            return False
+
+        response = message["response"]
+        if "output" not in response:
+            return False
+
+        # Look for text/audio content that indicates report delivery
+        report_keywords = [
+            "burnout assessment",
+            "assessment results",
+            "your score",
+            "total score",
+            "burnout risk",
+            "correlations",
+            "contradictions",
+            "behavioral analysis",
+            "consultative response",
+            "comprehensive report",
+        ]
+
+        for output in response.get("output", []):
+            if output.get("type") == "message":
+                for content in output.get("content", []):
+                    text = content.get("text", "") or content.get("transcript", "")
+                    text_lower = text.lower()
+                    for keyword in report_keywords:
+                        if keyword in text_lower:
+                            # Minimal context for detection-only scenarios
+                            summary = text[:300] if len(text) > 300 else text
+                            self._report_context = f"Report delivered: {summary}"
+                            self._conversation_state = "report_delivered"
+                            self._last_agent_response_type = "report_delivery"
+                            logger.info("[RTMT] ★ Report delivery detected via keywords, state set to report_delivered")
+                            return True
+
+        return False
+
     def _get_meta_intent_instructions(self) -> str:
         """Generate meta intent instructions from APP.md for LLM context."""
         if not self.enable_meta_intent:
@@ -526,6 +708,38 @@ BEHAVIORAL GUIDELINES:
 - Proceed with normal conversation
 - Maintain a helpful, friendly tone """
 
+    def _get_conversation_state_instructions(self) -> str:
+        """Generate instructions based on current conversation state to maintain continuity."""
+        if self._conversation_state == "report_delivered":
+            instructions = """CONVERSATION STATE: REPORT JUST DELIVERED
+- You have just finished delivering a comprehensive burnout assessment report with analysis.
+- The user may have follow-up questions about the results.
+- STAY IN THIS MODE until explicitly told otherwise or until a new assessment begins.
+- Be prepared to explain:
+  * What the correlations/contradictions mean
+  * How to interpret the biometric data
+  * Actionable recommendations based on the findings
+  * Any aspect of the burnout assessment results
+- Maintain the consultative, supportive tone from the report delivery.
+- DO NOT restart the assessment or ask if they want to take it again unless asked.
+- Answer questions directly and informatively while staying conversational.
+"""
+            if self._report_context:
+                instructions += f"\nREPORT CONTEXT (for Q&A):\n{self._report_context}\n"
+            return instructions
+        elif self._conversation_state == "qa_mode":
+            instructions = """CONVERSATION STATE: Q&A MODE
+- You are answering user questions about their burnout assessment results.
+- Reference the specific data from their survey and biometric analysis.
+- Be precise, helpful, and supportive.
+- If the question is unrelated to their results, gently steer back to their wellbeing.
+- Continue in this mode until the conversation ends or a new assessment starts.
+"""
+            if self._report_context:
+                instructions += f"\nCURRENT REPORT CONTEXT:\n{self._report_context}\n"
+            return instructions
+        return ""
+
     def _get_survey_instructions(self) -> str:
         config = self._survey_config
         questions_text = "\n".join(
@@ -577,14 +791,21 @@ CRITICAL RULES:
 3. NEVER mention scores or the tool to the user
 4. After all 5 questions, share the interpretation based on total score
 5. If user goes off-topic during assessment, gently redirect back to the question
-6. End the conversation professionally after the survey is complete"""
+6. End the conversation professionally after the survey is complete
+
+QUERYING SURVEY RESULTS:
+- After the survey is complete, you can answer user questions about their results using the query_survey_results tool
+- Use this tool to provide insights about their burnout score, contributing domains, and stress indicators
+- Always base your answers on the survey data and biometric information collected
+- When the user asks about their burnout score, contributing domains, stress questions, or any other aspect of their survey results, you MUST use the query_survey_results tool to get the data before answering.
+- Do not make up or guess the results; always rely on the tool output."""
 
     async def _process_message_to_client(
         self,
         msg: str,
         client_ws: web.WebSocketResponse,
         server_ws: web.WebSocketResponse,
-    ) -> Optional[str]:
+    ) -> str | None:
         import re
 
         message = json.loads(msg.data)
@@ -607,6 +828,13 @@ CRITICAL RULES:
                         updated_message = None
 
                 case "conversation.item.created":
+                    # Transition to qa_mode if user sends a follow-up message after report
+                    if (self._conversation_state == "report_delivered" and
+                        "item" in message and
+                        message.get("item", {}).get("role") == "user"):
+                        self._conversation_state = "qa_mode"
+                        logger.info("[RTMT] ★ User follow-up detected, conversation state advanced to 'qa_mode'")
+
                     # Check for user input audio transcription for sentiment analysis
                     if self.enable_sentiment_analysis and "item" in message:
                         item = message.get("item", {})
@@ -844,6 +1072,9 @@ CRITICAL RULES:
                         if replace:
                             updated_message = json.dumps(message)
 
+                        # Detect and handle report delivery to maintain conversation continuity
+                        self._detect_and_handle_report_delivery(message)
+
                     # Extract sentiment from response content if sentiment analysis is enabled
                     if self.enable_sentiment_analysis and "response" in message:
                         logger.info(
@@ -951,7 +1182,7 @@ CRITICAL RULES:
 
     async def _process_message_to_server(
         self, msg: str, ws: web.WebSocketResponse
-    ) -> Optional[str]:
+    ) -> str | None:
         message = json.loads(msg.data)
         updated_message = msg.data
         logger.info(
@@ -980,12 +1211,18 @@ CRITICAL RULES:
                         survey_instructions = "\n\n" + self._get_survey_instructions()
                         extra_instructions += survey_instructions
 
+                    # Add conversation state instructions to preserve continuity
+                    state_instructions = self._get_conversation_state_instructions()
+                    if state_instructions:
+                        extra_instructions += "\n\n" + state_instructions
+
                     stress_instructions = "\n\n" + self._get_stress_instructions()
                     extra_instructions += stress_instructions
 
                     session["instructions"] = base_instructions + extra_instructions
 
                     logger.info(f"[RTMT] ★ Stress state: {self._stress_state}")
+                    logger.info(f"[RTMT] ★ Conversation state: {self._conversation_state}")
                     logger.info(
                         f"[RTMT] ★ Generating stress instructions for state: {self._stress_state}"
                     )

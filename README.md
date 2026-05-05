@@ -207,5 +207,7 @@ Branch : report-analyzer-integration
 Branch : phase2-UI-chnage
 -Restructuring UIs
 Branch : agent-optimization
--optimizing Agent for clear , precise communication about the APP
--building capability to analyze the report 
+-optimizing Agent for clear , precise communication about the APP 
+Branch : agent-qa-capability
+-Adding tools/skills to the existing agent to answer queries on technical results. 
+

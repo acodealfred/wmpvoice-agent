@@ -66,7 +66,7 @@ function App() {
         }
     }, []);
 
-    const { startSession, addUserAudio, inputAudioBufferClear } = useRealTime({
+    const { startSession, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
         onWebSocketClose: () => console.log("WebSocket connection closed"),
         onWebSocketError: event => console.error("WebSocket error:", event),
@@ -761,6 +761,7 @@ function App() {
                                                     totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
                                                     onClose={() => setShowDetailedReport(false)}
                                                     onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
+                                                    onReportDelivered={refreshSession}
                                                 />
                                             </div>
                                         )}

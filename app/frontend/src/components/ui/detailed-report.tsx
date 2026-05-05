@@ -7,9 +7,10 @@ interface DetailedReportProps {
     totalScore: number;
     onClose?: () => void;
     onAgentSpeaking?: (text: string) => void;
+    onReportDelivered?: () => void;
 }
 
-export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking }: DetailedReportProps) {
+export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking, onReportDelivered }: DetailedReportProps) {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -90,6 +91,9 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
                 setAgentResponse(data.agentResponse);
                 onAgentSpeaking?.(data.agentResponse);
             }
+
+            // Notify that report has been delivered to trigger session refresh for Q&A continuity
+            onReportDelivered?.();
         } catch (err) {
             setAnalysisError(err instanceof Error ? err.message : "Unknown error occurred");
         } finally {
@@ -234,12 +238,14 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
                             <tr key={snapshot.questionId} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                                 <td className="border border-gray-200 px-3 py-2 text-gray-900">{snapshot.questionId}</td>
                                 <td className="border border-gray-200 px-3 py-2 text-gray-900">{snapshot.domain}</td>
-                                <td className="border border-gray-200 px-3 py-2 text-center text-gray-900 font-medium">{snapshot.score}/5</td>
-                                <td className={`border border-gray-200 px-3 py-2 text-center capitalize font-medium ${getSentimentColor(snapshot.voiceSentiment)}`}>
+                                <td className="border border-gray-200 px-3 py-2 text-center font-medium text-gray-900">{snapshot.score}/5</td>
+                                <td
+                                    className={`border border-gray-200 px-3 py-2 text-center font-medium capitalize ${getSentimentColor(snapshot.voiceSentiment)}`}
+                                >
                                     {snapshot.voiceSentiment}
                                 </td>
                                 <td className="border border-gray-200 px-3 py-2 text-center">
-                                    <span className={snapshot.blinkRateChange >= 0 ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+                                    <span className={snapshot.blinkRateChange >= 0 ? "font-medium text-green-700" : "font-medium text-red-700"}>
                                         {snapshot.blinkRateChange >= 0 ? "+" : ""}
                                         {snapshot.blinkRateChange.toFixed(1)}%
                                     </span>

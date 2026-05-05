@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import os
 from pathlib import Path
@@ -41,25 +42,16 @@ superiority and contempt.
         # Build input data from snapshots - only using required fields
         input_data = []
         for s in snapshots:
-            # Calculate BR Stress Level
             br_change = s.get("blinkRateChange", 0)
-            if br_change > 30:
-                br_stress = "High"
-            elif br_change < -30:
-                br_stress = "Low"
-            else:
-                br_stress = "Normal"
-
-            input_data.append(
-                {
-                    "question": s.get("questionId", ""),
-                    "domain": s.get("domain", ""),
-                    "score": s.get("score", 0),
-                    "voice_sentiment": s.get("voiceSentiment", "neutral"),
-                    "blink_rate_change": br_change,
-                    "br_stress": br_stress,
-                }
-            )
+            br_stress = "High" if br_change > 30 else "Low" if br_change < -30 else "Normal"
+            input_data.append({
+                "question": s.get("questionId", ""),
+                "domain": s.get("domain", ""),
+                "score": s.get("score", 0),
+                "voice_sentiment": s.get("voiceSentiment", "neutral"),
+                "blink_rate_change": br_change,
+                "br_stress": br_stress,
+            })
 
         # System prompt for the analysis engine
         system_prompt = f"""You are a behavioral analysis engine.
@@ -105,46 +97,94 @@ Output JSON format:
 }}
 """
 
-        # Use RTMiddleTier to call OpenAI for analysis
-        # Get the rtmt instance from app
         rtmt = request.app.get("rtmt")
-
         if not rtmt:
-            return web.json_response(
-                {"error": "Analysis service not available"}, status=503
-            )
+            return web.json_response({"error": "Analysis service not available"}, status=503)
 
-        # Call the LLM for analysis
+        # Call LLM for behavioral analysis
+        analysis_result_str = await rtmt.analyze_with_prompt(system_prompt)
+
+        # Parse analysis result
         try:
-            analysis_result = await rtmt.analyze_with_prompt(system_prompt)
+            analysis_data = json.loads(analysis_result_str)
+        except json.JSONDecodeError:
+            analysis_data = {"raw": analysis_result_str}
 
-            # Now trigger the agent to speak with the analysis results using consultative tone
-            consultative_prompt = f"""You are a workplace wellbeing consultant reviewing the burnout assessment results.
+        # Compute totals and risk
+        total_score = sum(s.get('score', 0) for s in snapshots)
+        max_score = len(snapshots) * 5
+        if total_score <= 12:
+            risk_level = "Low"
+            interpretation = "Low burnout risk"
+        elif total_score <= 22:
+            risk_level = "Moderate"
+            interpretation = "Moderate burnout risk"
+        else:
+            risk_level = "High"
+            interpretation = "High burnout risk"
 
-Based on the analysis results:
-{analysis_result}
+        # Domain totals
+        domain_totals = {}
+        for s in snapshots:
+            dom = s.get('domain', 'Unknown')
+            domain_totals[dom] = domain_totals.get(dom, 0) + s.get('score', 0)
+        domain_lines = [f"- {dom}: {score} points" for dom, score in domain_totals.items()]
+        domain_summary = "\n".join(domain_lines)
 
-Please provide a consultative response to the user that:
-1. Acknowledges their assessment results in a supportive way
-2. Highlights key findings from the analysis (correlations, contradictions, patterns)
-3. Offers actionable insights based on the biometric data
-4. Maintains a warm, professional tone - like a caring workplace coach
+        # Snapshot lines
+        snapshot_lines = []
+        for s in snapshots:
+            snapshot_lines.append(
+                f"Q{s.get('questionId','')}: score={s.get('score',0)}, domain={s.get('domain','')}, "
+                f"voice_sentiment={s.get('voiceSentiment','')}, blink_change={s.get('blinkRateChange',0)}%, face_emotion={s.get('faceEmotion','')}"
+            )
+        snapshot_summary = "\n".join(snapshot_lines)
+
+        # Build consultative prompt that explicitly states score/risk
+        consultative_prompt = f"""You are a workplace wellbeing consultant reviewing the burnout assessment results.
+
+FACTUAL SUMMARY (START YOUR RESPONSE BY STATING THIS):
+- Total Burnout Score: {total_score} out of {max_score}
+- Burnout Risk Level: {interpretation}
+
+BEHAVIORAL ANALYSIS (for your reference):
+{analysis_result_str}
+
+Please provide a consultative response that:
+1. Begins by clearly stating the total score and burnout risk level.
+2. Highlights key findings from the analysis (correlations, contradictions, patterns).
+3. Explains what the score means in practical terms.
+4. Offers actionable insights and next steps based on the biometric data.
+5. Maintains a warm, supportive, professional tone.
 
 Keep your response conversational and audio-friendly (short paragraphs, clear points).
-Begin your response with a brief greeting acknowledging completion of their assessment.
+IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code formatting."""
+
+        response_text = await rtmt.analyze_with_prompt(consultative_prompt)
+
+        # Build comprehensive report context for follow-up Q&A
+        analysis_block = json.dumps(analysis_data, indent=2) if isinstance(analysis_data, dict) else str(analysis_data)
+        report_context_full = f"""=== BURNOUT ASSESSMENT REPORT (COMPLETE) ===
+TOTAL SCORE: {total_score}/{max_score}
+RISK LEVEL: {risk_level} ({interpretation})
+
+=== DOMAIN TOTALS ===
+{domain_summary}
+
+=== QUESTION DETAILS ===
+{snapshot_summary}
+
+=== AGENT CONSULTATIVE RESPONSE (spoken to user) ===
+{response_text}
+
+=== BEHAVIORAL ANALYSIS (JSON) ===
+{analysis_block}
+=== END REPORT ===
 """
+        rtmt.set_conversation_state("report_delivered", report_context_full)
+        logger.info("[APP] ★ Report delivered, state=report_delivered with full context including burnout state")
 
-            # Get the session to send a conversational response
-            response_text = await rtmt.analyze_with_prompt(consultative_prompt)
-
-            return web.json_response(
-                {"analysis": analysis_result, "agentResponse": response_text}
-            )
-        except Exception as e:
-            logger.error(f"LLM analysis error: {e}")
-            return web.json_response(
-                {"error": f"Analysis failed: {str(e)}"}, status=500
-            )
+        return web.json_response({"analysis": analysis_data, "agentResponse": response_text})
 
     except Exception as e:
         logger.error(f"Report analysis error: {e}")
@@ -270,6 +310,17 @@ async def clear_stress_state(request, rtmt: RTMiddleTier):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def clear_conversation_state(request, rtmt: RTMiddleTier):
+    """Reset conversation state when starting a fresh interaction"""
+    try:
+        rtmt.clear_conversation_state()
+        logger.info("[APP] ★ Conversation state cleared (ready for new session)")
+        return web.json_response({"success": True, "state": "active"})
+    except Exception as e:
+        logger.error(f"Error clearing conversation state: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def update_biometrics(request, rtmt: RTMiddleTier):
     """Update current biometric data for survey response capture"""
     try:
@@ -386,6 +437,7 @@ async def create_app():
     app.router.add_post("/analyze", lambda request: analyze_face(request, rtmt))
     app.router.add_post("/analyze-stress", analyze_stress)
     app.router.add_get("/config", get_config)
+    app.router.add_post("/clear-conversation", lambda request: clear_conversation_state(request, rtmt))
 
     # RAG tools disabled - kept for future extensibility
     # attach_rag_tools(rtmt,
