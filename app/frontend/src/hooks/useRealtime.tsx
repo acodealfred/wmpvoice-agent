@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import useWebSocket from "react-use-websocket";
 
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/types";
 
 type Parameters = {
+    sessionId?: string;
     useDirectAoaiApi?: boolean;
     aoaiEndpointOverride?: string;
     aoaiApiKeyOverride?: string;
@@ -40,6 +42,7 @@ type Parameters = {
 };
 
 export default function useRealTime({
+    sessionId,
     useDirectAoaiApi,
     aoaiEndpointOverride,
     aoaiApiKeyOverride,
@@ -60,13 +63,39 @@ export default function useRealTime({
     onReceivedSurveyBiometricUpdate,
     onReceivedError
 }: Parameters) {
+    const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
     const wsEndpoint = useDirectAoaiApi
         ? `${aoaiEndpointOverride}/openai/realtime?api-key=${aoaiApiKeyOverride}&deployment=${aoaiModelOverride}&api-version=2024-10-01-preview`
-        : `/realtime`;
+        : `/realtime${sessionParam}`;
+
+    // hasConnectedRef: true once startSession() has been called at least once.
+    // pendingRestoreRef: set on reconnect; cleared when session.created arrives from Azure.
+    // Sending session.update in onOpen is too early — the backend hasn't opened its Azure
+    // connection yet. The right moment is when Azure signals it is ready via session.created.
+    const hasConnectedRef = useRef(false);
+    const pendingRestoreRef = useRef(false);
+
+    const buildSessionUpdateCommand = (): SessionUpdateCommand => {
+        const command: SessionUpdateCommand = {
+            type: "session.update",
+            session: { turn_detection: { type: "server_vad" } }
+        };
+        if (enableInputAudioTranscription) {
+            command.session.input_audio_transcription = { model: "whisper-1" };
+        }
+        return command;
+    };
 
     const { sendJsonMessage } = useWebSocket(wsEndpoint, {
         onOpen: () => {
             console.log("[Realtime] WebSocket connected");
+            if (hasConnectedRef.current) {
+                // Mark that this is a reconnect. We do NOT send session.update here
+                // because the backend may not have its Azure WS open yet.
+                // We'll send it once Azure says it's ready (session.created).
+                console.log("[Realtime] Reconnect detected — will restore context after session.created");
+                pendingRestoreRef.current = true;
+            }
             onWebSocketOpen?.();
         },
         onClose: () => onWebSocketClose?.(),
@@ -76,22 +105,8 @@ export default function useRealTime({
     });
 
     const startSession = () => {
-        const command: SessionUpdateCommand = {
-            type: "session.update",
-            session: {
-                turn_detection: {
-                    type: "server_vad"
-                }
-            }
-        };
-
-        if (enableInputAudioTranscription) {
-            command.session.input_audio_transcription = {
-                model: "whisper-1"
-            };
-        }
-
-        sendJsonMessage(command);
+        hasConnectedRef.current = true;
+        sendJsonMessage(buildSessionUpdateCommand());
     };
 
     const refreshSession = () => {
@@ -140,6 +155,16 @@ export default function useRealTime({
         }
 
         switch (message.type) {
+            case "session.created":
+                // Azure Realtime session is initialised and ready to accept commands.
+                // If this is a reconnect, send session.update NOW so the backend injects
+                // all persisted context (survey results, report, conversation state).
+                if (pendingRestoreRef.current) {
+                    pendingRestoreRef.current = false;
+                    console.log("[Realtime] session.created — sending session.update to restore context");
+                    sendJsonMessage(buildSessionUpdateCommand());
+                }
+                break;
             case "response.done":
                 onReceivedResponseDone?.(message as ResponseDone);
                 break;

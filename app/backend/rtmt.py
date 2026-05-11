@@ -1,7 +1,11 @@
 import asyncio
+import contextvars
 import json
 import logging
+import time
+import uuid
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -15,6 +19,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger("voicerag")
 logger.setLevel(logging.INFO)
+
+_SESSION_TTL_SECONDS = 4 * 3600  # sessions expire after 4 hours of inactivity
+
+@dataclass
+class SessionState:
+    """All mutable state that belongs to a single user session."""
+    session_id: str
+    created_at: float = field(default_factory=time.time)
+    last_active_at: float = field(default_factory=time.time)
+    connection_count: int = 0  # incremented on every WS reconnect
+
+    survey_results: dict = field(default_factory=dict)
+    stress_state: str = "normal"
+    current_sentiment: str = "neutral"
+    current_blink_rate_change: float = 0.0
+    current_face_emotion: str = "NEUTRAL"
+    blink_rate_history: list = field(default_factory=list)
+    face_emotion_history: list = field(default_factory=list)
+
+    conversation_state: str = "active"  # "active" | "report_delivered" | "qa_mode"
+    report_context: str | None = None
+    last_agent_response_type: str | None = None
+
+
+# Per-coroutine context variable: set in _websocket_handler before any async work starts.
+# asyncio.gather copies the current Context to each task it spawns, so both
+# from_client_to_server and from_server_to_client tasks inherit this value automatically.
+_active_session: contextvars.ContextVar["SessionState | None"] = contextvars.ContextVar(
+    "active_session", default=None
+)
 
 _tool_sentiment_schema = {
     "type": "function",
@@ -125,13 +159,12 @@ def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     query_type = args.get("query_type", "summary")
     domain = args.get("domain")
 
-    if not hasattr(self, "_survey_results") or not self._survey_results:
+    results = self._sess.survey_results
+    if not results:
         return ToolResult(
             json.dumps({"error": "No survey results available. Complete the survey first."}),
             ToolResultDirection.TO_CLIENT,
         )
-
-    results = self._survey_results
     total_score = sum(r["score"] for r in results.values())
     num_questions = len(results)
 
@@ -218,7 +251,8 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     question_id = args.get("question_id")
     score = args.get("score")
     user_response = args.get("user_verbal_response", "")
-    voice_sentiment = args.get("voice_sentiment") or self._current_sentiment
+    sess = self._sess
+    voice_sentiment = args.get("voice_sentiment") or sess.current_sentiment
 
     # Use aggregated values from history for accurate per-question biometrics
     provided_blink = args.get("blink_rate_change_percent")
@@ -229,30 +263,19 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     )
 
     provided_emotion = args.get("face_emotion")
-    face_emotion = (
-        provided_emotion if provided_emotion else self._get_dominant_emotion()
-    )
+    face_emotion = provided_emotion if provided_emotion else self._get_dominant_emotion()
 
-    # Debug logging
     logger.info(
         f"[RTMT] ★ Survey Tool Debug - question_id={question_id}, "
         f"provided_blink={provided_blink}, calculated_blink={blink_rate_change_percent}%, "
         f"provided_emotion={provided_emotion}, calculated_emotion={face_emotion}"
     )
     logger.info(
-        f"[RTMT] ★ Blink History: {self._blink_rate_history[-10:]}, "
-        f"Emotion History: {self._face_emotion_history[-10:]}"
+        f"[RTMT] ★ Blink History: {sess.blink_rate_history[-10:]}, "
+        f"Emotion History: {sess.face_emotion_history[-10:]}"
     )
 
-    provided_emotion = args.get("face_emotion")
-    face_emotion = (
-        provided_emotion if provided_emotion else self._get_dominant_emotion()
-    )
-
-    if not hasattr(self, "_survey_results"):
-        self._survey_results = {}
-
-    self._survey_results[question_id] = {
+    sess.survey_results[question_id] = {
         "score": score,
         "user_response": user_response,
         "voice_sentiment": voice_sentiment,
@@ -261,8 +284,8 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     }
 
     domain = _get_question_domain(question_id)
-    total_score = sum(r["score"] for r in self._survey_results.values())
-    completed = len(self._survey_results)
+    total_score = sum(r["score"] for r in sess.survey_results.values())
+    completed = len(sess.survey_results)
     total = len(self._survey_config.get("questions", []))
 
     logger.info(
@@ -350,21 +373,10 @@ class RTMiddleTier:
     enable_meta_intent: bool = True
     meta_intent_config: dict | None = None
     api_version: str = "2024-10-01-preview"
-    _tools_pending = {}
     _token_provider = None
-    _survey_results: dict = {}
+    # Shared survey config (same for all sessions)
     _survey_config: dict = {}
-    _stress_state: str = "normal"
-    _current_sentiment: str = "neutral"
-    _current_blink_rate_change: float = 0.0
-    _current_face_emotion: str = "NEUTRAL"
-    _blink_rate_history: list = []
-    _face_emotion_history: list = []
     _MAX_HISTORY_SIZE = 50
-    # Conversation state management for post-report Q&A continuity
-    _conversation_state: str = "active"  # "active", "report_delivered", "qa_mode"
-    _report_context: str | None = None
-    _last_agent_response_type: str | None = None
 
     def __init__(
         self,
@@ -376,6 +388,10 @@ class RTMiddleTier:
         self.endpoint = endpoint
         self.deployment = deployment
         self.voice_choice = voice_choice
+        # Per-session state store
+        self._sessions: dict[str, SessionState] = {}
+        # Per-connection tool call tracking (initialized fresh in _forward_messages)
+        self._tools_pending: dict = {}
         if voice_choice is not None:
             logger.info("Realtime voice choice set to %s", voice_choice)
         if isinstance(credentials, AzureKeyCredential):
@@ -385,6 +401,39 @@ class RTMiddleTier:
                 credentials, "https://cognitiveservices.azure.com/.default"
             )
             self._token_provider()  # Warm up during startup so we have a token cached when the first request arrives
+
+    # ------------------------------------------------------------------
+    # Session management
+    # ------------------------------------------------------------------
+
+    @property
+    def _sess(self) -> SessionState:
+        """Return the SessionState for the current async context."""
+        sess = _active_session.get()
+        if sess is None:
+            raise RuntimeError("No active session in context — was session_id set?")
+        return sess
+
+    def _get_or_create_session(self, session_id: str) -> SessionState:
+        self._evict_expired_sessions()
+        if session_id not in self._sessions:
+            self._sessions[session_id] = SessionState(session_id=session_id)
+            logger.info("[RTMT] New session created: %s", session_id)
+        sess = self._sessions[session_id]
+        sess.last_active_at = time.time()
+        return sess
+
+    def get_or_create_session(self, session_id: str) -> SessionState:
+        """Public accessor used by REST handlers (outside WebSocket context)."""
+        return self._get_or_create_session(session_id)
+
+    def _evict_expired_sessions(self) -> None:
+        now = time.time()
+        expired = [sid for sid, s in self._sessions.items()
+                   if now - s.last_active_at > _SESSION_TTL_SECONDS]
+        for sid in expired:
+            del self._sessions[sid]
+            logger.info("[RTMT] Session expired and evicted: %s", sid)
 
     def enable_sentiment(self) -> None:
         self.enable_sentiment_analysis = True
@@ -448,35 +497,58 @@ class RTMiddleTier:
         }
         logger.info("Survey mode enabled with record_survey_response and query_survey_results tools")
 
-    def set_stress_state(self, state: str) -> None:
-        """Set the user's stress state for adaptive communication."""
+    def set_stress_state_for_session(self, session_id: str, state: str) -> None:
         valid_states = ["stressed", "relaxed", "normal"]
         if state not in valid_states:
             logger.warning(f"Invalid stress state: {state}, defaulting to normal")
             state = "normal"
-        self._stress_state = state
-        logger.info(f"[RTMT] ★ Stress state set to: {state}")
+        self.get_or_create_session(session_id).stress_state = state
+        logger.info(f"[RTMT] ★ Stress state set to: {state} (session={session_id})")
 
-    def set_conversation_state(self, state: str, report_context: str | None = None) -> None:
-        """Set the conversation state and optionally store report context for Q&A."""
+    def set_conversation_state_for_session(
+        self, session_id: str, state: str, report_context: str | None = None
+    ) -> None:
         valid_states = ["active", "report_delivered", "qa_mode"]
         if state not in valid_states:
             logger.warning(f"Invalid conversation state: {state}, defaulting to active")
             state = "active"
-        self._conversation_state = state
+        sess = self.get_or_create_session(session_id)
+        sess.conversation_state = state
         if report_context is not None:
-            self._report_context = report_context
+            sess.report_context = report_context
+        logger.info(f"[RTMT] ★ Conversation state set to: {state} (session={session_id})")
+
+    def clear_conversation_state_for_session(self, session_id: str) -> None:
+        sess = self.get_or_create_session(session_id)
+        sess.conversation_state = "active"
+        sess.report_context = None
+        sess.last_agent_response_type = None
+        logger.info("[RTMT] ★ Conversation state cleared (session=%s)", session_id)
+
+    # Keep backward-compatible wrappers that operate on the current WS session
+    def set_stress_state(self, state: str) -> None:
+        valid_states = ["stressed", "relaxed", "normal"]
+        if state not in valid_states:
+            state = "normal"
+        self._sess.stress_state = state
+        logger.info(f"[RTMT] ★ Stress state set to: {state}")
+
+    def set_conversation_state(self, state: str, report_context: str | None = None) -> None:
+        valid_states = ["active", "report_delivered", "qa_mode"]
+        if state not in valid_states:
+            state = "active"
+        self._sess.conversation_state = state
+        if report_context is not None:
+            self._sess.report_context = report_context
         logger.info(f"[RTMT] ★ Conversation state set to: {state}")
 
     def get_conversation_state(self) -> str:
-        """Get current conversation state."""
-        return self._conversation_state
+        return self._sess.conversation_state
 
     def clear_conversation_state(self) -> None:
-        """Reset conversation state to active and clear report context."""
-        self._conversation_state = "active"
-        self._report_context = None
-        self._last_agent_response_type = None
+        self._sess.conversation_state = "active"
+        self._sess.report_context = None
+        self._sess.last_agent_response_type = None
         logger.info("[RTMT] ★ Conversation state cleared (reset to active)")
 
     async def analyze_with_prompt(self, system_prompt: str) -> str:
@@ -530,80 +602,63 @@ class RTMiddleTier:
 
     def _update_biometric_history(self, blink_change: float, face_emotion: str):
         """Update the rolling history buffers with new biometric readings."""
-        self._blink_rate_history.append(blink_change)
-        self._face_emotion_history.append(face_emotion)
+        sess = self._sess
+        sess.blink_rate_history.append(blink_change)
+        sess.face_emotion_history.append(face_emotion)
+        if len(sess.blink_rate_history) > self._MAX_HISTORY_SIZE:
+            sess.blink_rate_history.pop(0)
+        if len(sess.face_emotion_history) > self._MAX_HISTORY_SIZE:
+            sess.face_emotion_history.pop(0)
 
-        if len(self._blink_rate_history) > self._MAX_HISTORY_SIZE:
-            self._blink_rate_history.pop(0)
-        if len(self._face_emotion_history) > self._MAX_HISTORY_SIZE:
-            self._face_emotion_history.pop(0)
+    def _update_biometric_history_for_session(
+        self, sess: SessionState, blink_change: float, face_emotion: str
+    ) -> None:
+        """Update biometric history directly on a SessionState (used by REST handlers)."""
+        sess.blink_rate_history.append(blink_change)
+        sess.face_emotion_history.append(face_emotion)
+        if len(sess.blink_rate_history) > self._MAX_HISTORY_SIZE:
+            sess.blink_rate_history.pop(0)
+        if len(sess.face_emotion_history) > self._MAX_HISTORY_SIZE:
+            sess.face_emotion_history.pop(0)
 
     def clear_biometric_history(self):
-        """Clear all biometric history buffers."""
-        self._blink_rate_history.clear()
-        self._face_emotion_history.clear()
-        self._current_blink_rate_change = 0.0
-        self._current_face_emotion = "NEUTRAL"
+        """Clear all biometric history buffers for the current session."""
+        sess = self._sess
+        sess.blink_rate_history.clear()
+        sess.face_emotion_history.clear()
+        sess.current_blink_rate_change = 0.0
+        sess.current_face_emotion = "NEUTRAL"
         logger.info("[RTMT] ★ Biometric history cleared")
 
     def _get_average_blink_rate_change(self) -> float:
         """Get average blink rate change from history, excluding zero values."""
-        valid_changes = [c for c in self._blink_rate_history if c != 0]
-
+        history = self._sess.blink_rate_history
+        valid_changes = [c for c in history if c != 0]
         if not valid_changes:
-            logger.warning(
-                f"[RTMT] ★ _get_average_blink_rate_change: no valid changes, history: {self._blink_rate_history[-10:]}"
-            )
+            logger.warning("[RTMT] ★ _get_average_blink_rate_change: no valid changes, history: %s", history[-10:])
             return 0.0
-
         avg = sum(valid_changes) / len(valid_changes)
-        logger.info(
-            f"[RTMT] ★ _get_average_blink_rate_change: {avg}% (from {len(valid_changes)} valid readings)"
-        )
+        logger.info("[RTMT] ★ _get_average_blink_rate_change: %s%% (from %d valid readings)", avg, len(valid_changes))
         return avg
 
     def _get_dominant_emotion(self) -> str:
         """Get the most frequently detected emotion from history."""
-        if not self._face_emotion_history:
-            logger.warning(
-                "[RTMT] ★ _get_dominant_emotion: history is empty, returning NEUTRAL"
-            )
+        history = self._sess.face_emotion_history
+        if not history:
+            logger.warning("[RTMT] ★ _get_dominant_emotion: history is empty, returning NEUTRAL")
             return "NEUTRAL"
-
-        # Filter out invalid emotions
         valid_emotions = [
-            e
-            for e in self._face_emotion_history
-            if e
-            and e
-            not in (
-                "NEUTRAL",
-                "No face detected",
-                "No emotion detected",
-                "UNKNOWN",
-                "multiple_faces_detected",
-            )
+            e for e in history
+            if e and e not in ("NEUTRAL", "No face detected", "No emotion detected", "UNKNOWN", "multiple_faces_detected")
         ]
-
         if not valid_emotions:
-            logger.warning(
-                f"[RTMT] ★ _get_dominant_emotion: no valid emotions in history: {self._face_emotion_history[-10:]}"
-            )
-            # Return the last emotion if available, even if it's NEUTRAL
-            return (
-                self._face_emotion_history[-1]
-                if self._face_emotion_history
-                else "NEUTRAL"
-            )
-
+            logger.warning("[RTMT] ★ _get_dominant_emotion: no valid emotions in history: %s", history[-10:])
+            return history[-1] if history else "NEUTRAL"
         emotion_counts: dict = {}
         for emotion in valid_emotions:
             emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
-
         dominant = max(emotion_counts, key=emotion_counts.get)
-        logger.info(
-            f"[RTMT] ★ _get_dominant_emotion: {dominant} (counts: {emotion_counts})"
-        )
+        logger.info("[RTMT] ★ _get_dominant_emotion: %s (counts: %s)", dominant, emotion_counts)
         return dominant
 
     def _detect_and_handle_report_delivery(self, message: dict) -> bool:
@@ -612,8 +667,9 @@ class RTMiddleTier:
         if "response" not in message:
             return False
 
+        sess = self._sess
         # If we already set context via explicit API, don't override
-        if self._conversation_state in ("report_delivered", "qa_mode"):
+        if sess.conversation_state in ("report_delivered", "qa_mode"):
             return False
 
         response = message["response"]
@@ -643,9 +699,9 @@ class RTMiddleTier:
                         if keyword in text_lower:
                             # Minimal context for detection-only scenarios
                             summary = text[:300] if len(text) > 300 else text
-                            self._report_context = f"Report delivered: {summary}"
-                            self._conversation_state = "report_delivered"
-                            self._last_agent_response_type = "report_delivery"
+                            sess.report_context = f"Report delivered: {summary}"
+                            sess.conversation_state = "report_delivered"
+                            sess.last_agent_response_type = "report_delivery"
                             logger.info("[RTMT] ★ Report delivery detected via keywords, state set to report_delivered")
                             return True
 
@@ -687,10 +743,9 @@ BEHAVIORAL GUIDELINES:
 
     def _get_stress_instructions(self) -> str:
         """Generate instructions based on user's stress state."""
-        logger.info(
-            f"[RTMT] ★ Generating stress instructions for state: {self._stress_state}"
-        )
-        if self._stress_state == "stressed":
+        stress = self._sess.stress_state
+        logger.info("[RTMT] ★ Generating stress instructions for state: %s", stress)
+        if stress == "stressed":
             return """EMOTIONAL ADAPTATION - USER APPEARS STRESSED:
 - Speak slowly and gently
 - Reassure the user that it's okay to take their time
@@ -698,7 +753,7 @@ BEHAVIORAL GUIDELINES:
 - Keep explanations simple and not overwhelming
 - Be patient and empathetic
 - Acknowledge their stress: "I can see this might be a bit overwhelming. Let's take it one step at a time." """
-        elif self._stress_state == "relaxed":
+        elif stress == "relaxed":
             return """EMOTIONAL ADAPTATION - USER APPEARS RELAXED:
 - Proceed at a normal pace
 - Maintain a calm, friendly tone
@@ -710,7 +765,10 @@ BEHAVIORAL GUIDELINES:
 
     def _get_conversation_state_instructions(self) -> str:
         """Generate instructions based on current conversation state to maintain continuity."""
-        if self._conversation_state == "report_delivered":
+        sess = self._sess
+        _MAX_CTX = 2500  # chars; keeps combined instructions well inside Azure limits
+
+        if sess.conversation_state == "report_delivered":
             instructions = """CONVERSATION STATE: REPORT JUST DELIVERED
 - You have just finished delivering a comprehensive burnout assessment report with analysis.
 - The user may have follow-up questions about the results.
@@ -724,10 +782,13 @@ BEHAVIORAL GUIDELINES:
 - DO NOT restart the assessment or ask if they want to take it again unless asked.
 - Answer questions directly and informatively while staying conversational.
 """
-            if self._report_context:
-                instructions += f"\nREPORT CONTEXT (for Q&A):\n{self._report_context}\n"
+            if sess.report_context:
+                ctx = sess.report_context[:_MAX_CTX]
+                if len(sess.report_context) > _MAX_CTX:
+                    ctx += "\n[...truncated for brevity...]"
+                instructions += f"\nREPORT CONTEXT (for Q&A):\n{ctx}\n"
             return instructions
-        elif self._conversation_state == "qa_mode":
+        elif sess.conversation_state == "qa_mode":
             instructions = """CONVERSATION STATE: Q&A MODE
 - You are answering user questions about their burnout assessment results.
 - Reference the specific data from their survey and biometric analysis.
@@ -735,10 +796,76 @@ BEHAVIORAL GUIDELINES:
 - If the question is unrelated to their results, gently steer back to their wellbeing.
 - Continue in this mode until the conversation ends or a new assessment starts.
 """
-            if self._report_context:
-                instructions += f"\nCURRENT REPORT CONTEXT:\n{self._report_context}\n"
+            if sess.report_context:
+                ctx = sess.report_context[:_MAX_CTX]
+                if len(sess.report_context) > _MAX_CTX:
+                    ctx += "\n[...truncated for brevity...]"
+                instructions += f"\nCURRENT REPORT CONTEXT:\n{ctx}\n"
             return instructions
         return ""
+
+    def _get_reconnect_instructions(self) -> str:
+        """Build a context block injected on reconnect so the agent resumes naturally."""
+        sess = self._sess
+        if sess.connection_count <= 1:
+            return ""
+
+        parts = ["\n\n=== RECONNECT — CRITICAL CONTEXT ==="]
+        parts.append(
+            "IMPORTANT: The user's connection dropped and has just reconnected. "
+            "This is NOT a new conversation. DO NOT re-introduce yourself. "
+            "DO NOT greet the user as if you are meeting them for the first time. "
+            "DO NOT suggest starting a survey. Just say something brief like "
+            "\"Welcome back — shall we continue?\" and wait for their response."
+        )
+
+        questions = self._survey_config.get("questions", [])
+        total_questions = len(questions)
+
+        if sess.survey_results:
+            answered_ids = list(sess.survey_results.keys())
+            total_score = sum(r["score"] for r in sess.survey_results.values())
+            remaining_ids = [q["id"] for q in questions if q["id"] not in answered_ids]
+
+            parts.append(f"\nSURVEY STATUS: {len(answered_ids)}/{total_questions} questions answered.")
+
+            score_lines = []
+            for q in questions:
+                qid = q["id"]
+                if qid in sess.survey_results:
+                    r = sess.survey_results[qid]
+                    score_lines.append(f"  {q['text']} ({qid}): {r['score']}/5")
+            if score_lines:
+                parts.append("Scores recorded so far:\n" + "\n".join(score_lines))
+
+            if not remaining_ids:
+                # Survey complete — compute risk level
+                if total_score <= 12:
+                    risk = "Low burnout risk"
+                elif total_score <= 22:
+                    risk = "Moderate burnout risk"
+                else:
+                    risk = "High burnout risk"
+                parts.append(
+                    f"\nAll {total_questions} questions answered. "
+                    f"Total score: {total_score}/{total_questions * 5} — {risk}."
+                )
+            else:
+                next_q_id = remaining_ids[0]
+                next_q = next((q for q in questions if q["id"] == next_q_id), None)
+                if next_q:
+                    parts.append(f"\nNext unanswered question: '{next_q['prompt']}' (id: {next_q_id}).")
+
+        if sess.conversation_state in ("report_delivered", "qa_mode"):
+            parts.append(
+                "\nCONVERSATION STATE: The burnout report was already delivered and spoken to the user. "
+                "You MUST stay in Q&A mode. DO NOT re-read the full report. DO NOT re-run the survey. "
+                "Answer specific questions the user asks about their results."
+                # (Full report context is already injected by _get_conversation_state_instructions)
+            )
+
+        parts.append("\n=== END RECONNECT CONTEXT ===")
+        return "\n".join(parts)
 
     def _get_survey_instructions(self) -> str:
         config = self._survey_config
@@ -823,16 +950,22 @@ QUERYING SURVEY RESULTS:
                     session["max_response_output_tokens"] = None
                     updated_message = json.dumps(message)
 
+                case "response.created":
+                    # Azure has started generating a new response.
+                    # Track this so we never send response.create over an active one.
+                    self._response_in_progress = True
+
                 case "response.output_item.added":
                     if "item" in message and message["item"]["type"] == "function_call":
                         updated_message = None
 
                 case "conversation.item.created":
                     # Transition to qa_mode if user sends a follow-up message after report
-                    if (self._conversation_state == "report_delivered" and
+                    sess = self._sess
+                    if (sess.conversation_state == "report_delivered" and
                         "item" in message and
                         message.get("item", {}).get("role") == "user"):
-                        self._conversation_state = "qa_mode"
+                        sess.conversation_state = "qa_mode"
                         logger.info("[RTMT] ★ User follow-up detected, conversation state advanced to 'qa_mode'")
 
                     # Check for user input audio transcription for sentiment analysis
@@ -967,25 +1100,20 @@ QUERYING SURVEY RESULTS:
                                     survey_result = json.loads(result.to_text())
                                     question_id = survey_result.get("question_id")
                                     score = survey_result.get("score")
+                                    sess = self._sess
 
-                                    total_questions = len(
-                                        self._survey_config.get("questions", [])
-                                    )
-                                    completed = len(self._survey_results)
+                                    total_questions = len(self._survey_config.get("questions", []))
+                                    completed = len(sess.survey_results)
 
                                     question_text = next(
                                         (
                                             q.get("prompt", q.get("text", ""))
-                                            for q in self._survey_config.get(
-                                                "questions", []
-                                            )
+                                            for q in self._survey_config.get("questions", [])
                                             if q.get("id") == question_id
                                         ),
                                         "",
                                     )
-                                    survey_options = self._survey_config.get(
-                                        "options", []
-                                    )
+                                    survey_options = self._survey_config.get("options", [])
                                     await client_ws.send_json(
                                         {
                                             "type": "survey.update",
@@ -998,30 +1126,19 @@ QUERYING SURVEY RESULTS:
                                         }
                                     )
 
-                                    survey_result_data = self._survey_results.get(
-                                        question_id, {}
-                                    )
+                                    survey_result_data = sess.survey_results.get(question_id, {})
                                     voice_sentiment = (
-                                        survey_result_data.get("voice_sentiment")
-                                        or self._current_sentiment
-                                        if survey_result_data
-                                        else self._current_sentiment
+                                        survey_result_data.get("voice_sentiment") or sess.current_sentiment
+                                        if survey_result_data else sess.current_sentiment
                                     )
                                     blink_change = (
-                                        survey_result_data.get(
-                                            "blink_rate_change_percent"
-                                        )
-                                        if survey_result_data
-                                        and survey_result_data.get(
-                                            "blink_rate_change_percent"
-                                        )
-                                        is not None
+                                        survey_result_data.get("blink_rate_change_percent")
+                                        if survey_result_data and survey_result_data.get("blink_rate_change_percent") is not None
                                         else self._get_average_blink_rate_change()
                                     )
                                     face_emotion = (
                                         survey_result_data.get("face_emotion")
-                                        if survey_result_data
-                                        and survey_result_data.get("face_emotion")
+                                        if survey_result_data and survey_result_data.get("face_emotion")
                                         else self._get_dominant_emotion()
                                     )
 
@@ -1030,18 +1147,13 @@ QUERYING SURVEY RESULTS:
                                             "type": "survey.biometric.update",
                                             "snapshot": {
                                                 "questionId": question_id,
-                                                "domain": _get_question_domain(
-                                                    question_id
-                                                ),
+                                                "domain": _get_question_domain(question_id),
                                                 "score": score,
                                                 "voiceSentiment": voice_sentiment,
                                                 "blinkRateChange": blink_change,
                                                 "faceEmotion": face_emotion,
                                             },
-                                            "totalScore": sum(
-                                                r["score"]
-                                                for r in self._survey_results.values()
-                                            ),
+                                            "totalScore": sum(r["score"] for r in sess.survey_results.values()),
                                             "completed": completed,
                                             "total": total_questions,
                                         }
@@ -1058,9 +1170,19 @@ QUERYING SURVEY RESULTS:
                         updated_message = None
 
                 case "response.done":
+                    # The active response is finished — clear the flag first so any
+                    # guard below can safely decide whether to start a follow-up.
+                    self._response_in_progress = False
                     if len(self._tools_pending) > 0:
-                        self._tools_pending.clear()  # Any chance tool calls could be interleaved across different outstanding responses?
-                        await server_ws.send_json({"type": "response.create"})
+                        self._tools_pending.clear()
+                        # Only request the follow-up response if nothing is already running.
+                        # Without this guard we hit "conversation_already_has_active_response"
+                        # when the spoken summary response fires response.done while the
+                        # agent is still producing audio from a parallel output item.
+                        if not self._response_in_progress:
+                            logger.info("[RTMT] Tool response complete — sending response.create")
+                            await server_ws.send_json({"type": "response.create"})
+                            self._response_in_progress = True
                     if "response" in message:
                         replace = False
                         for i, output in enumerate(
@@ -1193,42 +1315,42 @@ QUERYING SURVEY RESULTS:
                 case "session.update":
                     logger.info("[RTMT] ★★★ Processing session.update!")
                     session = message["session"]
-                    if self.system_message is not None:
-                        base_instructions = self.system_message
+                    try:
+                        base_instructions = self.system_message or ""
 
-                    extra_instructions = ""
-                    if self.enable_meta_intent:
-                        meta_instructions = self._get_meta_intent_instructions()
-                        extra_instructions = meta_instructions
-                    # Add sentiment analysis and/or survey instructions if enabled
-                    if self.enable_sentiment_analysis:
-                        sentiment_instructions = """ Additionally, you must analyze the sentiment of the user's input.
+                        extra_instructions = ""
+                        if self.enable_meta_intent:
+                            extra_instructions += self._get_meta_intent_instructions()
+                        if self.enable_sentiment_analysis:
+                            extra_instructions += """ Additionally, you must analyze the sentiment of the user's input.
                         After each user message, determine if the sentiment is "positive", "neutral", or "negative".
                         IMPORTANT: You must call the 'report_sentiment' tool with the sentiment analysis results after each user message.
                         Do NOT speak or mention the sentiment analysis results out loud. The sentiment is for display purposes only."""
-                        extra_instructions += sentiment_instructions
-                    if self.enable_survey_mode:
-                        survey_instructions = "\n\n" + self._get_survey_instructions()
-                        extra_instructions += survey_instructions
+                        if self.enable_survey_mode:
+                            extra_instructions += "\n\n" + self._get_survey_instructions()
 
-                    # Add conversation state instructions to preserve continuity
-                    state_instructions = self._get_conversation_state_instructions()
-                    if state_instructions:
-                        extra_instructions += "\n\n" + state_instructions
+                        state_instructions = self._get_conversation_state_instructions()
+                        if state_instructions:
+                            extra_instructions += "\n\n" + state_instructions
 
-                    stress_instructions = "\n\n" + self._get_stress_instructions()
-                    extra_instructions += stress_instructions
+                        reconnect_instructions = self._get_reconnect_instructions()
+                        if reconnect_instructions:
+                            extra_instructions += reconnect_instructions
 
-                    session["instructions"] = base_instructions + extra_instructions
+                        extra_instructions += "\n\n" + self._get_stress_instructions()
 
-                    logger.info(f"[RTMT] ★ Stress state: {self._stress_state}")
-                    logger.info(f"[RTMT] ★ Conversation state: {self._conversation_state}")
-                    logger.info(
-                        f"[RTMT] ★ Generating stress instructions for state: {self._stress_state}"
-                    )
-                    logger.info(
-                        f"[RTMT] ★ Sending instructions to LLM: {session['instructions'][:500]}..."
-                    )
+                        session["instructions"] = base_instructions + extra_instructions
+
+                        try:
+                            sess = self._sess
+                            logger.info(f"[RTMT] ★ Stress={sess.stress_state} Conv={sess.conversation_state} Reconnect#={sess.connection_count}")
+                        except Exception:
+                            pass  # context var not set in this path — non-fatal
+
+                        logger.info(f"[RTMT] ★ Instructions length: {len(session['instructions'])} chars")
+                    except Exception as e:
+                        logger.error("[RTMT] Failed to build session instructions: %s", e, exc_info=True)
+                        session["instructions"] = self.system_message or ""
 
                     if self.temperature is not None:
                         session["temperature"] = self.temperature
@@ -1245,6 +1367,11 @@ QUERYING SURVEY RESULTS:
         return updated_message
 
     async def _forward_messages(self, ws: web.WebSocketResponse):
+        # Per-connection state: reset on every new WS connection.
+        # _response_in_progress prevents sending response.create while Azure is
+        # already generating a response (would cause conversation_already_has_active_response).
+        self._tools_pending = {}
+        self._response_in_progress = False
         async with aiohttp.ClientSession(base_url=self.endpoint) as session:
             params = {"api-version": self.api_version, "deployment": self.deployment}
             headers = {}
@@ -1264,35 +1391,74 @@ QUERYING SURVEY RESULTS:
                     async def from_client_to_server():
                         async for msg in ws:
                             if msg.type == aiohttp.WSMsgType.TEXT:
-                                new_msg = await self._process_message_to_server(msg, ws)
+                                try:
+                                    new_msg = await self._process_message_to_server(msg, ws)
+                                except Exception as e:
+                                    logger.error("[RTMT] Error processing client message: %s", e, exc_info=True)
+                                    continue  # skip this message, keep connection alive
                                 if new_msg is not None:
-                                    await target_ws.send_str(new_msg)
+                                    try:
+                                        await target_ws.send_str(new_msg)
+                                    except Exception as e:
+                                        logger.warning("[RTMT] Azure WS closed mid-forward: %s", e)
+                                        return
                             else:
-                                print("Error: unexpected message type:", msg.type)
+                                logger.debug("Unexpected client message type: %s", msg.type)
 
-                        # Means it is gracefully closed by the client then time to close the target_ws
-                        if target_ws:
-                            print("Closing OpenAI's realtime socket connection.")
+                        # Frontend gracefully closed — close Azure too
+                        if not target_ws.closed:
+                            logger.info("[RTMT] Client disconnected, closing Azure WS")
                             await target_ws.close()
 
                     async def from_server_to_client():
                         async for msg in target_ws:
                             if msg.type == aiohttp.WSMsgType.TEXT:
-                                new_msg = await self._process_message_to_client(
-                                    msg, ws, target_ws
-                                )
+                                try:
+                                    new_msg = await self._process_message_to_client(
+                                        msg, ws, target_ws
+                                    )
+                                except Exception as e:
+                                    logger.error("[RTMT] Error processing server message: %s", e, exc_info=True)
+                                    continue
                                 if new_msg is not None:
-                                    await ws.send_str(new_msg)
+                                    try:
+                                        await ws.send_str(new_msg)
+                                    except Exception as e:
+                                        logger.warning("[RTMT] Frontend WS closed mid-forward: %s", e)
+                                        return
                             else:
-                                print("Error: unexpected message type:", msg.type)
+                                logger.debug("Unexpected Azure message type: %s", msg.type)
+                        # Azure closed naturally — log and let _forward_messages return cleanly.
+                        # Do NOT call ws.close() here: that would trigger an immediate reconnect
+                        # which tries session.update again before the user has a chance to speak.
+                        logger.info("[RTMT] Azure WS closed naturally")
 
+                    # Use wait(FIRST_COMPLETED) so when either side closes, we cancel the other
+                    # and exit cleanly. asyncio.gather does NOT cancel siblings on completion.
+                    client_task = asyncio.ensure_future(from_client_to_server())
+                    server_task = asyncio.ensure_future(from_server_to_client())
                     try:
-                        await asyncio.gather(
-                            from_client_to_server(), from_server_to_client()
+                        done, pending = await asyncio.wait(
+                            [client_task, server_task],
+                            return_when=asyncio.FIRST_COMPLETED,
                         )
-                    except ConnectionResetError:
-                        # Ignore the errors resulting from the client disconnecting the socket
-                        pass
+                        for t in pending:
+                            t.cancel()
+                            try:
+                                await t
+                            except (asyncio.CancelledError, Exception):
+                                pass
+                        for t in done:
+                            if not t.cancelled() and t.exception():
+                                exc = t.exception()
+                                if not isinstance(exc, ConnectionResetError):
+                                    logger.warning("[RTMT] Relay task ended with: %s", exc)
+                    except (ConnectionResetError, Exception) as e:
+                        if not isinstance(e, ConnectionResetError):
+                            logger.warning("[RTMT] Forward-messages error: %s", e)
+                        for t in [client_task, server_task]:
+                            if not t.done():
+                                t.cancel()
             except aiohttp.client.WSServerHandshakeError as e:
                 logger.error(
                     "WebSocket handshake failed: %s. This may be due to an invalid or non-realtime deployment. Please verify your AZURE_OPENAI_REALTIME_DEPLOYMENT is correctly configured for the Realtime API.",
@@ -1309,9 +1475,23 @@ QUERYING SURVEY RESULTS:
                 )
 
     async def _websocket_handler(self, request: web.Request):
-        ws = web.WebSocketResponse()
-        await ws.prepare(request)
-        await self._forward_messages(ws)
+        session_id = request.rel_url.query.get("session_id") or str(uuid.uuid4())
+        sess = self._get_or_create_session(session_id)
+        sess.connection_count += 1
+        is_reconnect = sess.connection_count > 1
+        if is_reconnect:
+            logger.info("[RTMT] Session reconnected: %s (connection #%d)", session_id, sess.connection_count)
+        else:
+            logger.info("[RTMT] New session connected: %s", session_id)
+
+        # Set context var — inherited by both gather tasks in _forward_messages
+        token = _active_session.set(sess)
+        try:
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            await self._forward_messages(ws)
+        finally:
+            _active_session.reset(token)
         return ws
 
     def attach_to_app(self, app, path):

@@ -17,7 +17,18 @@ import logo from "./assets/logo.png";
 
 const TIME_FRAME_SECONDS = 5;
 
+function getOrCreateSessionId(): string {
+    const KEY = "ciq_session_id";
+    let id = localStorage.getItem(KEY);
+    if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem(KEY, id);
+    }
+    return id;
+}
+
 function App() {
+    const [sessionId] = useState<string>(getOrCreateSessionId);
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     const [lastEmotion, setLastEmotion] = useState<EmotionResult | null>(null);
@@ -67,6 +78,7 @@ function App() {
     }, []);
 
     const { startSession, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
+        sessionId,
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
         onWebSocketClose: () => console.log("WebSocket connection closed"),
         onWebSocketError: event => console.error("WebSocket error:", event),
@@ -134,6 +146,7 @@ function App() {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
+                        session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
                         blink_rate_change_percent: blinkToSend,
                         face_emotion: emotionToSend
@@ -759,6 +772,7 @@ function App() {
                                                 <DetailedReport
                                                     snapshots={biometricSnapshots}
                                                     totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
+                                                    sessionId={sessionId}
                                                     onClose={() => setShowDetailedReport(false)}
                                                     onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
                                                     onReportDelivered={refreshSession}

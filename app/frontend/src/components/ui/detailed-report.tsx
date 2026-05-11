@@ -5,12 +5,13 @@ import { Loader2, AlertCircle } from "lucide-react";
 interface DetailedReportProps {
     snapshots: BiometricSnapshot[];
     totalScore: number;
+    sessionId?: string;
     onClose?: () => void;
     onAgentSpeaking?: (text: string) => void;
     onReportDelivered?: () => void;
 }
 
-export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking, onReportDelivered }: DetailedReportProps) {
+export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onAgentSpeaking, onReportDelivered }: DetailedReportProps) {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -61,7 +62,7 @@ export function DetailedReport({ snapshots, totalScore, onClose, onAgentSpeaking
             const response = await fetch("/analyze-report", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ snapshots })
+                body: JSON.stringify({ snapshots, session_id: sessionId ?? "" })
             });
 
             if (!response.ok) {

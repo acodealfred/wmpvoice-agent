@@ -24,6 +24,7 @@ async def analyze_report(request):
     """Analyze the detailed burnout report using behavioral analysis engine"""
     try:
         data = await request.json()
+        session_id = data.get("session_id", "")
         snapshots = data.get("snapshots", [])
 
         if not snapshots:
@@ -181,7 +182,8 @@ RISK LEVEL: {risk_level} ({interpretation})
 {analysis_block}
 === END REPORT ===
 """
-        rtmt.set_conversation_state("report_delivered", report_context_full)
+        if session_id:
+            rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context_full)
         logger.info("[APP] ★ Report delivered, state=report_delivered with full context including burnout state")
 
         return web.json_response({"analysis": analysis_data, "agentResponse": response_text})
@@ -294,16 +296,17 @@ async def update_stress_state(request, rtmt: RTMiddleTier):
 async def clear_stress_state(request, rtmt: RTMiddleTier):
     """Clear the stress state after survey completion"""
     try:
-        rtmt.set_stress_state("normal")
-
-        # Clear biometric history buffers for fresh start on next survey
-        rtmt._blink_rate_history.clear()
-        rtmt._face_emotion_history.clear()
-        rtmt._current_blink_rate_change = 0.0
-        rtmt._current_face_emotion = "NEUTRAL"
-
-        logger.info("[APP] ★ Stress state cleared (reset to normal)")
-        logger.info("[APP] ★ Biometric history buffers cleared for new session")
+        data = await request.json()
+        session_id = data.get("session_id", "")
+        if not session_id:
+            return web.json_response({"error": "session_id is required"}, status=400)
+        sess = rtmt.get_or_create_session(session_id)
+        sess.stress_state = "normal"
+        sess.blink_rate_history.clear()
+        sess.face_emotion_history.clear()
+        sess.current_blink_rate_change = 0.0
+        sess.current_face_emotion = "NEUTRAL"
+        logger.info("[APP] ★ Stress state and biometric history cleared (session=%s)", session_id)
         return web.json_response({"success": True, "stress_state": "normal"})
     except Exception as e:
         logger.error(f"Error clearing stress state: {e}")
@@ -313,8 +316,12 @@ async def clear_stress_state(request, rtmt: RTMiddleTier):
 async def clear_conversation_state(request, rtmt: RTMiddleTier):
     """Reset conversation state when starting a fresh interaction"""
     try:
-        rtmt.clear_conversation_state()
-        logger.info("[APP] ★ Conversation state cleared (ready for new session)")
+        data = await request.json()
+        session_id = data.get("session_id", "")
+        if not session_id:
+            return web.json_response({"error": "session_id is required"}, status=400)
+        rtmt.clear_conversation_state_for_session(session_id)
+        logger.info("[APP] ★ Conversation state cleared (session=%s)", session_id)
         return web.json_response({"success": True, "state": "active"})
     except Exception as e:
         logger.error(f"Error clearing conversation state: {e}")
@@ -325,31 +332,66 @@ async def update_biometrics(request, rtmt: RTMiddleTier):
     """Update current biometric data for survey response capture"""
     try:
         data = await request.json()
+        session_id = data.get("session_id", "")
         sentiment = data.get("sentiment", "neutral")
         blink_rate_change = data.get("blink_rate_change_percent", 0.0)
         face_emotion = data.get("face_emotion", "NEUTRAL")
 
-        rtmt._current_sentiment = sentiment
-        rtmt._current_blink_rate_change = blink_rate_change
-        rtmt._current_face_emotion = face_emotion
+        if not session_id:
+            return web.json_response({"error": "session_id is required"}, status=400)
 
-        # Update history buffers for rolling averages
-        rtmt._update_biometric_history(blink_rate_change, face_emotion)
+        sess = rtmt.get_or_create_session(session_id)
+        sess.current_sentiment = sentiment
+        sess.current_blink_rate_change = blink_rate_change
+        sess.current_face_emotion = face_emotion
+        rtmt._update_biometric_history_for_session(sess, blink_rate_change, face_emotion)
 
         logger.info(
-            f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, emotion={face_emotion}"
+            f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, emotion={face_emotion} (session={session_id})"
         )
-
-        # Log history buffer status for debugging
         logger.info(
-            f"[APP] ★ History Debug - blink_history length: {len(rtmt._blink_rate_history)}, "
-            f"emotion_history length: {len(rtmt._face_emotion_history)}, "
-            f"emotion history: {rtmt._face_emotion_history[-5:] if rtmt._face_emotion_history else 'empty'}"
+            f"[APP] ★ History Debug - blink_history length: {len(sess.blink_rate_history)}, "
+            f"emotion_history length: {len(sess.face_emotion_history)}, "
+            f"emotion history: {sess.face_emotion_history[-5:] if sess.face_emotion_history else 'empty'}"
         )
 
         return web.json_response({"success": True})
     except Exception as e:
         logger.error(f"Error updating biometrics: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def get_session(request, rtmt: RTMiddleTier):
+    """Return persisted session state so the frontend can restore UI on reconnect."""
+    session_id = request.rel_url.query.get("session_id", "")
+    if not session_id:
+        return web.json_response({"error": "session_id is required"}, status=400)
+    sess = rtmt.get_or_create_session(session_id)
+    return web.json_response({
+        "session_id": session_id,
+        "conversation_state": sess.conversation_state,
+        "survey_results": sess.survey_results,
+        "stress_state": sess.stress_state,
+        "connection_count": sess.connection_count,
+        "has_report": sess.report_context is not None,
+    })
+
+
+async def update_stress_state(request, rtmt: RTMiddleTier):
+    """Update the stress state for adaptive communication"""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id", "")
+        stress_state = data.get("stress_state", "normal")
+        if not session_id:
+            return web.json_response({"error": "session_id is required"}, status=400)
+        valid_states = ["stressed", "relaxed", "normal"]
+        if stress_state not in valid_states:
+            return web.json_response({"error": f"Invalid stress state. Must be one of: {valid_states}"}, status=400)
+        rtmt.set_stress_state_for_session(session_id, stress_state)
+        return web.json_response({"success": True, "stress_state": stress_state})
+    except Exception as e:
+        logger.error(f"Error updating stress state: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
 
@@ -438,6 +480,8 @@ async def create_app():
     app.router.add_post("/analyze-stress", analyze_stress)
     app.router.add_get("/config", get_config)
     app.router.add_post("/clear-conversation", lambda request: clear_conversation_state(request, rtmt))
+    app.router.add_post("/update-stress", lambda request: update_stress_state(request, rtmt))
+    app.router.add_get("/session", lambda request: get_session(request, rtmt))
 
     # RAG tools disabled - kept for future extensibility
     # attach_rag_tools(rtmt,
