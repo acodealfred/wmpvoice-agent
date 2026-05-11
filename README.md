@@ -210,4 +210,5 @@ Branch : agent-optimization
 -optimizing Agent for clear , precise communication about the APP 
 Branch : agent-qa-capability
 -Adding tools/skills to the existing agent to answer queries on technical results. 
-
+Branch : code-assitance-change
+-Moving to paid AI development (Tool change to Cluade)
