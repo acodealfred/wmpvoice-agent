@@ -199,3 +199,9 @@ export type AnalysisResult = {
     patterns: AnalysisInsight[];
     summary: string;
 };
+
+export type KBDocument = {
+    paperId: string;
+    title: string;
+    uploadedAt: string;
+};

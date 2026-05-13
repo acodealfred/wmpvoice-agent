@@ -4,6 +4,7 @@ import logging
 import os
 from pathlib import Path
 
+import aiohttp
 import boto3
 from aiohttp import web
 from azure.core.credentials import AzureKeyCredential
@@ -18,6 +19,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("voicerag")
 logger.setLevel(logging.INFO)
+
+_APP_VERSION = "v2025-admin-routes"  # bump this string whenever you need to verify deployment
+logger.info("=== CIQ backend starting — build %s ===", _APP_VERSION)
 
 
 async def analyze_report(request):
@@ -270,6 +274,17 @@ async def get_config(request):
     )
 
 
+async def get_version(request):
+    """Return build version and REAL registered routes from the live router."""
+    live_routes = [str(r) for r in request.app.router.resources()]
+    admin_registered = any("admin" in r for r in live_routes)
+    return web.json_response({
+        "version": _APP_VERSION,
+        "admin_routes_registered": admin_registered,
+        "all_routes": live_routes,
+    })
+
+
 async def update_stress_state(request, rtmt: RTMiddleTier):
     """Update the stress state for adaptive communication"""
     try:
@@ -359,6 +374,188 @@ async def update_biometrics(request, rtmt: RTMiddleTier):
     except Exception as e:
         logger.error(f"Error updating biometrics: {e}")
         return web.json_response({"error": str(e)}, status=500)
+
+
+def _mithra_headers() -> dict:
+    """Auth header for all Mithra API calls.
+    Azure Container Apps: create secret named 'mithra-app-token', then map it to
+    env var MITHRA_APP_TOKEN in the container's environment variable configuration.
+    os.environ reads env vars (not secrets directly); hyphens in env var names are
+    non-standard, so always use MITHRA_APP_TOKEN as the mapped env var name.
+    """
+    token = os.environ.get("MITHRA_APP_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _mithra_base_url() -> str:
+    return os.environ.get("MITHRA_API_BASE_URL", "https://api.dev.mithra.shelterzoom.com")
+
+
+def _mithra_session() -> aiohttp.ClientSession:
+    """ClientSession with SSL verification disabled for the Mithra dev server.
+    The dev certificate hostname doesn't match api.dev.mithra.shelterzoom.com, so we
+    skip verification. Remove ssl=False once a valid cert is in place.
+    """
+    connector = aiohttp.TCPConnector(ssl=False)
+    return aiohttp.ClientSession(connector=connector)
+
+
+async def _mithra_response(resp) -> web.Response:
+    """Convert a Mithra API response to an aiohttp response.
+    Handles both JSON and non-JSON bodies (e.g. HTML error pages from the gateway)
+    so a parsing failure never surfaces as a misleading 500.
+    """
+    raw = await resp.text()
+    try:
+        import json as _json
+        body = _json.loads(raw)
+        return web.json_response(body, status=resp.status)
+    except Exception:
+        # Non-JSON body (HTML error page, plain text, etc.)
+        return web.Response(
+            text=raw,
+            status=resp.status,
+            content_type="text/plain",
+        )
+
+
+async def _mithra_exc_response(handler_name: str, exc: Exception) -> web.Response:
+    import traceback
+    detail = traceback.format_exc()
+    logger.error("[%s] %s\n%s", handler_name, exc, detail)
+    return web.json_response({"error": str(exc), "detail": detail}, status=500)
+
+
+async def admin_kb_upload(request):
+    """Proxy: POST /admin/kb/upload → Mithra POST /gateway/v2/papers/fromFile"""
+    try:
+        reader = await request.multipart()
+        title = ""
+        classification_ids = []
+        file_data = None
+        file_name = "upload"
+        file_content_type = "application/octet-stream"
+
+        async for part in reader:
+            if part.name == "title":
+                title = await part.read(decode=True)
+                title = title.decode("utf-8")
+            elif part.name == "classificationIds":
+                val = await part.read(decode=True)
+                classification_ids.append(val.decode("utf-8"))
+            elif part.name == "file":
+                file_data = await part.read(decode=False)
+                file_name = part.filename or "upload"
+                file_content_type = part.headers.get("Content-Type", "application/octet-stream")
+
+        if not title or file_data is None:
+            return web.json_response({"error": "title and file are required"}, status=400)
+
+        # Build multipart — file MUST be last (Mithra gateway requirement)
+        form = aiohttp.FormData()
+        form.add_field("title", title)
+        for cid in classification_ids:
+            form.add_field("classificationIds", cid)
+        form.add_field("file", file_data, filename=file_name, content_type=file_content_type)
+
+        async with _mithra_session() as session:
+            async with session.post(
+                f"{_mithra_base_url()}/gateway/v2/papers/fromFile",
+                data=form,
+                headers=_mithra_headers(),
+            ) as resp:
+                return await _mithra_response(resp)
+    except Exception as e:
+        return await _mithra_exc_response("admin_kb_upload", e)
+
+
+async def admin_kb_delete(request):
+    """Proxy: DELETE /admin/kb/documents/{paperId} → Mithra DELETE /gateway/v2/papers/{paperId}"""
+    try:
+        paper_id = request.match_info["paperId"]
+        async with _mithra_session() as session:
+            async with session.delete(
+                f"{_mithra_base_url()}/gateway/v2/papers/{paper_id}",
+                headers=_mithra_headers(),
+            ) as resp:
+                if resp.status == 204:
+                    return web.Response(status=204)
+                return await _mithra_response(resp)
+    except Exception as e:
+        return await _mithra_exc_response("admin_kb_delete", e)
+
+
+async def admin_kb_get_settings(request):
+    """Proxy: GET /admin/kb/settings → Mithra GET /gateway/v1/knowledgeBase/settings"""
+    try:
+        async with _mithra_session() as session:
+            async with session.get(
+                f"{_mithra_base_url()}/gateway/v1/knowledgeBase/settings",
+                headers=_mithra_headers(),
+            ) as resp:
+                return await _mithra_response(resp)
+    except Exception as e:
+        return await _mithra_exc_response("admin_kb_get_settings", e)
+
+
+async def admin_kb_patch_settings(request):
+    """Proxy: PATCH /admin/kb/settings → Mithra PATCH /gateway/v1/knowledgeBase/settings"""
+    try:
+        data = await request.json()
+        min_citations = data.get("minCitationsCount", 1)
+        async with _mithra_session() as session:
+            async with session.patch(
+                f"{_mithra_base_url()}/gateway/v1/knowledgeBase/settings",
+                json={"minCitationsCount": min_citations},
+                headers={**_mithra_headers(), "Content-Type": "application/json"},
+            ) as resp:
+                return await _mithra_response(resp)
+    except Exception as e:
+        return await _mithra_exc_response("admin_kb_patch_settings", e)
+
+
+async def admin_kb_debug(request):
+    """Diagnostics: checks token config + outbound connectivity to Mithra.
+    Returns a JSON report — never crashes, always explains what is wrong.
+    """
+    import traceback
+
+    token_raw = os.environ.get("MITHRA_APP_TOKEN", "")
+    base_url = _mithra_base_url()
+
+    result = {
+        "token_configured": bool(token_raw),
+        "token_preview": (token_raw[:8] + "…") if token_raw else "(empty — MITHRA_APP_TOKEN not set)",
+        "mithra_base_url": base_url,
+        "connectivity": None,
+        "connectivity_error": None,
+        "settings_status": None,
+        "settings_body": None,
+        "settings_error": None,
+    }
+
+    # 1. Basic connectivity probe (HEAD to base URL)
+    try:
+        async with _mithra_session() as session:
+            async with session.head(base_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                result["connectivity"] = resp.status
+    except Exception:
+        result["connectivity_error"] = traceback.format_exc()
+
+    # 2. Try the actual settings endpoint
+    try:
+        async with _mithra_session() as session:
+            async with session.get(
+                f"{base_url}/gateway/v1/knowledgeBase/settings",
+                headers=_mithra_headers(),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                result["settings_status"] = resp.status
+                result["settings_body"] = await resp.text()
+    except Exception:
+        result["settings_error"] = traceback.format_exc()
+
+    return web.json_response(result)
 
 
 async def get_session(request, rtmt: RTMiddleTier):
@@ -483,6 +680,14 @@ async def create_app():
     app.router.add_post("/update-stress", lambda request: update_stress_state(request, rtmt))
     app.router.add_get("/session", lambda request: get_session(request, rtmt))
 
+    # Mithra Knowledge Base admin proxy routes
+    app.router.add_post("/admin/kb/upload", admin_kb_upload)
+    app.router.add_delete("/admin/kb/documents/{paperId}", admin_kb_delete)
+    app.router.add_get("/admin/kb/settings", admin_kb_get_settings)
+    app.router.add_patch("/admin/kb/settings", admin_kb_patch_settings)
+    app.router.add_get("/admin/kb/debug", admin_kb_debug)
+    app.router.add_get("/version", get_version)
+
     # RAG tools disabled - kept for future extensibility
     # attach_rag_tools(rtmt,
     #     credentials=search_credential,
@@ -507,6 +712,12 @@ async def create_app():
         ]
     )
     app.router.add_static("/", path=current_directory / "static", name="static")
+
+    # Log every registered route so we can verify deployment in container log stream
+    logger.info("=== REGISTERED ROUTES ===")
+    for resource in app.router.resources():
+        logger.info("  %s", resource)
+    logger.info("=========================")
 
     return app
 

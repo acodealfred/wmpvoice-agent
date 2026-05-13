@@ -16,6 +16,8 @@ echo "ENABLE_SURVEY_MODE=$(azd env get-value ENABLE_SURVEY_MODE 2>/dev/null || e
 echo "AWS_REGION=$(azd env get-value AWS_REGION 2>/dev/null || echo 'us-east-1')" >> $ENV_FILE_PATH
 echo "AWS_ACCESS_KEY_ID=$(azd env get-value AWS_ACCESS_KEY_ID 2>/dev/null || echo '')" >> $ENV_FILE_PATH
 echo "AWS_SECRET_ACCESS_KEY=$(azd env get-value AWS_SECRET_ACCESS_KEY 2>/dev/null || echo '')" >> $ENV_FILE_PATH
+echo "MITHRA_API_BASE_URL=$(azd env get-value MITHRA_API_BASE_URL 2>/dev/null || echo 'https://api.dev.mithra.shelterzoom.com')" >> $ENV_FILE_PATH
+echo "MITHRA_APP_TOKEN=$(azd env get-value MITHRA_APP_TOKEN 2>/dev/null || echo '')" >> $ENV_FILE_PATH
 # RAG features disabled - AI Search env vars removed
 # echo "AZURE_SEARCH_ENDPOINT=$(azd env get-value AZURE_SEARCH_ENDPOINT)" >> $ENV_FILE_PATH
 # echo "AZURE_SEARCH_INDEX=$(azd env get-value AZURE_SEARCH_INDEX)" >> $ENV_FILE_PATH

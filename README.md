@@ -212,3 +212,6 @@ Branch : agent-qa-capability
 -Adding tools/skills to the existing agent to answer queries on technical results. 
 Branch : code-assitance-change
 -Moving to paid AI development (Tool change to Cluade)
+Branch : ssot-integration
+- Integration with SSOT for realtime AI suggestion
+- Generate prompt with required fillings and ask suggestion from SSOT.

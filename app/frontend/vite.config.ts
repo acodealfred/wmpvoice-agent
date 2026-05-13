@@ -22,6 +22,9 @@ export default defineConfig({
                 target: "ws://localhost:8765",
                 ws: true,
                 rewriteWsOrigin: true
+            },
+            "/admin": {
+                target: "http://localhost:8765"
             }
         }
     }

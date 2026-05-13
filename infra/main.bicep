@@ -67,6 +67,13 @@ param awsAccessKeyId string = ''
 @description('AWS Secret Access Key for Rekognition (optional)')
 param awsSecretAccessKey string = ''
 
+@description('Mithra Knowledge Base API base URL')
+param mithraApiBaseUrl string = 'https://api.dev.mithra.shelterzoom.com'
+
+@description('Mithra Application JWT token — store as container secret mithra-app-token')
+@secure()
+param mithraAppToken string = ''
+
 @description('Location for the OpenAI resource group')
 @allowed([
   'eastus2'
@@ -188,9 +195,10 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
     targetPort: 8000
     containerCpuCoreCount: '1.0'
     containerMemory: '2Gi'
-    secrets: !empty(awsSecretAccessKey) ? {
-      'aws-secret-key': awsSecretAccessKey
-    } : {}
+    secrets: union(
+      !empty(awsSecretAccessKey) ? { 'aws-secret-key': awsSecretAccessKey } : {},
+      !empty(mithraAppToken)     ? { 'mithra-app-token': mithraAppToken }   : {}
+    )
     env: {
       AZURE_OPENAI_ENDPOINT: reuseExistingOpenAi ? openAiEndpoint : openAi.outputs.endpoint
       AZURE_OPENAI_REALTIME_DEPLOYMENT: reuseExistingOpenAi ? openAiRealtimeDeployment : openAiDeployments[0].name
@@ -203,6 +211,9 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       AWS_REGION: awsRegion
       AWS_ACCESS_KEY_ID: !empty(awsAccessKeyId) ? awsAccessKeyId : ''
       AWS_SECRET_ACCESS_KEY: !empty(awsSecretAccessKey) ? 'secretref:aws-secret-key' : ''
+      // Mithra Knowledge Base API
+      MITHRA_API_BASE_URL: mithraApiBaseUrl
+      MITHRA_APP_TOKEN: !empty(mithraAppToken) ? 'secretref:mithra-app-token' : ''
       // RAG features disabled - AI Search removed
       // AZURE_SEARCH_ENDPOINT
       // AZURE_SEARCH_INDEX
