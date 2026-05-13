@@ -18,18 +18,11 @@ import logo from "./assets/logo.png";
 
 const TIME_FRAME_SECONDS = 5;
 
-function getOrCreateSessionId(): string {
-    const KEY = "ciq_session_id";
-    let id = localStorage.getItem(KEY);
-    if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem(KEY, id);
-    }
-    return id;
-}
-
 function App() {
-    const [sessionId] = useState<string>(getOrCreateSessionId);
+    // New UUID on every page load → agent always starts fresh after a refresh.
+    // WS auto-reconnects (same page lifecycle, same React instance) reuse the same
+    // ID so the backend still injects context to survive network drops mid-survey.
+    const [sessionId] = useState<string>(() => crypto.randomUUID());
     const [activeTab, setActiveTab] = useState<"assessment" | "admin">("assessment");
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
