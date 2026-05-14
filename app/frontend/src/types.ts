@@ -205,3 +205,14 @@ export type KBDocument = {
     title: string;
     uploadedAt: string;
 };
+
+export type Citation = {
+    paperId: string;
+    paperTitle: string;
+    paperPage: number;
+};
+
+export type SSoTReport = {
+    answer: string;
+    citations: Citation[];
+};

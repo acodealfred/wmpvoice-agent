@@ -81,8 +81,10 @@ export function useVideoCapture({ onEmotionDetected, analyzeInterval = 3000 }: U
                 setCurrentEmotion(result);
                 onEmotionDetected?.(result);
             }
-        } catch (error) {
-            console.error("Error analyzing frame:", error);
+            // Non-2xx (e.g. 500 when AWS Rekognition is not configured) — fail silently
+            // to avoid flooding the console on every interval tick.
+        } catch {
+            // Network error — ignore silently
         }
     }, [captureFrame, isAnalyzing, onEmotionDetected]);
 

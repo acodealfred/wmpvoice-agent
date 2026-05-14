@@ -167,6 +167,24 @@ IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code fo
 
         response_text = await rtmt.analyze_with_prompt(consultative_prompt)
 
+        # ── Mithra KB Consultative Report ────────────────────────────────────
+        # Build a templated query from the survey findings and send it to the
+        # Mithra RAG system. The response includes citations from uploaded docs.
+        sorted_domains = sorted(domain_totals.items(), key=lambda x: x[1], reverse=True)
+        top_domains_str = ", ".join(f"{name} ({score} pts)" for name, score in sorted_domains[:3])
+        mithra_query = (
+            f"Write a consultative wellbeing report for an employee who completed a burnout "
+            f"assessment with a total score of {total_score} out of {max_score}, indicating "
+            f"{interpretation}. The primary contributing factors are: {top_domains_str}. "
+            f"Provide evidence-based recommendations, support strategies, and actionable next "
+            f"steps to address these specific burnout indicators."
+        )
+        logger.info("[APP] Mithra query: %s", mithra_query[:200])
+        ssot_report = await _call_mithra_kb_chat(mithra_query)
+        if ssot_report:
+            logger.info("[APP] Mithra KB report received (%d chars, %d citations)",
+                        len(ssot_report.get("answer", "")), len(ssot_report.get("citations", [])))
+
         # Build comprehensive report context for follow-up Q&A
         analysis_block = json.dumps(analysis_data, indent=2) if isinstance(analysis_data, dict) else str(analysis_data)
         report_context_full = f"""=== BURNOUT ASSESSMENT REPORT (COMPLETE) ===
@@ -190,10 +208,73 @@ RISK LEVEL: {risk_level} ({interpretation})
             rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context_full)
         logger.info("[APP] ★ Report delivered, state=report_delivered with full context including burnout state")
 
-        return web.json_response({"analysis": analysis_data, "agentResponse": response_text})
+        return web.json_response({
+            "analysis": analysis_data,
+            "agentResponse": response_text,
+            "ssotReport": ssot_report,  # None when Mithra is not configured
+        })
 
     except Exception as e:
         logger.error(f"Report analysis error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def generate_ssot_report(request):
+    """POST /ssot-report — build a templated query from survey snapshots and return the Mithra KB answer."""
+    try:
+        data = await request.json()
+        snapshots = data.get("snapshots", [])
+        session_id = data.get("session_id", "")
+
+        if not snapshots:
+            return web.json_response({"error": "No snapshot data provided"}, status=400)
+
+        total_score = sum(s.get("score", 0) for s in snapshots)
+        max_score = len(snapshots) * 5
+
+        if total_score <= 12:
+            interpretation = "Low burnout risk"
+        elif total_score <= 22:
+            interpretation = "Moderate burnout risk"
+        else:
+            interpretation = "High burnout risk"
+
+        domain_totals: dict = {}
+        for s in snapshots:
+            dom = s.get("domain", "Unknown")
+            domain_totals[dom] = domain_totals.get(dom, 0) + s.get("score", 0)
+
+        sorted_domains = sorted(domain_totals.items(), key=lambda x: x[1], reverse=True)
+        top_domains_str = ", ".join(f"{name} ({score} pts)" for name, score in sorted_domains[:3])
+
+        mithra_query = (
+            f"Write a consultative wellbeing report for an employee who completed a burnout "
+            f"assessment with a total score of {total_score} out of {max_score}, indicating "
+            f"{interpretation}. The primary contributing factors are: {top_domains_str}. "
+            f"Provide evidence-based recommendations, support strategies, and actionable next "
+            f"steps to address these specific burnout indicators."
+        )
+        logger.info("[APP] /ssot-report query: %s", mithra_query[:200])
+
+        ssot_report = await _call_mithra_kb_chat(mithra_query)
+        if not ssot_report:
+            return web.json_response(
+                {"error": "Could not generate report from Knowledge Base. "
+                          "Check MITHRA_APP_TOKEN and ensure documents are uploaded."},
+                status=503,
+            )
+
+        # Store conversation state so the agent can answer follow-up Q&A
+        if session_id:
+            rtmt_instance = request.app.get("rtmt")
+            if rtmt_instance:
+                ctx = f"KB Report: {ssot_report['answer'][:500]}"
+                rtmt_instance.set_conversation_state_for_session(session_id, "report_delivered", ctx)
+
+        return web.json_response({"ssotReport": ssot_report, "query": mithra_query})
+
+    except Exception as e:
+        logger.error("generate_ssot_report error: %s", e)
         return web.json_response({"error": str(e)}, status=500)
 
 
@@ -424,6 +505,36 @@ async def _mithra_exc_response(handler_name: str, exc: Exception) -> web.Respons
     detail = traceback.format_exc()
     logger.error("[%s] %s\n%s", handler_name, exc, detail)
     return web.json_response({"error": str(exc), "detail": detail}, status=500)
+
+
+async def _call_mithra_kb_chat(query: str) -> "dict | None":
+    """Query the Mithra KB chat API with a single question.
+    Returns {'answer': str, 'citations': list} or None if Mithra is not configured / unavailable.
+    Failures are swallowed so the rest of the report is unaffected.
+    """
+    if not os.environ.get("MITHRA_APP_TOKEN"):
+        logger.info("[Mithra] MITHRA_APP_TOKEN not set — skipping KB chat")
+        return None
+    try:
+        async with _mithra_session() as session:
+            async with session.post(
+                f"{_mithra_base_url()}/gateway/v1/knowledgeBase/chats",
+                json={"initialQuestion": query, "title": "Burnout Consultative Report"},
+                headers={**_mithra_headers(), "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status not in (200, 201):
+                    text = await resp.text()
+                    logger.warning("[Mithra] KB chat returned %s: %s", resp.status, text[:200])
+                    return None
+                data = await resp.json(content_type=None)
+                return {
+                    "answer": data.get("answer", ""),
+                    "citations": data.get("citations", []),
+                }
+    except Exception as exc:
+        logger.warning("[Mithra] KB chat call failed: %s", exc)
+        return None
 
 
 async def admin_kb_upload(request):
@@ -679,6 +790,9 @@ async def create_app():
     app.router.add_post("/clear-conversation", lambda request: clear_conversation_state(request, rtmt))
     app.router.add_post("/update-stress", lambda request: update_stress_state(request, rtmt))
     app.router.add_get("/session", lambda request: get_session(request, rtmt))
+
+    # Mithra Knowledge Base admin proxy routes
+    app.router.add_post("/ssot-report", generate_ssot_report)
 
     # Mithra Knowledge Base admin proxy routes
     app.router.add_post("/admin/kb/upload", admin_kb_upload)

@@ -215,3 +215,7 @@ Branch : code-assitance-change
 Branch : ssot-integration
 - Integration with SSOT for realtime AI suggestion
 - Generate prompt with required fillings and ask suggestion from SSOT.
+-Only File uploads work in this branch not SSOT chat
+Branch : ssot-integration-report
+- Integration with SSOT for realtime AI suggestion
+- Generate prompt with required fillings and ask suggestion from SSOT.
