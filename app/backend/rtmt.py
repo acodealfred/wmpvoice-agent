@@ -252,6 +252,18 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     score = args.get("score")
     user_response = args.get("user_verbal_response", "")
     sess = self._sess
+
+    # Idempotency guard: reject duplicate recordings for the same question so a
+    # misfired tool call (e.g. called when asking rather than after answering)
+    # cannot pollute the report or confuse the frontend progress counter.
+    if question_id in sess.survey_results:
+        logger.warning("[RTMT] Duplicate record_survey_response for %s — ignoring", question_id)
+        return ToolResult(
+            json.dumps({"question_id": question_id, "duplicate": True, "recorded": False,
+                        "message": "Already recorded — do not call again for this question."}),
+            ToolResultDirection.TO_CLIENT,
+        )
+
     voice_sentiment = args.get("voice_sentiment") or sess.current_sentiment
 
     # Use aggregated values from history for accurate per-question biometrics
@@ -869,63 +881,49 @@ BEHAVIORAL GUIDELINES:
 
     def _get_survey_instructions(self) -> str:
         config = self._survey_config
-        questions_text = "\n".join(
-            [
-                f"{i + 1}. {q['text']} ({q['id']}): {q['prompt']}"
-                for i, q in enumerate(config.get("questions", []))
-            ]
-        )
+        questions = config.get("questions", [])
         interp = config.get("interpretation", {})
 
-        return f"""You are a supportive conversational assistant focused on workplace wellbeing and burnout prevention.
+        # Each question on its own line: question text first, then the ID for the tool call on a
+        # SEPARATE line so the agent cannot confuse "ask this text" with "call tool now".
+        question_blocks = []
+        for i, q in enumerate(questions):
+            question_blocks.append(
+                f'Step {i + 1}/{len(questions)}: Say — "{q["prompt"]}\n'
+                f'  Then WAIT for the user to answer. Once they answer, call record_survey_response with question_id="{q["id"]}".'
+            )
+        questions_script = "\n\n".join(question_blocks)
 
-CONVERSATION RULES:
-- Be friendly and empathetic
-- Keep responses brief and conversational
-- STAY ON TOPIC: Focus only on work, job satisfaction, stress, wellbeing, and burnout
-- If user goes off-topic (e.g., sports, movies, politics), politely redirect: "I'd love to chat about that, but let's focus on your work wellbeing for now. How are you feeling about your job lately?"
-- AVOID: Long discussions about unrelated topics, personal life matters outside work, or general small talk not related to workplace wellbeing
+        return f"""SURVEY SCRIPT — FOLLOW THIS EXACTLY
 
-SURVEY PROPOSAL:
-- After 2-3 conversational exchanges maximum, propose the burnout assessment
-- Do NOT wait for the user to bring it up - YOU must suggest it proactively
-- Say something like: "I'd love to help you check in with yourself. Would you like to take a short, 5-question burnout assessment? It only takes a couple of minutes."
-- If user declines, try once more after 1-2 more turns, then accept their decision gracefully
-- If user agrees, proceed to assessment
+Your only job is to deliver this {len(questions)}-question check-in, then share the result.
 
-ASSESSMENT PHASE (when user agrees):
-- Ask about each topic in a friendly, conversational way (DO NOT read questions verbatim)
+OPENING:
+1. Greet the user in one short sentence.
+2. Say: "I'd like to run a quick {len(questions)}-question wellbeing check-in. Shall we start?"
+3. Wait for confirmation. If yes → go to Step 1. If no → ask once more, then respect refusal.
 
-Questions:
-{questions_text}
+SURVEY STEPS (do these in order, one at a time):
 
-After all 5 responses, calculate total score:
-- 5-12: {interp.get("low", "Low burnout risk")}
-- 13-22: {interp.get("moderate", "Moderate burnout risk")}
-- 23-25: {interp.get("high", "High burnout risk")}
+{questions_script}
 
-BIOMETRIC DATA:
-- The system automatically captures biometric data during the conversation
-- When calling record_survey_response, include available biometric data:
-  - voice_sentiment: current voice sentiment (positive/neutral/negative)
-  - blink_rate_change_percent: current blink rate change from baseline
-  - face_emotion: current face emotion (HAPPY, SAD, ANGRY, NEUTRAL, etc.)
-- If you don't have access to specific values, the system will use defaults
+STRICT RULES:
+- Speak ONLY the question text shown in each step. Do NOT add words, rephrase, or ask follow-up questions.
+- Do NOT call record_survey_response when ASKING a question — only call it AFTER the user has ANSWERED.
+- Do NOT use any burnout knowledge from your training. Use ONLY the questions listed above.
+- If the user goes off-topic, say: "Let's finish the check-in first." and repeat the current step's question.
 
-CRITICAL RULES:
-1. Call record_survey_response tool AFTER each user answer with the inferred score (1-5)
-2. Include biometric parameters in the tool call when available
-3. NEVER mention scores or the tool to the user
-4. After all 5 questions, share the interpretation based on total score
-5. If user goes off-topic during assessment, gently redirect back to the question
-6. End the conversation professionally after the survey is complete
+AFTER ALL {len(questions)} ANSWERS:
+Share the result (do not show numbers to the user):
+  Total 5–12  → "{interp.get("low", "Low burnout risk")}"
+  Total 13–22 → "{interp.get("moderate", "Moderate burnout risk")}"
+  Total 23–25 → "{interp.get("high", "High burnout risk")}"
 
-QUERYING SURVEY RESULTS:
-- After the survey is complete, you can answer user questions about their results using the query_survey_results tool
-- Use this tool to provide insights about their burnout score, contributing domains, and stress indicators
-- Always base your answers on the survey data and biometric information collected
-- When the user asks about their burnout score, contributing domains, stress questions, or any other aspect of their survey results, you MUST use the query_survey_results tool to get the data before answering.
-- Do not make up or guess the results; always rely on the tool output."""
+TOOL RULES (silent, never tell the user):
+- record_survey_response: call ONLY after the user has answered that step's question.
+  Required fields: question_id (as shown per step), score 1–5, voice_sentiment, blink_rate_change_percent, face_emotion.
+- DO NOT call record_survey_response for a question_id that you have already recorded.
+- query_survey_results: use only after the survey is complete, to answer follow-up questions."""
 
     async def _process_message_to_client(
         self,

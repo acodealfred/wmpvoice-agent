@@ -56,7 +56,7 @@ param openAiRealtimeDeployment string = ''
 param openAiRealtimeVoiceChoice string = ''
 
 param enableSentimentAnalysis bool = true
-param enableSurveyMode bool = false
+param enableSurveyMode bool = true
 
 @description('AWS Region for Rekognition API')
 param awsRegion string = 'us-east-1'

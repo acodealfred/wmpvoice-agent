@@ -96,22 +96,21 @@ function App() {
             }
         },
         onReceivedSurveyBiometricUpdate: message => {
-            console.log("[App] Received survey biometric update:", message);
             setBiometricSnapshots(prev => {
-                console.log("[App] Previous snapshots:", prev);
-                const updated = [...prev, message.snapshot];
-                console.log("[App] Updated snapshots:", updated);
-                return updated;
+                // Deduplicate: if this questionId is already recorded, keep the existing entry.
+                // This guards against the agent firing record_survey_response twice for the same question.
+                const alreadyRecorded = prev.some(s => s.questionId === message.snapshot.questionId);
+                if (alreadyRecorded) {
+                    console.warn("[App] Duplicate snapshot for", message.snapshot.questionId, "— ignoring");
+                    return prev;
+                }
+                return [...prev, message.snapshot];
             });
             setSurveyCompleted(message.completed);
             setSurveyTotal(message.total);
             if (message.completed === message.total) {
-                console.log("[App] Survey completed, stopping biometric analysis");
                 setEnableBiometrics(false);
-                setTimeout(() => {
-                    console.log("[App] Setting showDetailedReport to true");
-                    setShowDetailedReport(true);
-                }, 2000);
+                setTimeout(() => setShowDetailedReport(true), 2000);
             }
         }
     });
