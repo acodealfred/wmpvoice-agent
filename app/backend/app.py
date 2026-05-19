@@ -247,14 +247,21 @@ async def generate_ssot_report(request):
         sorted_domains = sorted(domain_totals.items(), key=lambda x: x[1], reverse=True)
         top_domains_str = ", ".join(f"{name} ({score} pts)" for name, score in sorted_domains[:3])
 
-        mithra_query = (
-            f"Write a consultative wellbeing report for an employee who completed a burnout "
-            f"assessment with a total score of {total_score} out of {max_score}, indicating "
-            f"{interpretation}. The primary contributing factors are: {top_domains_str}. "
-            f"Provide evidence-based recommendations, support strategies, and actionable next "
-            f"steps to address these specific burnout indicators."
-        )
-        logger.info("[APP] /ssot-report query: %s", mithra_query[:200])
+        # Allow the frontend (test generator) to supply a custom query.
+        # If query_override is provided and non-empty, use it directly.
+        query_override = data.get("query_override", "").strip()
+        if query_override:
+            mithra_query = query_override
+            logger.info("[APP] /ssot-report using query_override: %s", mithra_query[:200])
+        else:
+            mithra_query = (
+                f"Write a consultative wellbeing report for an employee who completed a burnout "
+                f"assessment with a total score of {total_score} out of {max_score}, indicating "
+                f"{interpretation}. The primary contributing factors are: {top_domains_str}. "
+                f"Provide evidence-based recommendations, support strategies, and actionable next "
+                f"steps to address these specific burnout indicators."
+            )
+            logger.info("[APP] /ssot-report query (generated): %s", mithra_query[:200])
 
         ssot_report = await _call_mithra_kb_chat(mithra_query)
         if not ssot_report:

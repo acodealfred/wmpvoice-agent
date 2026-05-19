@@ -6,6 +6,7 @@ import { VideoPanel } from "@/components/ui/video-panel";
 import { SentimentHistoryPanel } from "@/components/ui/sentiment-history-panel";
 import { DetailedReport } from "@/components/ui/detailed-report";
 import { AdminPanel } from "@/components/ui/admin-panel";
+import { TestGenerator } from "@/components/ui/test-generator";
 import { Button } from "@/components/ui/button";
 
 import useRealTime from "@/hooks/useRealtime";
@@ -23,7 +24,7 @@ function App() {
     // WS auto-reconnects (same page lifecycle, same React instance) reuse the same
     // ID so the backend still injects context to survive network drops mid-survey.
     const [sessionId] = useState<string>(() => crypto.randomUUID());
-    const [activeTab, setActiveTab] = useState<"assessment" | "admin">("assessment");
+    const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test">("assessment");
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     const [lastEmotion, setLastEmotion] = useState<EmotionResult | null>(null);
@@ -438,12 +439,29 @@ function App() {
                 >
                     Admin
                 </button>
+                <button
+                    onClick={() => setActiveTab("test")}
+                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                        activeTab === "test"
+                            ? "bg-purple-600 text-white"
+                            : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    }`}
+                >
+                    Test Generator
+                </button>
             </div>
 
             {/* ── Admin Panel ── */}
             {activeTab === "admin" && (
                 <div className="flex-1 overflow-y-auto">
                     <AdminPanel />
+                </div>
+            )}
+
+            {/* ── Test Generator ── */}
+            {activeTab === "test" && (
+                <div className="flex-1 overflow-y-auto">
+                    <TestGenerator />
                 </div>
             )}
 
