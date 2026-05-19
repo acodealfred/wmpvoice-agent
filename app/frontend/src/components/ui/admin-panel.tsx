@@ -1,22 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument } from "@/types";
-
-const KB_DOCS_KEY = "ciq_kb_documents";
-
-function loadDocuments(): KBDocument[] {
-    try {
-        const raw = localStorage.getItem(KB_DOCS_KEY);
-        return raw ? (JSON.parse(raw) as KBDocument[]) : [];
-    } catch {
-        return [];
-    }
-}
-
-function saveDocuments(docs: KBDocument[]) {
-    localStorage.setItem(KB_DOCS_KEY, JSON.stringify(docs));
-}
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -96,13 +81,27 @@ export function AdminPanel() {
         }
     };
 
+    // ── Document list — loaded from server, not localStorage ──────────
+    const [documents, setDocuments] = useState<KBDocument[]>([]);
+
+    const fetchDocuments = useCallback(async () => {
+        try {
+            const resp = await fetch("/admin/kb/documents");
+            if (resp.ok) {
+                const data = await resp.json();
+                setDocuments(data.documents ?? []);
+            }
+        } catch { /* silent */ }
+    }, []);
+
+    useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
     const [uploadMsg, setUploadMsg] = useState<{ text: string; ok: boolean } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [documents, setDocuments] = useState<KBDocument[]>(loadDocuments);
 
     const handleUpload = async () => {
         if (!uploadFile) {
@@ -122,18 +121,11 @@ export function AdminPanel() {
             const data = await resp.json();
 
             if (resp.ok) {
-                const newDoc: KBDocument = {
-                    paperId: data.id,
-                    title: data.title || uploadTitle.trim(),
-                    uploadedAt: new Date().toISOString()
-                };
-                const updated = [...documents, newDoc];
-                setDocuments(updated);
-                saveDocuments(updated);
                 setUploadTitle("");
                 setUploadFile(null);
                 if (fileInputRef.current) fileInputRef.current.value = "";
                 setUploadMsg({ text: `Uploaded successfully — paperId: ${data.id}`, ok: true });
+                await fetchDocuments(); // refresh list from server
             } else {
                 setUploadMsg({ text: data.message || data.error || `Upload failed (HTTP ${resp.status}).`, ok: false });
             }
@@ -154,10 +146,8 @@ export function AdminPanel() {
         try {
             const resp = await fetch(`/admin/kb/documents/${doc.paperId}`, { method: "DELETE" });
             if (resp.status === 204 || resp.ok) {
-                const updated = documents.filter(d => d.paperId !== doc.paperId);
-                setDocuments(updated);
-                saveDocuments(updated);
                 setDeleteMsg({ paperId: doc.paperId, text: `"${doc.title}" deleted.`, ok: true });
+                await fetchDocuments(); // refresh from server
             } else {
                 const err = await resp.json().catch(() => ({}));
                 setDeleteMsg({ paperId: doc.paperId, text: err.message || `Delete failed (HTTP ${resp.status}).`, ok: false });
@@ -324,6 +314,74 @@ export function AdminPanel() {
                     </div>
                 )}
             </div>
+
+            {/* ── Section D: Delete by Paper ID ── */}
+            <DeleteByPaperId onDeleted={fetchDocuments} />
+        </div>
+    );
+}
+
+// ── Standalone Delete-by-ID widget ──────────────────────────────────────────
+function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
+    const [paperId, setPaperId] = useState("");
+    const [deleting, setDeleting] = useState(false);
+    const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+    const handleDelete = async () => {
+        const id = paperId.trim();
+        if (!id) return;
+        setDeleting(true);
+        setMsg(null);
+        try {
+            const resp = await fetch(`/admin/kb/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
+            if (resp.status === 204 || resp.ok) {
+                setMsg({ text: `Document ${id} deleted successfully.`, ok: true });
+                setPaperId("");
+                onDeleted();
+            } else {
+                const err = await resp.json().catch(() => ({}));
+                setMsg({ text: err.message || err.error || `Delete failed (HTTP ${resp.status}).`, ok: false });
+            }
+        } catch {
+            setMsg({ text: "Network error during delete.", ok: false });
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    return (
+        <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="mb-4 flex items-center gap-2">
+                <Hash className="h-5 w-5 text-purple-400" />
+                <h2 className="text-base font-semibold text-white">Delete by Paper ID</h2>
+            </div>
+            <p className="mb-3 text-xs text-slate-400">
+                Use this to delete a document from the Knowledge Base using its Paper ID directly —
+                useful for documents uploaded from another device or before tracking was enabled.
+            </p>
+            <div className="flex gap-2">
+                <input
+                    type="text"
+                    value={paperId}
+                    onChange={e => setPaperId(e.target.value)}
+                    placeholder="Paste paper ID…"
+                    className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+                    onKeyDown={e => e.key === "Enter" && !deleting && paperId.trim() && handleDelete()}
+                />
+                <Button
+                    variant="destructive"
+                    onClick={handleDelete}
+                    disabled={deleting || !paperId.trim()}
+                >
+                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                </Button>
+            </div>
+            {msg && (
+                <div className={`mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                    {msg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+                    {msg.text}
+                </div>
+            )}
         </div>
     );
 }

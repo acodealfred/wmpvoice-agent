@@ -219,6 +219,35 @@ RISK LEVEL: {risk_level} ({interpretation})
         return web.json_response({"error": str(e)}, status=500)
 
 
+# ── KB document metadata persistence (flat JSON file) ──────────────────────
+# Survives browser refreshes and is visible from any browser/device hitting
+# the same container. Does NOT survive container restarts — for a POC this
+# is sufficient. Mount a persistent volume for true durability.
+
+_KB_DOCS_FILE = Path(__file__).parent / "data" / "kb_documents.json"
+
+
+def _load_kb_docs() -> list:
+    try:
+        if _KB_DOCS_FILE.exists():
+            return json.loads(_KB_DOCS_FILE.read_text(encoding="utf-8"))
+        return []
+    except Exception:
+        return []
+
+
+def _save_kb_docs(docs: list) -> None:
+    _KB_DOCS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _KB_DOCS_FILE.write_text(json.dumps(docs, indent=2), encoding="utf-8")
+
+
+async def admin_kb_list_documents(request):
+    """GET /admin/kb/documents — return persisted document metadata."""
+    return web.json_response({"documents": _load_kb_docs()})
+
+
+# ── SSOT report ─────────────────────────────────────────────────────────────
+
 async def generate_ssot_report(request):
     """POST /ssot-report — build a templated query from survey snapshots and return the Mithra KB answer."""
     try:
@@ -582,6 +611,18 @@ async def admin_kb_upload(request):
                 data=form,
                 headers=_mithra_headers(),
             ) as resp:
+                if resp.status in (200, 201):
+                    raw = await resp.json(content_type=None)
+                    # Persist document metadata server-side so any browser can see it
+                    from datetime import datetime, timezone
+                    docs = _load_kb_docs()
+                    docs.append({
+                        "paperId":   raw.get("id", ""),
+                        "title":     raw.get("title", title),
+                        "uploadedAt": datetime.now(timezone.utc).isoformat(),
+                    })
+                    _save_kb_docs(docs)
+                    return web.json_response(raw, status=resp.status)
                 return await _mithra_response(resp)
     except Exception as e:
         return await _mithra_exc_response("admin_kb_upload", e)
@@ -596,8 +637,13 @@ async def admin_kb_delete(request):
                 f"{_mithra_base_url()}/gateway/v2/papers/{paper_id}",
                 headers=_mithra_headers(),
             ) as resp:
-                if resp.status == 204:
-                    return web.Response(status=204)
+                if resp.status == 204 or resp.ok:
+                    # Remove from persisted list on any success response
+                    docs = _load_kb_docs()
+                    docs = [d for d in docs if d.get("paperId") != paper_id]
+                    _save_kb_docs(docs)
+                    if resp.status == 204:
+                        return web.Response(status=204)
                 return await _mithra_response(resp)
     except Exception as e:
         return await _mithra_exc_response("admin_kb_delete", e)
@@ -802,6 +848,7 @@ async def create_app():
     app.router.add_post("/ssot-report", generate_ssot_report)
 
     # Mithra Knowledge Base admin proxy routes
+    app.router.add_get("/admin/kb/documents", admin_kb_list_documents)
     app.router.add_post("/admin/kb/upload", admin_kb_upload)
     app.router.add_delete("/admin/kb/documents/{paperId}", admin_kb_delete)
     app.router.add_get("/admin/kb/settings", admin_kb_get_settings)
