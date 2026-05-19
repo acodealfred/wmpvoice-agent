@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { BiometricSnapshot, SSoTReport } from "@/types";
+import { useState, useRef, useEffect } from "react";
+import { BiometricSnapshot, SSoTReport, Citation } from "@/types";
 import {
     Sparkles, BookOpen, ExternalLink, AlertCircle,
-    Loader2, ChevronRight, ChevronLeft, RefreshCw, FlaskConical,
+    Loader2, ChevronRight, ChevronLeft, RefreshCw, FlaskConical, MessageCircle, Send, PlusCircle,
 } from "lucide-react";
 
 // ── Internal types ─────────────────────────────────────────────────────────
@@ -127,6 +127,15 @@ export function TestGenerator() {
     const [ssotError, setSsotError] = useState<string | null>(null);
     const [sentQuery, setSentQuery] = useState<string | null>(null);
 
+    // ── Chat state ───────────────────────────────────────────────────────────
+    type ChatMsg = { role: "user" | "assistant"; content: string; citations: Citation[] };
+    const [chatId, setChatId] = useState<string | null>(null);
+    const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
+    const [chatInput, setChatInput] = useState("");
+    const [chatLoading, setChatLoading] = useState(false);
+    const [chatError, setChatError] = useState<string | null>(null);
+    const chatBottomRef = useRef<HTMLDivElement>(null);
+
     // ── Handlers ────────────────────────────────────────────────────────────
 
     const handleGenerate = () => {
@@ -186,8 +195,8 @@ export function TestGenerator() {
                 return;
             }
             if (data.query) setSentQuery(data.query);
-            if (data.ssotReport?.answer) setSsotReport(data.ssotReport);
-            else setSsotError("No report returned. Check KB documents and token.");
+            if (data.ssotReport != null) setSsotReport(data.ssotReport);
+            else setSsotError("No report returned from server.");
         } catch (err) {
             console.error("[TestGen] Error", err);
             console.groupEnd();
@@ -196,6 +205,72 @@ export function TestGenerator() {
             setSsotLoading(false);
         }
     };
+
+    const handleChatSend = async () => {
+        const question = chatInput.trim();
+        if (!question) return;
+
+        setChatInput("");
+        setChatError(null);
+        setChatLoading(true);
+        setChatMessages(prev => [...prev, { role: "user", content: question, citations: [] }]);
+
+        try {
+            let resp: Response;
+            if (!chatId) {
+                console.group("[Chat] Create chat");
+                console.log("→ POST /kb/chats", { initialQuestion: question });
+                resp = await fetch("/kb/chats", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ initialQuestion: question, title: "KB Chat Session" }),
+                });
+                const data = await resp.json();
+                console.log(`← HTTP ${resp.status}`, data);
+                console.groupEnd();
+                if (!resp.ok) { setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`); return; }
+                setChatId(data.chat?.id ?? null);
+                setChatMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: data.answer ?? "",
+                    citations: data.citations ?? [],
+                }]);
+            } else {
+                console.group("[Chat] Send message");
+                console.log(`→ POST /kb/chats/${chatId}/messages`, { questionText: question });
+                resp = await fetch(`/kb/chats/${chatId}/messages`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ questionText: question }),
+                });
+                const data = await resp.json();
+                console.log(`← HTTP ${resp.status}`, data);
+                console.groupEnd();
+                if (!resp.ok) { setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`); return; }
+                setChatMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: data.answer ?? "",
+                    citations: data.citations ?? [],
+                }]);
+            }
+        } catch (err) {
+            console.error("[Chat] Error", err);
+            setChatError(err instanceof Error ? err.message : "Unknown error");
+        } finally {
+            setChatLoading(false);
+        }
+    };
+
+    const handleNewChat = () => {
+        setChatId(null);
+        setChatMessages([]);
+        setChatInput("");
+        setChatError(null);
+    };
+
+    useEffect(() => {
+        chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [chatMessages]);
 
     const scenario = scenarios[currentIdx] ?? null;
 
@@ -343,6 +418,102 @@ export function TestGenerator() {
                     </button>
                 </div>
             )}
+
+            {/* ── KB Chat (always visible) ── */}
+            <div className="rounded-xl border border-green-800 bg-slate-900 flex flex-col" style={{ minHeight: "420px" }}>
+                {/* Header */}
+                <div className="flex items-center gap-2 border-b border-slate-700 px-4 py-3">
+                    <MessageCircle className="h-4 w-4 text-green-400" />
+                    <h3 className="text-sm font-semibold text-white">Chat with Knowledge Base</h3>
+                    {chatId && (
+                        <span className="ml-1 rounded-full bg-green-900/40 px-2 py-0.5 text-[10px] text-green-400">
+                            session active
+                        </span>
+                    )}
+                    <button
+                        onClick={handleNewChat}
+                        className="ml-auto flex items-center gap-1 rounded-lg border border-slate-600 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"
+                    >
+                        <PlusCircle className="h-3 w-3" />
+                        New Chat
+                    </button>
+                </div>
+
+                {/* Message list */}
+                <div className="flex-1 overflow-y-auto space-y-4 p-4" style={{ maxHeight: "420px" }}>
+                    {chatMessages.length === 0 && (
+                        <div className="flex h-full items-center justify-center">
+                            <p className="text-xs text-slate-600">Ask anything about your company's Knowledge Base…</p>
+                        </div>
+                    )}
+                    {chatMessages.map((msg, idx) => (
+                        <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                            <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
+                                msg.role === "user"
+                                    ? "bg-green-700 text-white"
+                                    : "bg-slate-800 text-slate-200"
+                            }`}>
+                                {msg.content ? (
+                                    <p className="whitespace-pre-line leading-relaxed">{msg.content}</p>
+                                ) : (
+                                    <p className="italic text-slate-500 text-xs">No content returned — check KB documents are uploaded and indexed.</p>
+                                )}
+                                {msg.citations.length > 0 && (
+                                    <div className="mt-2 border-t border-slate-700 pt-2">
+                                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Citations</p>
+                                        <ul className="space-y-1">
+                                            {msg.citations.map((c, ci) => (
+                                                <li key={ci} className="flex items-start gap-1.5 text-[11px] text-slate-300">
+                                                    <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-green-400" />
+                                                    <span>
+                                                        <span className="font-medium text-green-300">{c.paperTitle}</span>
+                                                        {c.paperPage > 0 && <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    {chatLoading && (
+                        <div className="flex justify-start">
+                            <div className="rounded-xl bg-slate-800 px-4 py-2.5">
+                                <Loader2 className="h-4 w-4 animate-spin text-green-400" />
+                            </div>
+                        </div>
+                    )}
+                    {chatError && (
+                        <div className="flex items-start gap-2 rounded-lg bg-red-900/30 p-3 text-red-300">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span className="text-xs">{chatError}</span>
+                        </div>
+                    )}
+                    <div ref={chatBottomRef} />
+                </div>
+
+                {/* Input bar */}
+                <div className="border-t border-slate-700 p-3 flex gap-2">
+                    <input
+                        type="text"
+                        value={chatInput}
+                        onChange={e => setChatInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
+                        placeholder="Ask the Knowledge Base…"
+                        disabled={chatLoading}
+                        className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-green-500 focus:outline-none disabled:opacity-50"
+                    />
+                    <button
+                        onClick={handleChatSend}
+                        disabled={chatLoading || !chatInput.trim()}
+                        className="flex items-center gap-1.5 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {chatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        Send
+                    </button>
+                </div>
+            </div>
 
             {/* ── Error ── */}
             {ssotError && (

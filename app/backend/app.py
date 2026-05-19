@@ -255,8 +255,9 @@ async def generate_ssot_report(request):
         snapshots = data.get("snapshots", [])
         session_id = data.get("session_id", "")
 
-        if not snapshots:
-            return web.json_response({"error": "No snapshot data provided"}, status=400)
+        query_override = data.get("query_override", "").strip()
+        if not snapshots and not query_override:
+            return web.json_response({"error": "Provide either snapshots or a query_override"}, status=400)
 
         total_score = sum(s.get("score", 0) for s in snapshots)
         max_score = len(snapshots) * 5
@@ -278,7 +279,6 @@ async def generate_ssot_report(request):
 
         # Allow the frontend (test generator) to supply a custom query.
         # If query_override is provided and non-empty, use it directly.
-        query_override = data.get("query_override", "").strip()
         if query_override:
             mithra_query = query_override
             logger.info("[APP] /ssot-report using query_override: %s", mithra_query[:200])
@@ -564,9 +564,21 @@ async def _call_mithra_kb_chat(query: str) -> "dict | None":
                     logger.warning("[Mithra] KB chat returned %s: %s", resp.status, text[:200])
                     return None
                 data = await resp.json(content_type=None)
+                logger.info("[Mithra] KB chat raw response keys: %s", list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+                logger.info("[Mithra] KB chat raw response: %s", str(data)[:500])
+                # Mithra may return the answer under different keys depending on API version
+                answer = (
+                    data.get("answer") or
+                    data.get("response") or
+                    data.get("content") or
+                    data.get("text") or
+                    (data.get("messages", [{}])[-1].get("content", "") if data.get("messages") else "") or
+                    ""
+                )
+                citations = data.get("citations") or data.get("references") or data.get("sources") or []
                 return {
-                    "answer": data.get("answer", ""),
-                    "citations": data.get("citations", []),
+                    "answer": answer,
+                    "citations": citations,
                 }
     except Exception as exc:
         logger.warning("[Mithra] KB chat call failed: %s", exc)
@@ -676,6 +688,49 @@ async def admin_kb_patch_settings(request):
                 return await _mithra_response(resp)
     except Exception as e:
         return await _mithra_exc_response("admin_kb_patch_settings", e)
+
+
+async def kb_create_chat(request):
+    """Proxy: POST /kb/chats → Mithra POST /gateway/v1/knowledgeBase/chats
+    Body: { initialQuestion: str, title?: str }
+    Response: { chat: { id, title, isActive, ... }, answer: str, citations: [] }
+    """
+    try:
+        data = await request.json()
+        async with _mithra_session() as session:
+            async with session.post(
+                f"{_mithra_base_url()}/gateway/v1/knowledgeBase/chats",
+                json=data,
+                headers={**_mithra_headers(), "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                body = await resp.json(content_type=None)
+                logger.info("[Mithra] kb_create_chat status=%s keys=%s", resp.status, list(body.keys()) if isinstance(body, dict) else type(body))
+                return web.json_response(body, status=resp.status)
+    except Exception as e:
+        return await _mithra_exc_response("kb_create_chat", e)
+
+
+async def kb_send_message(request):
+    """Proxy: POST /kb/chats/{chatId}/messages → Mithra POST /gateway/v1/knowledgeBase/chats/{chatId}/messages
+    Body: { questionText: str }
+    Response: { answer: str, citations: [] }
+    """
+    chat_id = request.match_info["chatId"]
+    try:
+        data = await request.json()
+        async with _mithra_session() as session:
+            async with session.post(
+                f"{_mithra_base_url()}/gateway/v1/knowledgeBase/chats/{chat_id}/messages",
+                json=data,
+                headers={**_mithra_headers(), "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                body = await resp.json(content_type=None)
+                logger.info("[Mithra] kb_send_message chatId=%s status=%s", chat_id, resp.status)
+                return web.json_response(body, status=resp.status)
+    except Exception as e:
+        return await _mithra_exc_response("kb_send_message", e)
 
 
 async def admin_kb_debug(request):
@@ -854,6 +909,8 @@ async def create_app():
     app.router.add_get("/admin/kb/settings", admin_kb_get_settings)
     app.router.add_patch("/admin/kb/settings", admin_kb_patch_settings)
     app.router.add_get("/admin/kb/debug", admin_kb_debug)
+    app.router.add_post("/kb/chats", kb_create_chat)
+    app.router.add_post("/kb/chats/{chatId}/messages", kb_send_message)
     app.router.add_get("/version", get_version)
 
     # RAG tools disabled - kept for future extensibility
