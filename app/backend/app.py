@@ -260,7 +260,6 @@ async def generate_ssot_report(request):
             return web.json_response({"error": "Provide either snapshots or a query_override"}, status=400)
 
         total_score = sum(s.get("score", 0) for s in snapshots)
-        max_score = len(snapshots) * 5
 
         if total_score <= 12:
             interpretation = "Low burnout risk"
@@ -275,7 +274,6 @@ async def generate_ssot_report(request):
             domain_totals[dom] = domain_totals.get(dom, 0) + s.get("score", 0)
 
         sorted_domains = sorted(domain_totals.items(), key=lambda x: x[1], reverse=True)
-        top_domains_str = ", ".join(f"{name} ({score} pts)" for name, score in sorted_domains[:3])
 
         # Allow the frontend (test generator) to supply a custom query.
         # If query_override is provided and non-empty, use it directly.
@@ -283,31 +281,39 @@ async def generate_ssot_report(request):
             mithra_query = query_override
             logger.info("[APP] /ssot-report using query_override: %s", mithra_query[:200])
         else:
+            top2_domains = " and ".join(name for name, _ in sorted_domains[:2])
             mithra_query = (
-                f"Write a consultative wellbeing report for an employee who completed a burnout "
-                f"assessment with a total score of {total_score} out of {max_score}, indicating "
-                f"{interpretation}. The primary contributing factors are: {top_domains_str}. "
-                f"Provide evidence-based recommendations, support strategies, and actionable next "
-                f"steps to address these specific burnout indicators."
+                f"What are the root cause and recommendation for a person suffering with "
+                f"{interpretation} caused by {top2_domains}."
             )
             logger.info("[APP] /ssot-report query (generated): %s", mithra_query[:200])
 
-        ssot_report = await _call_mithra_kb_chat(mithra_query)
-        if not ssot_report:
+        # Stage 1: Mithra KB — raw facts + citations
+        mithra_raw = await _call_mithra_kb_chat(mithra_query)
+        if not mithra_raw:
             return web.json_response(
-                {"error": "Could not generate report from Knowledge Base. "
+                {"error": "Could not reach Knowledge Base. "
                           "Check MITHRA_APP_TOKEN and ensure documents are uploaded."},
                 status=503,
             )
 
-        # Store conversation state so the agent can answer follow-up Q&A
-        if session_id:
-            rtmt_instance = request.app.get("rtmt")
-            if rtmt_instance:
-                ctx = f"KB Report: {ssot_report['answer'][:500]}"
-                rtmt_instance.set_conversation_state_for_session(session_id, "report_delivered", ctx)
+        # ssotReport = Mithra facts passed directly — the frontend parses the
+        # markdown sections (## headings) into the structured report panels.
+        ssot_report = {"answer": mithra_raw.get("answer", ""), "citations": mithra_raw.get("citations", [])}
+        logger.info("[APP] /ssot-report complete — answer_len=%d citations=%d",
+                    len(ssot_report["answer"]), len(ssot_report["citations"]))
 
-        return web.json_response({"ssotReport": ssot_report, "query": mithra_query})
+        # Store conversation state so the agent can answer follow-up Q&A
+        rtmt_instance = request.app.get("rtmt")
+        if session_id and rtmt_instance:
+            ctx = f"KB Report: {ssot_report['answer'][:500]}"
+            rtmt_instance.set_conversation_state_for_session(session_id, "report_delivered", ctx)
+
+        return web.json_response(_safe_json({
+            "mithraRaw": mithra_raw,   # raw Mithra facts — shown in "Knowledge Base Facts" panel
+            "ssotReport": ssot_report, # LLM-enhanced report — shown in "AI Consultative Report"
+            "query": mithra_query,
+        }))
 
     except Exception as e:
         logger.error("generate_ssot_report error: %s", e)
@@ -543,43 +549,86 @@ async def _mithra_exc_response(handler_name: str, exc: Exception) -> web.Respons
     return web.json_response({"error": str(exc), "detail": detail}, status=500)
 
 
+def _safe_json(obj: object) -> object:
+    """Recursively ensure all dict keys are strings so web.json_response never fails.
+    None keys from external APIs (JSON null key) are converted to the string "null".
+    """
+    if isinstance(obj, dict):
+        return {(str(k) if k is not None else "null"): _safe_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_safe_json(i) for i in obj]
+    return obj
+
+
 async def _call_mithra_kb_chat(query: str) -> "dict | None":
     """Query the Mithra KB chat API with a single question.
-    Returns {'answer': str, 'citations': list} or None if Mithra is not configured / unavailable.
-    Failures are swallowed so the rest of the report is unaffected.
+    Per the API spec, CreateChatResponse only returns {chat: {id, ...}} — no answer.
+    The answer lives in the chat messages, fetched via GET /chats/{chatId}.
+    Returns {'answer': str, 'citations': list} or None on failure.
     """
     if not os.environ.get("MITHRA_APP_TOKEN"):
         logger.info("[Mithra] MITHRA_APP_TOKEN not set — skipping KB chat")
         return None
     try:
+        base = _mithra_base_url()
+        headers = {**_mithra_headers(), "Content-Type": "application/json"}
         async with _mithra_session() as session:
+            # Step 1: create chat session
             async with session.post(
-                f"{_mithra_base_url()}/gateway/v1/knowledgeBase/chats",
+                f"{base}/gateway/v1/knowledgeBase/chats",
                 json={"initialQuestion": query, "title": "Burnout Consultative Report"},
-                headers={**_mithra_headers(), "Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=30),
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=60),
             ) as resp:
                 if resp.status not in (200, 201):
                     text = await resp.text()
-                    logger.warning("[Mithra] KB chat returned %s: %s", resp.status, text[:200])
+                    logger.warning("[Mithra] create chat returned %s: %s", resp.status, text[:200])
                     return None
-                data = await resp.json(content_type=None)
-                logger.info("[Mithra] KB chat raw response keys: %s", list(data.keys()) if isinstance(data, dict) else type(data).__name__)
-                logger.info("[Mithra] KB chat raw response: %s", str(data)[:500])
-                # Mithra may return the answer under different keys depending on API version
-                answer = (
-                    data.get("answer") or
-                    data.get("response") or
-                    data.get("content") or
-                    data.get("text") or
-                    (data.get("messages", [{}])[-1].get("content", "") if data.get("messages") else "") or
-                    ""
-                )
-                citations = data.get("citations") or data.get("references") or data.get("sources") or []
-                return {
-                    "answer": answer,
-                    "citations": citations,
-                }
+                create_data = await resp.json(content_type=None)
+
+            chat_id = (create_data.get("chat") or {}).get("id")
+            if not chat_id:
+                logger.warning("[Mithra] create chat response has no chat.id: %s", str(create_data)[:200])
+                return None
+
+            logger.info("[Mithra] chat created id=%s, fetching messages", chat_id)
+
+            # Step 2: fetch messages to get the assistant answer
+            async with session.get(
+                f"{base}/gateway/v1/knowledgeBase/chats/{chat_id}",
+                params={"messageLimit": 10},
+                headers=_mithra_headers(),
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    logger.warning("[Mithra] get chat messages returned %s: %s", resp.status, text[:200])
+                    return None
+                msg_data = await resp.json(content_type=None)
+
+        messages = msg_data.get("messages") or []
+        # Find first assistant message (messages are newest-first per spec)
+        assistant_msg = next((m for m in messages if m.get("role") == "assistant"), None)
+        if not assistant_msg:
+            logger.warning("[Mithra] no assistant message found in chat %s", chat_id)
+            return None
+
+        answer = assistant_msg.get("content") or ""
+
+        # sources is the current field; citations is deprecated but kept as fallback
+        raw_sources = assistant_msg.get("sources") or assistant_msg.get("citations") or []
+        citations = []
+        for s in raw_sources:
+            pages = s.get("pages") or []
+            citations.append({
+                "paperId": s.get("paperId", ""),
+                "paperTitle": s.get("paperTitle", ""),
+                "paperPage": pages[0] if pages else s.get("paperPage", 0),
+            })
+
+        logger.info("[Mithra] answer=%d chars citations=%d", len(answer), len(citations))
+        return _safe_json({"answer": answer, "citations": citations})
+
     except Exception as exc:
         logger.warning("[Mithra] KB chat call failed: %s", exc)
         return None

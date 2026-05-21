@@ -54,6 +54,7 @@ param openAiResourceGroupName string = ''
 param openAiEndpoint string = ''
 param openAiRealtimeDeployment string = ''
 param openAiRealtimeVoiceChoice string = ''
+param openAiChatDeployment string = 'gpt-4o'
 
 param enableSentimentAnalysis bool = true
 param enableSurveyMode bool = true
@@ -202,6 +203,7 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
     env: {
       AZURE_OPENAI_ENDPOINT: reuseExistingOpenAi ? openAiEndpoint : openAi.outputs.endpoint
       AZURE_OPENAI_REALTIME_DEPLOYMENT: reuseExistingOpenAi ? openAiRealtimeDeployment : openAiDeployments[0].name
+      AZURE_OPENAI_CHAT_DEPLOYMENT: openAiChatDeployment
       AZURE_OPENAI_REALTIME_VOICE_CHOICE: openAiRealtimeVoiceChoice
       // Sentiment analysis feature
       ENABLE_SENTIMENT_ANALYSIS: enableSentimentAnalysis ? 'true' : 'false'

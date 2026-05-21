@@ -564,52 +564,75 @@ class RTMiddleTier:
         logger.info("[RTMT] ★ Conversation state cleared (reset to active)")
 
     async def analyze_with_prompt(self, system_prompt: str) -> str:
-        """Analyze report data using chat completions API with provided prompt."""
+        """Send system_prompt to Azure OpenAI chat completions and return the text response."""
+        import traceback as _tb
         try:
-            headers = {
-                "Content-Type": "application/json",
-            }
-            if hasattr(self, "key"):
-                headers["api-key"] = self.key
+            # ── Step 1: build auth headers ──────────────────────────────────
+            api_key = getattr(self, "key", None)
+            logger.info("[LLM] analyze_with_prompt: api_key_present=%s", bool(api_key))
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["api-key"] = api_key
             else:
+                logger.info("[LLM] No API key — using token provider")
                 auth_token = self._token_provider()
                 headers["Authorization"] = f"Bearer {auth_token}"
 
-            api_url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version=2024-02-15-preview"
+            # ── Step 2: build URL ────────────────────────────────────────────
+            # Use a dedicated chat-completions deployment (not the realtime model).
+            # Operators set AZURE_OPENAI_CHAT_DEPLOYMENT; default is gpt-4o.
+            import os as _os
+            chat_deployment = _os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o")
+            endpoint = self.endpoint.rstrip("/")
+            api_url = (
+                f"{endpoint}/openai/deployments/{chat_deployment}"
+                f"/chat/completions?api-version=2024-02-15-preview"
+            )
+            logger.info("[LLM] POST %s  (prompt_len=%d)", api_url, len(system_prompt))
 
+            # ── Step 3: serialize payload explicitly ─────────────────────────
             payload = {
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": "Please analyze the provided data and return JSON results.",
-                    },
+                    {"role": "user", "content": "Write the consultative report now."},
                 ],
-                "max_tokens": 2000,
-                "temperature": 0.3,
+                "max_tokens": 4000,
+                "temperature": 0.4,
             }
+            try:
+                payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                logger.info("[LLM] payload serialized OK (%d bytes)", len(payload_bytes))
+            except Exception as ser_err:
+                logger.error("[LLM] payload serialization failed: %s\n%s", ser_err, _tb.format_exc())
+                return json.dumps({"error": f"Payload serialization failed: {ser_err}"})
 
+            # ── Step 4: call Azure OpenAI ────────────────────────────────────
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    api_url, json=payload, headers=headers
-                ) as response:
+                async with session.post(api_url, data=payload_bytes, headers=headers) as response:
+                    logger.info("[LLM] response status: %s", response.status)
                     if response.status != 200:
                         error_text = await response.text()
-                        logger.error(
-                            f"Analysis API error: {response.status} - {error_text}"
-                        )
-                        return json.dumps({"error": f"API error: {response.status}"})
+                        logger.error("[LLM] API error %s: %s", response.status, error_text[:400])
+                        return json.dumps({"error": f"API error: {response.status} — {error_text[:200]}"})
 
-                    result = await response.json()
+                    # ── Step 5: parse response ───────────────────────────────
+                    try:
+                        result = await response.json(content_type=None)
+                    except Exception as parse_err:
+                        raw = await response.text()
+                        logger.error("[LLM] Failed to parse response JSON: %s\nRaw: %s", parse_err, raw[:400])
+                        return json.dumps({"error": f"Response parse error: {parse_err}"})
+
                     content = (
                         result.get("choices", [{}])[0]
                         .get("message", {})
-                        .get("content", "{}")
+                        .get("content") or ""
                     )
+                    logger.info("[LLM] response content length: %d chars", len(content))
                     return content
 
         except Exception as e:
-            logger.error(f"Analysis error: {e}")
+            logger.error("[LLM] analyze_with_prompt unhandled exception: %s\n%s", e, _tb.format_exc())
             return json.dumps({"error": str(e)})
 
     def _update_biometric_history(self, blink_change: float, face_emotion: str):

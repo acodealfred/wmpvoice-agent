@@ -57,25 +57,17 @@ const SCORES: Record<RiskLevel, { primary: number; other: number }> = {
 
 // ── Query template (mirrors generate_ssot_report in app.py) ───────────────
 function buildQuery(snapshots: BiometricSnapshot[], riskLevel: RiskLevel): string {
-    const total = snapshots.reduce((s, q) => s + q.score, 0);
-    const max = snapshots.length * 5;
     const interpretation = RISK_LABELS[riskLevel];
     const domainTotals: Record<string, number> = {};
     for (const s of snapshots) {
         domainTotals[s.domain] = (domainTotals[s.domain] ?? 0) + s.score;
     }
-    const top3 = Object.entries(domainTotals)
+    const top2 = Object.entries(domainTotals)
         .sort(([, a], [, b]) => b - a)
-        .slice(0, 3)
-        .map(([name, score]) => `${name} (${score} pts)`)
-        .join(", ");
-    return (
-        `Write a consultative wellbeing report for an employee who completed a burnout ` +
-        `assessment with a total score of ${total} out of ${max}, indicating ${interpretation}. ` +
-        `The primary contributing factors are: ${top3}. ` +
-        `Provide evidence-based recommendations, support strategies, and actionable next ` +
-        `steps to address these specific burnout indicators.`
-    );
+        .slice(0, 2)
+        .map(([name]) => name)
+        .join(" and ");
+    return `What are the root cause and recommendation for a person suffering with ${interpretation} caused by ${top2}.`;
 }
 
 // ── Scenario generator ─────────────────────────────────────────────────────
@@ -114,6 +106,99 @@ const RISK_COLOURS: Record<RiskLevel, string> = {
     low:      "bg-green-900/50 text-green-300 border-green-700",
 };
 
+// ── ConsultativeReport: parses Mithra's ## markdown sections into panels ──────
+//
+// Mithra returns structured markdown like:
+//   ## Root Causes of Burnout-Related Cynicism
+//   ...
+//   ## Recommendations for Addressing High Burnout Risk
+//   ...
+//
+// We map headings that contain keywords to colour-coded panels.
+
+type ReportPanel = { label: string; colour: string; border: string; bg: string; body: string };
+
+const SECTION_RULES: { keywords: string[]; label: string; colour: string; border: string; bg: string }[] = [
+    { keywords: ["root cause", "causes of"],   label: "Root Cause",    colour: "text-red-300",    border: "border-red-800",   bg: "bg-red-950/40"   },
+    { keywords: ["recommendation", "treating", "addressing", "prevention", "treatment"],
+                                                label: "Recommendation",colour: "text-green-300",  border: "border-green-800", bg: "bg-green-950/40" },
+];
+
+function parseMithraSections(text: string): ReportPanel[] {
+    // Split on markdown ## headings
+    const chunks = text.split(/(?=^##\s)/m).filter(c => c.trim());
+    const panels: ReportPanel[] = [];
+    let generalBody = "";
+
+    for (const chunk of chunks) {
+        const headingMatch = chunk.match(/^##\s+(.+)/);
+        if (!headingMatch) {
+            generalBody += chunk;
+            continue;
+        }
+        const heading = headingMatch[1].trim();
+        const body = chunk.slice(headingMatch[0].length).trim();
+        const headingLower = heading.toLowerCase();
+
+        const rule = SECTION_RULES.find(r => r.keywords.some(k => headingLower.includes(k)));
+        if (rule) {
+            panels.push({ label: rule.label, colour: rule.colour, border: rule.border, bg: rule.bg, body });
+        } else {
+            // Unknown heading — treat as General Case content
+            generalBody += (generalBody ? "\n\n" : "") + `**${heading}**\n${body}`;
+        }
+    }
+
+    // Prepend General Case panel if there's introductory content
+    if (generalBody.trim()) {
+        panels.unshift({
+            label: "General Case",
+            colour: "text-blue-300",
+            border: "border-blue-800",
+            bg: "bg-blue-950/40",
+            body: generalBody.trim(),
+        });
+    }
+
+    return panels;
+}
+
+function ConsultativeReport({ answer, citations }: { answer: string; citations: Citation[] }) {
+    const panels = parseMithraSections(answer);
+
+    return (
+        <div className="space-y-3">
+            {panels.length > 0 ? (
+                panels.map((p, i) => (
+                    <div key={i} className={`rounded-lg border ${p.border} ${p.bg} px-4 py-3`}>
+                        <p className={`mb-1.5 text-xs font-bold uppercase tracking-wide ${p.colour}`}>{p.label}</p>
+                        <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{p.body}</p>
+                    </div>
+                ))
+            ) : (
+                <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{answer}</p>
+            )}
+
+            {citations.length > 0 && (
+                <div className="border-t border-slate-700 pt-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Citations</p>
+                    <ul className="space-y-1.5">
+                        {citations.map((c, i) => (
+                            <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                                <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" />
+                                <span>
+                                    <span className="font-medium text-blue-300">{c.paperTitle}</span>
+                                    {c.paperPage > 0 && <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function TestGenerator() {
@@ -125,7 +210,7 @@ export function TestGenerator() {
     const [ssotLoading, setSsotLoading] = useState(false);
     const [ssotReport, setSsotReport] = useState<SSoTReport | null>(null);
     const [ssotError, setSsotError] = useState<string | null>(null);
-    const [sentQuery, setSentQuery] = useState<string | null>(null);
+    const [mithraRaw, setMithraRaw] = useState<SSoTReport | null>(null);
 
     // ── Chat state ───────────────────────────────────────────────────────────
     type ChatMsg = { role: "user" | "assistant"; content: string; citations: Citation[] };
@@ -145,7 +230,7 @@ export function TestGenerator() {
         setEditableQuery(generated[0].previewQuery);
         setSsotReport(null);
         setSsotError(null);
-        setSentQuery(null);
+        setMithraRaw(null);
     };
 
     const handleNext = () => {
@@ -154,7 +239,7 @@ export function TestGenerator() {
         setEditableQuery(scenarios[next].previewQuery);
         setSsotReport(null);
         setSsotError(null);
-        setSentQuery(null);
+        setMithraRaw(null);
     };
 
     const handleRegenerate = () => {
@@ -162,14 +247,14 @@ export function TestGenerator() {
         setCurrentIdx(0);
         setSsotReport(null);
         setSsotError(null);
-        setSentQuery(null);
+        setMithraRaw(null);
     };
 
     const handleSendToSSoT = async () => {
         setSsotLoading(true);
         setSsotReport(null);
         setSsotError(null);
-        setSentQuery(null);
+        setMithraRaw(null);
 
         const payload = {
             snapshots: scenarios[currentIdx].snapshots,
@@ -194,7 +279,7 @@ export function TestGenerator() {
                 setSsotError(data.error ?? `HTTP ${resp.status}`);
                 return;
             }
-            if (data.query) setSentQuery(data.query);
+            if (data.mithraRaw != null) setMithraRaw(data.mithraRaw);
             if (data.ssotReport != null) setSsotReport(data.ssotReport);
             else setSsotError("No report returned from server.");
         } catch (err) {
@@ -462,35 +547,47 @@ export function TestGenerator() {
                         )}
 
                         {ssotReport && (
-                            <div className="flex-1 overflow-y-auto">
-                                {sentQuery && sentQuery !== editableQuery && (
-                                    <div className="mb-3 rounded-lg border border-slate-600 bg-slate-800 p-3">
-                                        <p className="mb-1 text-xs font-semibold text-slate-400">Query sent to KB</p>
-                                        <p className="text-xs italic text-slate-300">{sentQuery}</p>
-                                    </div>
-                                )}
-                                <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{ssotReport.answer}</p>
-                                {ssotReport.citations.length > 0 && (
-                                    <div className="mt-4 border-t border-slate-700 pt-3">
-                                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Citations</p>
-                                        <ul className="space-y-1.5">
-                                            {ssotReport.citations.map((c, i) => (
-                                                <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
-                                                    <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" />
-                                                    <span>
-                                                        <span className="font-medium text-blue-300">{c.paperTitle}</span>
-                                                        {c.paperPage > 0 && (
-                                                            <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>
-                                                        )}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
+                            <div className="flex-1 overflow-y-auto space-y-4">
+                                <ConsultativeReport answer={ssotReport.answer} citations={ssotReport.citations} />
                             </div>
                         )}
                     </div>
+                </div>
+            )}
+
+            {/* ── Knowledge Base Facts (raw Mithra response) ── */}
+            {mithraRaw && (
+                <div className="rounded-xl border border-amber-700 bg-slate-900 p-5">
+                    <div className="mb-3 flex items-center gap-2">
+                        <BookOpen className="h-5 w-5 text-amber-400" />
+                        <h3 className="text-base font-semibold text-white">Knowledge Base Facts</h3>
+                        <span className="ml-auto rounded-full bg-amber-900/50 px-2 py-0.5 text-xs font-medium text-amber-300">
+                            RAW · Source Material
+                        </span>
+                    </div>
+                    {mithraRaw.answer ? (
+                        <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{mithraRaw.answer}</p>
+                    ) : (
+                        <p className="text-sm italic text-slate-500">Mithra returned no facts for this query.</p>
+                    )}
+                    {mithraRaw.citations.length > 0 && (
+                        <div className="mt-4 border-t border-slate-700 pt-3">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Source Citations</p>
+                            <ul className="space-y-1.5">
+                                {mithraRaw.citations.map((c, i) => (
+                                    <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                                        <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
+                                        <span>
+                                            <span className="font-medium text-amber-300">{c.paperTitle}</span>
+                                            {c.paperPage > 0 && (
+                                                <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>
+                                            )}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                 </div>
             )}
 
