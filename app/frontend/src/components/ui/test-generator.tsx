@@ -229,12 +229,23 @@ export function TestGenerator() {
                 console.log(`← HTTP ${resp.status}`, data);
                 console.groupEnd();
                 if (!resp.ok) { setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`); return; }
-                setChatId(data.chat?.id ?? null);
-                setChatMessages(prev => [...prev, {
-                    role: "assistant",
-                    content: data.answer ?? "",
-                    citations: data.citations ?? [],
-                }]);
+                const newChatId = data.chat?.id ?? null;
+                setChatId(newChatId);
+                // CreateChatResponse only returns `chat`. Fetch messages to get the first answer.
+                if (newChatId) {
+                    const msgResp = await fetch(`/kb/chats/${newChatId}`);
+                    if (msgResp.ok) {
+                        const msgData = await msgResp.json();
+                        const assistantMsg = (msgData.messages ?? []).find((m: { role: string }) => m.role === "assistant");
+                        if (assistantMsg) {
+                            setChatMessages(prev => [...prev, {
+                                role: "assistant",
+                                content: assistantMsg.content ?? "",
+                                citations: assistantMsg.citations ?? [],
+                            }]);
+                        }
+                    }
+                }
             } else {
                 console.group("[Chat] Send message");
                 console.log(`→ POST /kb/chats/${chatId}/messages`, { questionText: question });
@@ -249,8 +260,8 @@ export function TestGenerator() {
                 if (!resp.ok) { setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`); return; }
                 setChatMessages(prev => [...prev, {
                     role: "assistant",
-                    content: data.answer ?? "",
-                    citations: data.citations ?? [],
+                    content: data.message?.content ?? data.answer ?? "",
+                    citations: data.message?.citations ?? data.citations ?? [],
                 }]);
             }
         } catch (err) {
@@ -384,38 +395,102 @@ export function TestGenerator() {
                 </div>
             )}
 
-            {/* ── Query editor ── */}
+            {/* ── Query editor + AI Report (side by side) ── */}
             {scenario && (
-                <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-                    <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-semibold text-slate-200">Mithra Query — Edit before sending</p>
+                <div className="flex gap-4 items-start">
+                    {/* Left: query editor */}
+                    <div className="flex-1 min-w-0 rounded-xl border border-slate-700 bg-slate-900 p-5">
+                        <div className="mb-2 flex items-center justify-between">
+                            <p className="text-sm font-semibold text-slate-200">Mithra Query — Edit before sending</p>
+                            <button
+                                onClick={() => setEditableQuery(scenario.previewQuery)}
+                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                            >
+                                <ChevronLeft className="h-3 w-3" />
+                                Reset to default
+                            </button>
+                        </div>
+                        <textarea
+                            value={editableQuery}
+                            onChange={e => setEditableQuery(e.target.value)}
+                            rows={5}
+                            className="w-full resize-y rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm leading-relaxed text-slate-200 focus:border-purple-500 focus:outline-none"
+                        />
+                        <p className="mt-1 text-xs text-slate-500">You may freely edit this query before sending it to the Knowledge Base.</p>
+
                         <button
-                            onClick={() => setEditableQuery(scenario.previewQuery)}
-                            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                            onClick={handleSendToSSoT}
+                            disabled={ssotLoading || !editableQuery.trim()}
+                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            <ChevronLeft className="h-3 w-3" />
-                            Reset to default
+                            {ssotLoading ? (
+                                <><Loader2 className="h-4 w-4 animate-spin" /> Generating Report…</>
+                            ) : (
+                                <><Sparkles className="h-4 w-4" /> Send to SSOT API</>
+                            )}
                         </button>
                     </div>
-                    <textarea
-                        value={editableQuery}
-                        onChange={e => setEditableQuery(e.target.value)}
-                        rows={5}
-                        className="w-full resize-y rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm leading-relaxed text-slate-200 focus:border-purple-500 focus:outline-none"
-                    />
-                    <p className="mt-1 text-xs text-slate-500">You may freely edit this query before sending it to the Knowledge Base.</p>
 
-                    <button
-                        onClick={handleSendToSSoT}
-                        disabled={ssotLoading || !editableQuery.trim()}
-                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {ssotLoading ? (
-                            <><Loader2 className="h-4 w-4 animate-spin" /> Generating Report…</>
-                        ) : (
-                            <><Sparkles className="h-4 w-4" /> Send to SSOT API</>
+                    {/* Right: AI Consultative Report (or placeholder) */}
+                    <div className="flex-1 min-w-0 rounded-xl border border-blue-700 bg-slate-900 p-5 self-stretch flex flex-col">
+                        <div className="mb-3 flex items-center gap-2">
+                            <BookOpen className="h-5 w-5 text-blue-400" />
+                            <h3 className="text-base font-semibold text-white">AI Consultative Report</h3>
+                            <span className="ml-auto rounded-full bg-blue-900/50 px-2 py-0.5 text-xs font-medium text-blue-300">
+                                SSOT · Evidence-based
+                            </span>
+                        </div>
+
+                        {ssotError && (
+                            <div className="mb-3 flex items-start gap-2 rounded-lg bg-red-900/30 p-3 text-red-300">
+                                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                <span className="text-sm">{ssotError}</span>
+                            </div>
                         )}
-                    </button>
+
+                        {ssotLoading && !ssotReport && (
+                            <div className="flex flex-1 items-center justify-center gap-2 text-slate-500">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span className="text-sm">Generating report…</span>
+                            </div>
+                        )}
+
+                        {!ssotReport && !ssotLoading && !ssotError && (
+                            <p className="flex-1 text-sm italic text-slate-600">
+                                Send the query to generate a consultative report here.
+                            </p>
+                        )}
+
+                        {ssotReport && (
+                            <div className="flex-1 overflow-y-auto">
+                                {sentQuery && sentQuery !== editableQuery && (
+                                    <div className="mb-3 rounded-lg border border-slate-600 bg-slate-800 p-3">
+                                        <p className="mb-1 text-xs font-semibold text-slate-400">Query sent to KB</p>
+                                        <p className="text-xs italic text-slate-300">{sentQuery}</p>
+                                    </div>
+                                )}
+                                <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{ssotReport.answer}</p>
+                                {ssotReport.citations.length > 0 && (
+                                    <div className="mt-4 border-t border-slate-700 pt-3">
+                                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Citations</p>
+                                        <ul className="space-y-1.5">
+                                            {ssotReport.citations.map((c, i) => (
+                                                <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                                                    <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" />
+                                                    <span>
+                                                        <span className="font-medium text-blue-300">{c.paperTitle}</span>
+                                                        {c.paperPage > 0 && (
+                                                            <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>
+                                                        )}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -515,55 +590,6 @@ export function TestGenerator() {
                 </div>
             </div>
 
-            {/* ── Error ── */}
-            {ssotError && (
-                <div className="flex items-start gap-2 rounded-lg bg-red-900/30 p-3 text-red-300">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span className="text-sm">{ssotError}</span>
-                </div>
-            )}
-
-            {/* ── SSOT report ── */}
-            {ssotReport && (
-                <div className="rounded-xl border border-blue-700 bg-slate-900 p-5">
-                    <div className="mb-3 flex items-center gap-2">
-                        <BookOpen className="h-5 w-5 text-blue-400" />
-                        <h3 className="text-base font-semibold text-white">AI Consultative Report</h3>
-                        <span className="ml-auto rounded-full bg-blue-900/50 px-2 py-0.5 text-xs font-medium text-blue-300">
-                            SSOT · Evidence-based
-                        </span>
-                    </div>
-
-                    {/* Show the actual query sent (may differ from the edited one if backend templated) */}
-                    {sentQuery && sentQuery !== editableQuery && (
-                        <div className="mb-3 rounded-lg border border-slate-600 bg-slate-800 p-3">
-                            <p className="mb-1 text-xs font-semibold text-slate-400">Query sent to KB</p>
-                            <p className="text-xs italic text-slate-300">{sentQuery}</p>
-                        </div>
-                    )}
-
-                    <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{ssotReport.answer}</p>
-
-                    {ssotReport.citations.length > 0 && (
-                        <div className="mt-4 border-t border-slate-700 pt-3">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Citations</p>
-                            <ul className="space-y-1.5">
-                                {ssotReport.citations.map((c, i) => (
-                                    <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
-                                        <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" />
-                                        <span>
-                                            <span className="font-medium text-blue-300">{c.paperTitle}</span>
-                                            {c.paperPage > 0 && (
-                                                <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>
-                                            )}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 }

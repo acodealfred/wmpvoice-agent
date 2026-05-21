@@ -690,6 +690,33 @@ async def admin_kb_patch_settings(request):
         return await _mithra_exc_response("admin_kb_patch_settings", e)
 
 
+async def admin_kb_search_papers(request):
+    """Proxy: POST /admin/kb/papers/search → Mithra POST /gateway/v2/papers/search
+    Uses type=enterprise to list all company documents.
+    """
+    try:
+        body = await request.json() if request.content_length else {}
+        payload = {
+            "type": "enterprise",
+            "limit": body.get("limit", 100),
+        }
+        if body.get("lastId"):
+            payload["lastId"] = body["lastId"]
+        async with _mithra_session() as session:
+            async with session.post(
+                f"{_mithra_base_url()}/gateway/v2/papers/search",
+                json=payload,
+                headers={**_mithra_headers(), "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                data = await resp.json(content_type=None)
+                logger.info("[Mithra] papers/search status=%s count=%s", resp.status,
+                            len(data.get("papers", [])) if isinstance(data, dict) else "?")
+                return web.json_response(data, status=resp.status)
+    except Exception as e:
+        return await _mithra_exc_response("admin_kb_search_papers", e)
+
+
 async def kb_create_chat(request):
     """Proxy: POST /kb/chats → Mithra POST /gateway/v1/knowledgeBase/chats
     Body: { initialQuestion: str, title?: str }
@@ -709,6 +736,24 @@ async def kb_create_chat(request):
                 return web.json_response(body, status=resp.status)
     except Exception as e:
         return await _mithra_exc_response("kb_create_chat", e)
+
+
+async def kb_get_chat(request):
+    """Proxy: GET /kb/chats/{chatId} → Mithra GET /gateway/v1/knowledgeBase/chats/{chatId}"""
+    chat_id = request.match_info["chatId"]
+    try:
+        limit = request.rel_url.query.get("messageLimit", "50")
+        async with _mithra_session() as session:
+            async with session.get(
+                f"{_mithra_base_url()}/gateway/v1/knowledgeBase/chats/{chat_id}",
+                params={"messageLimit": limit},
+                headers=_mithra_headers(),
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                body = await resp.json(content_type=None)
+                return web.json_response(body, status=resp.status)
+    except Exception as e:
+        return await _mithra_exc_response("kb_get_chat", e)
 
 
 async def kb_send_message(request):
@@ -909,7 +954,9 @@ async def create_app():
     app.router.add_get("/admin/kb/settings", admin_kb_get_settings)
     app.router.add_patch("/admin/kb/settings", admin_kb_patch_settings)
     app.router.add_get("/admin/kb/debug", admin_kb_debug)
+    app.router.add_post("/admin/kb/papers/search", admin_kb_search_papers)
     app.router.add_post("/kb/chats", kb_create_chat)
+    app.router.add_get("/kb/chats/{chatId}", kb_get_chat)
     app.router.add_post("/kb/chats/{chatId}/messages", kb_send_message)
     app.router.add_get("/version", get_version)
 

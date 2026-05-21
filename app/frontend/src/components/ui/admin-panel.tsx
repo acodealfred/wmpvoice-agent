@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument } from "@/types";
 
@@ -81,17 +81,46 @@ export function AdminPanel() {
         }
     };
 
-    // ── Document list — loaded from server, not localStorage ──────────
+    // ── Document list — live from Mithra via papers/search ───────────
     const [documents, setDocuments] = useState<KBDocument[]>([]);
+    const [docsLoading, setDocsLoading] = useState(false);
+    const [docsError, setDocsError] = useState<string | null>(null);
 
     const fetchDocuments = useCallback(async () => {
+        setDocsLoading(true);
+        setDocsError(null);
         try {
-            const resp = await fetch("/admin/kb/documents");
+            const resp = await fetch("/admin/kb/papers/search", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ limit: 100 }),
+            });
             if (resp.ok) {
                 const data = await resp.json();
-                setDocuments(data.documents ?? []);
+                const papers: KBDocument[] = (data.papers ?? []).map((p: {
+                    id: string; title: string; updatedAt?: string;
+                    lifeCycleState?: string;
+                    contentMetadata?: { sizeSi?: string; type?: string };
+                }) => ({
+                    paperId: p.id,
+                    title: p.title,
+                    uploadedAt: p.updatedAt ?? "",
+                    lifeCycleState: p.lifeCycleState,
+                    sizeSi: p.contentMetadata?.sizeSi,
+                    fileType: p.contentMetadata?.type,
+                }));
+                setDocuments(papers);
+            } else if (resp.status === 401 || resp.status === 403) {
+                setDocsError("Unauthorized — check MITHRA_APP_TOKEN.");
+            } else {
+                const body = await resp.text().catch(() => "");
+                setDocsError(`Failed to load documents (HTTP ${resp.status})${body ? ": " + body.slice(0, 120) : ""}`);
             }
-        } catch { /* silent */ }
+        } catch {
+            setDocsError("Network error loading document list.");
+        } finally {
+            setDocsLoading(false);
+        }
     }, []);
 
     useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
@@ -265,48 +294,104 @@ export function AdminPanel() {
                 </div>
             </div>
 
-            {/* ── Section C: Document List ── */}
+            {/* ── Section C: Document List (live from Mithra) ── */}
             <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-white">Uploaded Documents</h2>
-                    <span className="ml-auto rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
-                        {documents.length} file{documents.length !== 1 ? "s" : ""}
-                    </span>
+                    <Database className="h-5 w-5 text-purple-400" />
+                    <h2 className="text-base font-semibold text-white">Knowledge Base Documents</h2>
+                    {!docsLoading && (
+                        <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                            {documents.length} file{documents.length !== 1 ? "s" : ""}
+                        </span>
+                    )}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fetchDocuments}
+                        disabled={docsLoading}
+                        className="ml-auto border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                    >
+                        {docsLoading
+                            ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            : <RefreshCw className="mr-1 h-3 w-3" />}
+                        Refresh
+                    </Button>
                 </div>
 
-                {documents.length === 0 ? (
-                    <p className="text-sm text-slate-500">No documents uploaded yet. Upload a file above to get started.</p>
+                {docsError && (
+                    <div className="mb-3 flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-2 text-sm text-red-300">
+                        <XCircle className="h-4 w-4 shrink-0" />
+                        {docsError}
+                    </div>
+                )}
+
+                {docsLoading && documents.length === 0 ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading documents from Knowledge Base…
+                    </div>
+                ) : documents.length === 0 && !docsError ? (
+                    <p className="text-sm text-slate-500">No documents found in the Knowledge Base. Upload a file above to get started.</p>
                 ) : (
-                    <div className="space-y-2">
-                        {documents.map(doc => (
-                            <div
-                                key={doc.paperId}
-                                className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800 px-4 py-3"
-                            >
-                                <FileText className="h-4 w-4 shrink-0 text-purple-400" />
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-medium text-white">{doc.title}</p>
-                                    <p className="text-xs text-slate-500">
-                                        ID: {doc.paperId} · {new Date(doc.uploadedAt).toLocaleString()}
-                                    </p>
-                                </div>
-                                <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => handleDelete(doc)}
-                                    disabled={deletingId === doc.paperId}
-                                    className="shrink-0"
-                                >
-                                    {deletingId === doc.paperId
-                                        ? <Loader2 className="h-3 w-3 animate-spin" />
-                                        : <Trash2 className="h-3 w-3" />}
-                                </Button>
-                            </div>
-                        ))}
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                            <thead>
+                                <tr className="bg-slate-800 text-left text-xs text-slate-400">
+                                    <th className="border border-slate-700 px-3 py-2">Title</th>
+                                    <th className="border border-slate-700 px-3 py-2 hidden sm:table-cell">Paper ID</th>
+                                    <th className="border border-slate-700 px-3 py-2 hidden md:table-cell">Size</th>
+                                    <th className="border border-slate-700 px-3 py-2 hidden md:table-cell">State</th>
+                                    <th className="border border-slate-700 px-3 py-2 hidden lg:table-cell">Updated</th>
+                                    <th className="border border-slate-700 px-3 py-2 text-center">Delete</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {documents.map((doc, i) => (
+                                    <tr key={doc.paperId} className={i % 2 === 0 ? "bg-slate-900" : "bg-slate-800/40"}>
+                                        <td className="border border-slate-700 px-3 py-2">
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="h-3.5 w-3.5 shrink-0 text-purple-400" />
+                                                <span className="font-medium text-white">{doc.title}</span>
+                                            </div>
+                                        </td>
+                                        <td className="border border-slate-700 px-3 py-2 hidden sm:table-cell">
+                                            <span className="font-mono text-xs text-slate-400">{doc.paperId}</span>
+                                        </td>
+                                        <td className="border border-slate-700 px-3 py-2 hidden md:table-cell text-xs text-slate-400">
+                                            {doc.sizeSi ?? "—"}
+                                        </td>
+                                        <td className="border border-slate-700 px-3 py-2 hidden md:table-cell">
+                                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                                doc.lifeCycleState === "active"
+                                                    ? "bg-green-900/50 text-green-300"
+                                                    : "bg-slate-700 text-slate-400"
+                                            }`}>
+                                                {doc.lifeCycleState ?? "—"}
+                                            </span>
+                                        </td>
+                                        <td className="border border-slate-700 px-3 py-2 hidden lg:table-cell text-xs text-slate-400">
+                                            {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "—"}
+                                        </td>
+                                        <td className="border border-slate-700 px-3 py-2 text-center">
+                                            <Button
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={() => handleDelete(doc)}
+                                                disabled={deletingId === doc.paperId}
+                                                className="h-7 px-2"
+                                            >
+                                                {deletingId === doc.paperId
+                                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                                    : <Trash2 className="h-3 w-3" />}
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
 
                         {deleteMsg && (
-                            <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                            <div className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
                                 {deleteMsg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                                 {deleteMsg.text}
                             </div>

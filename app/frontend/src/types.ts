@@ -204,6 +204,9 @@ export type KBDocument = {
     paperId: string;
     title: string;
     uploadedAt: string;
+    lifeCycleState?: string;
+    sizeSi?: string;
+    fileType?: string;
 };
 
 export type Citation = {
