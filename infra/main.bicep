@@ -75,6 +75,16 @@ param mithraApiBaseUrl string = 'https://api.dev.mithra.shelterzoom.com'
 @secure()
 param mithraAppToken string = ''
 
+@description('Dedicated Azure OpenAI endpoint for physiometric report generation (separate from realtime voice model)')
+param reportOpenAiEndpoint string = ''
+
+@description('API key for the reporting Azure OpenAI resource — stored as container secret report-openai-api-key')
+@secure()
+param reportOpenAiApiKey string = ''
+
+@description('Deployment name for the reporting Azure OpenAI resource')
+param reportOpenAiDeployment string = 'gpt-4o'
+
 @description('Location for the OpenAI resource group')
 @allowed([
   'eastus2'
@@ -197,8 +207,9 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
     containerCpuCoreCount: '1.0'
     containerMemory: '2Gi'
     secrets: union(
-      !empty(awsSecretAccessKey) ? { 'aws-secret-key': awsSecretAccessKey } : {},
-      !empty(mithraAppToken)     ? { 'mithra-app-token': mithraAppToken }   : {}
+      !empty(awsSecretAccessKey)  ? { 'aws-secret-key': awsSecretAccessKey }           : {},
+      !empty(mithraAppToken)      ? { 'mithra-app-token': mithraAppToken }              : {},
+      !empty(reportOpenAiApiKey)  ? { 'report-openai-api-key': reportOpenAiApiKey }    : {}
     )
     env: {
       AZURE_OPENAI_ENDPOINT: reuseExistingOpenAi ? openAiEndpoint : openAi.outputs.endpoint
@@ -216,6 +227,10 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       // Mithra Knowledge Base API
       MITHRA_API_BASE_URL: mithraApiBaseUrl
       MITHRA_APP_TOKEN: !empty(mithraAppToken) ? 'secretref:mithra-app-token' : ''
+      // Dedicated reporting Azure OpenAI (separate from realtime voice model)
+      REPORT_OPENAI_ENDPOINT: !empty(reportOpenAiEndpoint) ? reportOpenAiEndpoint : ''
+      REPORT_OPENAI_API_KEY: !empty(reportOpenAiApiKey) ? 'secretref:report-openai-api-key' : ''
+      REPORT_OPENAI_DEPLOYMENT: reportOpenAiDeployment
       // RAG features disabled - AI Search removed
       // AZURE_SEARCH_ENDPOINT
       // AZURE_SEARCH_INDEX

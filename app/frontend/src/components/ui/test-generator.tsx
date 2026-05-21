@@ -211,6 +211,7 @@ export function TestGenerator() {
     const [ssotReport, setSsotReport] = useState<SSoTReport | null>(null);
     const [ssotError, setSsotError] = useState<string | null>(null);
     const [mithraRaw, setMithraRaw] = useState<SSoTReport | null>(null);
+    const [llmUsed, setLlmUsed] = useState<boolean | null>(null);
 
     // ── Chat state ───────────────────────────────────────────────────────────
     type ChatMsg = { role: "user" | "assistant"; content: string; citations: Citation[] };
@@ -231,6 +232,7 @@ export function TestGenerator() {
         setSsotReport(null);
         setSsotError(null);
         setMithraRaw(null);
+        setLlmUsed(null);
     };
 
     const handleNext = () => {
@@ -240,6 +242,7 @@ export function TestGenerator() {
         setSsotReport(null);
         setSsotError(null);
         setMithraRaw(null);
+        setLlmUsed(null);
     };
 
     const handleRegenerate = () => {
@@ -248,6 +251,7 @@ export function TestGenerator() {
         setSsotReport(null);
         setSsotError(null);
         setMithraRaw(null);
+        setLlmUsed(null);
     };
 
     const handleSendToSSoT = async () => {
@@ -255,6 +259,7 @@ export function TestGenerator() {
         setSsotReport(null);
         setSsotError(null);
         setMithraRaw(null);
+        setLlmUsed(null);
 
         const payload = {
             snapshots: scenarios[currentIdx].snapshots,
@@ -280,6 +285,7 @@ export function TestGenerator() {
                 return;
             }
             if (data.mithraRaw != null) setMithraRaw(data.mithraRaw);
+            setLlmUsed(data.llmUsed === true);
             if (data.ssotReport != null) setSsotReport(data.ssotReport);
             else setSsotError("No report returned from server.");
         } catch (err) {
@@ -533,7 +539,7 @@ export function TestGenerator() {
                             </div>
                         )}
 
-                        {ssotLoading && !ssotReport && (
+                        {ssotLoading && (
                             <div className="flex flex-1 items-center justify-center gap-2 text-slate-500">
                                 <Loader2 className="h-4 w-4 animate-spin" />
                                 <span className="text-sm">Generating report…</span>
@@ -546,9 +552,21 @@ export function TestGenerator() {
                             </p>
                         )}
 
-                        {ssotReport && (
+                        {ssotReport && llmUsed && (
                             <div className="flex-1 overflow-y-auto space-y-4">
                                 <ConsultativeReport answer={ssotReport.answer} citations={ssotReport.citations} />
+                            </div>
+                        )}
+
+                        {ssotReport && llmUsed === false && (
+                            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-4">
+                                <p className="text-sm font-medium text-amber-300">Reporting LLM not configured</p>
+                                <p className="text-xs text-slate-500 max-w-xs">
+                                    Set <code className="rounded bg-slate-800 px-1 py-0.5 text-amber-300">REPORT_OPENAI_ENDPOINT</code>,{" "}
+                                    <code className="rounded bg-slate-800 px-1 py-0.5 text-amber-300">REPORT_OPENAI_API_KEY</code> and{" "}
+                                    <code className="rounded bg-slate-800 px-1 py-0.5 text-amber-300">REPORT_OPENAI_DEPLOYMENT</code>{" "}
+                                    in the backend environment to enable the physiometric consultative report.
+                                </p>
                             </div>
                         )}
                     </div>

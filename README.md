@@ -219,3 +219,12 @@ Branch : ssot-integration
 Branch : ssot-integration-report
 - Integration with SSOT for realtime AI suggestion
 - Generate prompt with required fillings and ask suggestion from SSOT.
+Branch : test-generation
+- To genrate query summaries to SSOT. This is to avoid repetitive user survey to test SSOT.
+
+---Manual Steps after Each azd up (infra refrsh)
+Change the 
+ENABLE_SURVEY_MODE=true
+REPORT_OPENAI_API_KEY=<from Azure portal>
+REPORT_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_ENDPOINT=https://cog-wuqsvbfhl2udo.openai.azure.com/
