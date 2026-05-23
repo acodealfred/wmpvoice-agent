@@ -380,54 +380,54 @@ function App() {
     const getStressBgColor = (state: string) => {
         switch (state) {
             case "stressed":
-                return "bg-red-900/30 border-red-700";
+                return "bg-[rgba(255,80,80,0.08)] border-[rgba(255,80,80,0.25)]";
             case "relaxed":
-                return "bg-green-900/30 border-green-700";
+                return "bg-[rgba(64,212,136,0.08)] border-[rgba(64,212,136,0.25)]";
             default:
-                return "bg-yellow-900/30 border-yellow-700";
+                return "bg-[rgba(228,180,109,0.08)] border-[rgba(228,180,109,0.25)]";
         }
     };
 
     const { t } = useTranslation();
 
     return (
-        <div className="flex min-h-screen flex-col bg-[#0d1512] text-gray-100">
+        <div className="flex min-h-screen flex-col bg-[#0b1012] text-gray-100">
             {/* ── Floating pill header ── */}
             <div className="sticky top-0 z-40 px-5 pt-4 pb-2">
-                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-[#1a2420]/90 px-5 py-3 shadow-lg backdrop-blur-md">
+                <div className="flex items-center justify-between rounded-[40px] border border-white/[0.16] bg-[rgba(18,25,23,0.28)] px-6 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] backdrop-blur-[34px] saturate-150">
                     <div className="flex items-center gap-3">
                         <img src={logo} alt="CIQ logo" className="h-10 w-10" />
                         <div>
-                            <h1 className="text-lg font-bold tracking-tight text-white">CIQ Voice Agent</h1>
-                            <p className="text-xs text-slate-400">Burnout Assessment Platform</p>
+                            <h1 className="text-lg font-bold tracking-tight text-[#fffaf2]">CIQ Voice Agent</h1>
+                            <p className="text-xs text-[rgba(255,250,242,0.46)]">Burnout Assessment Platform</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
                         {enableSentiment && (
-                            <div className="flex items-center gap-1.5 rounded-full bg-green-900/60 px-3 py-1.5 text-xs font-medium text-green-300 ring-1 ring-green-700/60">
+                            <div className="flex items-center gap-1.5 rounded-full bg-[rgba(25,122,75,0.28)] px-3 py-1.5 text-xs font-medium text-[#77f2ae]">
                                 <Smile className="h-3.5 w-3.5" />
                                 Sentiment
                             </div>
                         )}
                         {enableSurvey && (
-                            <div className="flex items-center gap-1.5 rounded-full bg-purple-900/60 px-3 py-1.5 text-xs font-medium text-purple-300 ring-1 ring-purple-700/60">
+                            <div className="flex items-center gap-1.5 rounded-full bg-[rgba(130,52,204,0.28)] px-3 py-1.5 text-xs font-medium text-[#e4c3ff]">
                                 <ClipboardList className="h-3.5 w-3.5" />
                                 Survey
                             </div>
                         )}
-                        {!isRecording && <span className="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-400">Ready</span>}
+                        {!isRecording && <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-[rgba(255,250,242,0.68)]">Ready</span>}
                     </div>
                 </div>
             </div>
 
             {/* ── Tab Bar ── */}
-            <div className="flex items-center gap-3 px-5 py-3">
+            <div className="flex items-center gap-2 px-5 py-3">
                 <button
                     onClick={() => setActiveTab("assessment")}
                     className={`transition-all ${
                         activeTab === "assessment"
-                            ? "rounded-full border border-white/20 bg-[#1e2d25] px-8 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(100,180,130,0.3)]"
-                            : "px-6 py-2 text-sm font-medium text-slate-500 hover:text-slate-300"
+                            ? "rounded-full border border-white/[0.34] bg-white/[0.16] px-8 py-2 text-sm font-semibold text-white shadow-[0_18px_46px_rgba(0,0,0,0.18),inset_0_1px_1px_rgba(255,255,255,0.36)]"
+                            : "px-6 py-2 text-sm font-medium text-[rgba(255,250,242,0.46)] hover:text-[rgba(255,250,242,0.86)]"
                     }`}
                 >
                     Assessment
@@ -436,8 +436,8 @@ function App() {
                     onClick={() => setActiveTab("admin")}
                     className={`transition-all ${
                         activeTab === "admin"
-                            ? "rounded-full border border-white/20 bg-[#1e2d25] px-8 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(100,180,130,0.3)]"
-                            : "px-6 py-2 text-sm font-medium text-slate-500 hover:text-slate-300"
+                            ? "rounded-full border border-white/[0.34] bg-white/[0.16] px-8 py-2 text-sm font-semibold text-white shadow-[0_18px_46px_rgba(0,0,0,0.18),inset_0_1px_1px_rgba(255,255,255,0.36)]"
+                            : "px-6 py-2 text-sm font-medium text-[rgba(255,250,242,0.46)] hover:text-[rgba(255,250,242,0.86)]"
                     }`}
                 >
                     Admin
@@ -446,8 +446,8 @@ function App() {
                     onClick={() => setActiveTab("test")}
                     className={`transition-all ${
                         activeTab === "test"
-                            ? "rounded-full border border-white/20 bg-[#1e2d25] px-8 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(100,180,130,0.3)]"
-                            : "px-6 py-2 text-sm font-medium text-slate-500 hover:text-slate-300"
+                            ? "rounded-full border border-white/[0.34] bg-white/[0.16] px-8 py-2 text-sm font-semibold text-white shadow-[0_18px_46px_rgba(0,0,0,0.18),inset_0_1px_1px_rgba(255,255,255,0.36)]"
+                            : "px-6 py-2 text-sm font-medium text-[rgba(255,250,242,0.46)] hover:text-[rgba(255,250,242,0.86)]"
                     }`}
                 >
                     Test Generator
@@ -473,7 +473,7 @@ function App() {
             <main className="flex flex-1 overflow-hidden p-4">
                 <div className="grid h-full w-full grid-cols-2 grid-rows-3 gap-4">
                     {/* Camera Feed Panel - Top Left */}
-                    <section className="rounded-2xl border border-white/8 bg-[#1a2420]/60 shadow-2xl shadow-black/40 backdrop-blur-sm">
+                    <section className="ciq-glass-card">
                         <div className="flex h-full flex-col">
                             <div className="border-b border-white/8 px-5 py-3">
                                 <div className="flex items-center gap-2">
@@ -498,7 +498,7 @@ function App() {
                                         onClick={onToggleListening}
                                         className={`group relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
                                             isRecording
-                                                ? "border border-[#2d4a38] bg-[#1e3028] text-slate-300 hover:bg-[#253a2f]"
+                                                ? "border border-white/[0.16] bg-white/[0.08] text-[rgba(255,250,242,0.68)] hover:bg-white/[0.12]"
                                                 : "bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
                                         }`}
                                     >
@@ -515,7 +515,7 @@ function App() {
                                         )}
                                     </Button>
                                     {isRecording && (
-                                        <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-green-700/40 bg-green-900/30 text-sm font-medium text-green-300">
+                                        <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[rgba(25,122,75,0.40)] bg-[rgba(25,122,75,0.20)] text-sm font-medium text-[#77f2ae]">
                                             <Mic className="h-4 w-4 animate-pulse" />
                                             Conversation Active
                                         </div>
@@ -526,19 +526,19 @@ function App() {
                     </section>
 
                     {/* Face Emotion & Sentiment Panel - Top Right */}
-                    <section className="rounded-2xl border border-white/8 bg-[#1a2420]/60 shadow-2xl shadow-black/40 backdrop-blur-sm">
+                    <section className="ciq-glass-card">
                         <div className="flex h-full flex-col">
-                            <div className="border-b border-white/8 bg-transparent px-5 py-3">
+                            <div className="border-b border-white/[0.10] px-5 py-3">
                                 <h2 className="text-sm font-semibold text-slate-200">Face Emotion & Sentiment</h2>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
                                 {/* Current Emotion & Voice Sentiment - Side by Side */}
                                 <div className="grid grid-cols-2 gap-2">
                                     {/* Current Emotion */}
-                                    <div className="rounded bg-slate-800/50 px-2 py-1.5">
+                                    <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
                                         <div className="flex items-center justify-between gap-2">
                                             <div className="flex shrink-0 items-center gap-2">
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-xl">
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-xl">
                                                     {lastEmotion ? (
                                                         <span>{getEmotionEmoji(lastEmotion.emotion)}</span>
                                                     ) : (
@@ -560,7 +560,7 @@ function App() {
 
                                     {/* Voice Sentiment */}
                                     {sentiment && (
-                                        <div className="rounded bg-gradient-to-r from-slate-800/50 to-slate-700/30 px-2 py-1.5">
+                                        <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="flex shrink-0 items-center gap-2">
                                                     {sentiment.sentiment === "positive" && (
@@ -590,7 +590,7 @@ function App() {
                                                 </div>
                                             </div>
                                             {sentiment.reason && isReasonExpanded && (
-                                                <div className="mt-2 rounded bg-slate-800/50 p-2">
+                                                <div className="mt-2 rounded-lg bg-white/[0.06] p-2">
                                                     <p className="text-[10px] leading-relaxed text-slate-300">{sentiment.reason}</p>
                                                 </div>
                                             )}
@@ -600,7 +600,7 @@ function App() {
 
                                 {/* Baseline Prompt UI */}
                                 {isRecording && baselineSessionStatus === "idle" && enableBiometrics && (
-                                    <div className="mb-4 rounded-lg border border-blue-700 bg-blue-900/50 p-4">
+                                    <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
                                         <h3 className="text-md mb-2 font-semibold text-white">Baseline Measurement Required</h3>
                                         <p className="mb-4 text-sm text-gray-300">
                                             To measure biometric changes during conversation, we need to record a baseline measurement first. Please look at the
@@ -620,12 +620,12 @@ function App() {
 
                                 {/* Baseline Recording Progress */}
                                 {baselineSessionStatus === "collecting" && (
-                                    <div className="mb-4 rounded-lg border border-blue-700 bg-blue-900/50 p-4">
+                                    <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
                                         <div className="mb-3 flex items-center justify-center">
                                             <Loader2 className="mr-2 h-6 w-6 animate-spin text-blue-400" />
                                             <span className="text-blue-300">Recording baseline...</span>
                                         </div>
-                                        <div className="h-2 w-full rounded-full bg-gray-700">
+                                        <div className="h-2 w-full rounded-full bg-[#2a3830]">
                                             <div
                                                 className="h-2 rounded-full bg-blue-500 transition-all duration-100"
                                                 style={{ width: `${baselineProgress}%` }}
@@ -637,7 +637,7 @@ function App() {
 
                                 {/* Baseline Completed */}
                                 {baselineSessionStatus === "completed" && baselineData && (
-                                    <div className="mb-3 rounded-lg border border-green-700 bg-green-900/30 p-2">
+                                    <div className="mb-3 rounded-lg border border-[rgba(64,212,136,0.25)] bg-[rgba(64,212,136,0.06)] p-2">
                                         <div className="flex items-center justify-between">
                                             <p className="text-xs font-medium text-green-300">Baseline Recorded</p>
                                             <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 px-2 text-[10px]">
@@ -660,34 +660,34 @@ function App() {
 
                                 {/* Biometric Metrics */}
                                 {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
-                                    <div className="rounded-xl bg-slate-800/50 p-2">
+                                    <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-2">
                                         <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
                                         <div className="grid grid-cols-3 gap-1">
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
                                                 <p className="text-[9px] text-slate-500">Blink Rate</p>
                                                 <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.blinkRate.toFixed(1)}/min</p>
                                                 <p className="text-[9px] text-green-400">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
                                                 <p className="text-[9px] text-slate-500">Eye Openness</p>
                                                 <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.eyeOpenness)}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
                                                 <p className="text-[9px] text-slate-500">Smile</p>
                                                 <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.smileIntensity)}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
                                                 <p className="text-[9px] text-slate-500">Head Pose</p>
                                                 <p className="text-xs font-semibold text-slate-200">
                                                     {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
                                                 </p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
                                                 <p className="text-[9px] text-slate-500">Pupil Size</p>
                                                 <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.pupilSizeMm.toFixed(1)} mm</p>
                                                 <p className="text-[9px] text-green-400">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
                                             </div>
-                                            <div className="rounded-lg bg-slate-800/30 p-1.5">
+                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
                                                 <p className="text-[9px] text-slate-500">Blink Change</p>
                                                 <p
                                                     className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-400" : "text-green-400"}`}
@@ -763,9 +763,9 @@ function App() {
                     </section>
 
                     {/* Final Results Panel - Burnout Assessment (spans 2 columns, row 3) */}
-                    <section className="col-span-2 rounded-2xl border border-white/8 bg-[#1a2420]/60 shadow-2xl shadow-black/40 backdrop-blur-sm">
+                    <section className="col-span-2 ciq-glass-card">
                         <div className="flex h-full flex-col">
-                            <div className="border-b border-white/8 bg-transparent px-5 py-3">
+                            <div className="border-b border-white/[0.10] px-5 py-3">
                                 <h2 className="text-sm font-semibold text-slate-200">Final Results - Burnout Assessment</h2>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">

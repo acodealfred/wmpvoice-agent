@@ -31,18 +31,18 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, surveyQuest
 
     return (
         <div className="flex h-full flex-col">
-            <div className="relative flex-1 overflow-hidden rounded-lg bg-black">
+            <div className="relative flex-1 overflow-hidden rounded-lg bg-[#0d1a14]">
                 <video ref={videoRef} className="h-full w-full object-contain" muted playsInline />
                 <canvas ref={canvasRef} className="hidden" />
 
                 {!isStreaming && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-                        <VideoOff className="h-12 w-12 text-gray-500" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-[#1a2520]">
+                        <VideoOff className="h-12 w-12 text-slate-600" />
                     </div>
                 )}
 
                 {isStreaming && (
-                    <div className="absolute bottom-2 left-0 right-0 rounded-lg bg-gray-800/50 p-4 text-sm text-white backdrop-blur-md">
+                    <div className="absolute bottom-2 left-0 right-0 rounded-lg bg-[#1a2520]/80 p-4 text-sm text-white backdrop-blur-md">
                         <div className="space-y-2">
                             <div className="font-medium">Survey Assessment</div>
                             {surveyTotal && surveyTotal > 0 && surveyQuestions && surveyQuestions.length > 0 ? (
@@ -54,14 +54,14 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, surveyQuest
                                     {surveyOptions && surveyOptions.length > 0 && (
                                         <div className="mt-1 flex flex-wrap gap-2">
                                             {surveyOptions.map(opt => (
-                                                <button key={opt.value} className="rounded bg-gray-700 px-2 py-0.5 text-xs hover:bg-gray-600">
+                                                <button key={opt.value} className="rounded bg-[#2a3830] px-2 py-0.5 text-xs hover:bg-[#354840]">
                                                     {opt.label}
                                                 </button>
                                             ))}
                                         </div>
                                     )}
                                     <div className="mt-2">
-                                        <div className="h-1 w-full overflow-hidden rounded-full bg-gray-700">
+                                        <div className="h-1 w-full overflow-hidden rounded-full bg-[#2a3830]">
                                             <div
                                                 className="h-full bg-purple-500 transition-all duration-300"
                                                 style={{ width: `${((surveyCompleted ?? 0) / surveyTotal) * 100}%` }}
