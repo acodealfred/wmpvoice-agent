@@ -391,60 +391,63 @@ function App() {
     const { t } = useTranslation();
 
     return (
-        <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900 text-gray-100">
-            <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-slate-800 bg-slate-950/80 px-6 backdrop-blur-md">
-                <div className="flex items-center gap-3">
-                    <img src={logo} alt="CIQ logo" className="h-10 w-10" />
-                    <div>
-                        <h1 className="text-lg font-bold tracking-tight text-white">CIQ Voice Agent</h1>
-                        <p className="text-xs text-slate-400">Burnout Assessment Platform</p>
+        <div className="flex min-h-screen flex-col bg-[#0d1512] text-gray-100">
+            {/* ── Floating pill header ── */}
+            <div className="sticky top-0 z-40 px-5 pt-4 pb-2">
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-[#1a2420]/90 px-5 py-3 shadow-lg backdrop-blur-md">
+                    <div className="flex items-center gap-3">
+                        <img src={logo} alt="CIQ logo" className="h-10 w-10" />
+                        <div>
+                            <h1 className="text-lg font-bold tracking-tight text-white">CIQ Voice Agent</h1>
+                            <p className="text-xs text-slate-400">Burnout Assessment Platform</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {enableSentiment && (
+                            <div className="flex items-center gap-1.5 rounded-full bg-green-900/60 px-3 py-1.5 text-xs font-medium text-green-300 ring-1 ring-green-700/60">
+                                <Smile className="h-3.5 w-3.5" />
+                                Sentiment
+                            </div>
+                        )}
+                        {enableSurvey && (
+                            <div className="flex items-center gap-1.5 rounded-full bg-purple-900/60 px-3 py-1.5 text-xs font-medium text-purple-300 ring-1 ring-purple-700/60">
+                                <ClipboardList className="h-3.5 w-3.5" />
+                                Survey
+                            </div>
+                        )}
+                        {!isRecording && <span className="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-400">Ready</span>}
                     </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    {enableSentiment && (
-                        <div className="flex items-center gap-1 rounded-full bg-green-900/50 px-3 py-1.5 text-xs font-medium text-green-400 ring-1 ring-green-800/50">
-                            <Smile className="h-3.5 w-3.5" />
-                            Sentiment
-                        </div>
-                    )}
-                    {enableSurvey && (
-                        <div className="flex items-center gap-1 rounded-full bg-purple-900/50 px-3 py-1.5 text-xs font-medium text-purple-400 ring-1 ring-purple-800/50">
-                            <ClipboardList className="h-3.5 w-3.5" />
-                            Survey
-                        </div>
-                    )}
-                    {!isRecording && <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">Ready</span>}
-                </div>
-            </header>
+            </div>
 
             {/* ── Tab Bar ── */}
-            <div className="flex gap-1 border-b border-slate-800 bg-slate-950/60 px-6 py-2">
+            <div className="flex items-center gap-3 px-5 py-3">
                 <button
                     onClick={() => setActiveTab("assessment")}
-                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                    className={`transition-all ${
                         activeTab === "assessment"
-                            ? "bg-purple-600 text-white"
-                            : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                            ? "rounded-full border border-white/20 bg-[#1e2d25] px-8 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(100,180,130,0.3)]"
+                            : "px-6 py-2 text-sm font-medium text-slate-500 hover:text-slate-300"
                     }`}
                 >
                     Assessment
                 </button>
                 <button
                     onClick={() => setActiveTab("admin")}
-                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                    className={`transition-all ${
                         activeTab === "admin"
-                            ? "bg-purple-600 text-white"
-                            : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                            ? "rounded-full border border-white/20 bg-[#1e2d25] px-8 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(100,180,130,0.3)]"
+                            : "px-6 py-2 text-sm font-medium text-slate-500 hover:text-slate-300"
                     }`}
                 >
                     Admin
                 </button>
                 <button
                     onClick={() => setActiveTab("test")}
-                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                    className={`transition-all ${
                         activeTab === "test"
-                            ? "bg-purple-600 text-white"
-                            : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                            ? "rounded-full border border-white/20 bg-[#1e2d25] px-8 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(100,180,130,0.3)]"
+                            : "px-6 py-2 text-sm font-medium text-slate-500 hover:text-slate-300"
                     }`}
                 >
                     Test Generator
@@ -470,13 +473,13 @@ function App() {
             <main className="flex flex-1 overflow-hidden p-4">
                 <div className="grid h-full w-full grid-cols-2 grid-rows-3 gap-4">
                     {/* Camera Feed Panel - Top Left */}
-                    <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
+                    <section className="rounded-2xl border border-white/8 bg-[#1a2420]/60 shadow-2xl shadow-black/40 backdrop-blur-sm">
                         <div className="flex h-full flex-col">
-                            <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
+                            <div className="border-b border-white/8 px-5 py-3">
                                 <div className="flex items-center gap-2">
-                                    <div className="h-2 w-2 rounded-full bg-green-500/70 ring-2 ring-green-500/20"></div>
+                                    <div className="h-2 w-2 rounded-full bg-green-500 ring-2 ring-green-500/30"></div>
                                     <h2 className="text-sm font-semibold text-slate-200">Camera Feed</h2>
-                                    <span className="ml-auto text-xs text-slate-500">LIVE</span>
+                                    <span className="ml-auto rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold tracking-widest text-slate-400">LIVE</span>
                                 </div>
                             </div>
                             <div className="flex-1 p-4">
@@ -489,43 +492,43 @@ function App() {
                                     surveyOptions={surveyOptions}
                                 />
                             </div>
-                            <div className="border-t border-slate-800 bg-slate-900/50 px-5 py-3">
-                                <div className="flex justify-center">
+                            <div className="border-t border-white/8 px-5 py-4">
+                                <div className="flex flex-col gap-2">
                                     <Button
                                         onClick={onToggleListening}
-                                        className={`group relative flex h-12 items-center justify-center gap-3 rounded-xl px-8 text-lg font-semibold transition-all duration-300 ${
+                                        className={`group relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
                                             isRecording
-                                                ? "bg-gradient-to-r from-red-600 to-red-500 shadow-lg shadow-red-500/20 hover:from-red-500 hover:to-red-400"
+                                                ? "border border-[#2d4a38] bg-[#1e3028] text-slate-300 hover:bg-[#253a2f]"
                                                 : "bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
                                         }`}
                                     >
                                         {isRecording ? (
                                             <>
-                                                <MicOff className="h-5 w-5" />
+                                                <MicOff className="h-4 w-4" />
                                                 {t("app.stopConversation")}
                                             </>
                                         ) : (
                                             <>
-                                                <Mic className="h-6 w-6" />
+                                                <Mic className="h-4 w-4" />
                                                 {t("app.startRecording") || "Start Conversation"}
                                             </>
                                         )}
-                                        {isRecording && (
-                                            <span className="absolute -right-2 -top-2 flex h-5 w-5">
-                                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
-                                                <span className="relative inline-flex h-5 w-5 rounded-full bg-red-500"></span>
-                                            </span>
-                                        )}
                                     </Button>
+                                    {isRecording && (
+                                        <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-green-700/40 bg-green-900/30 text-sm font-medium text-green-300">
+                                            <Mic className="h-4 w-4 animate-pulse" />
+                                            Conversation Active
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     </section>
 
                     {/* Face Emotion & Sentiment Panel - Top Right */}
-                    <section className="rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
+                    <section className="rounded-2xl border border-white/8 bg-[#1a2420]/60 shadow-2xl shadow-black/40 backdrop-blur-sm">
                         <div className="flex h-full flex-col">
-                            <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
+                            <div className="border-b border-white/8 bg-transparent px-5 py-3">
                                 <h2 className="text-sm font-semibold text-slate-200">Face Emotion & Sentiment</h2>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
@@ -760,9 +763,9 @@ function App() {
                     </section>
 
                     {/* Final Results Panel - Burnout Assessment (spans 2 columns, row 3) */}
-                    <section className="col-span-2 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-2xl shadow-black/20">
+                    <section className="col-span-2 rounded-2xl border border-white/8 bg-[#1a2420]/60 shadow-2xl shadow-black/40 backdrop-blur-sm">
                         <div className="flex h-full flex-col">
-                            <div className="border-b border-slate-800 bg-slate-900/50 px-5 py-3">
+                            <div className="border-b border-white/8 bg-transparent px-5 py-3">
                                 <h2 className="text-sm font-semibold text-slate-200">Final Results - Burnout Assessment</h2>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
