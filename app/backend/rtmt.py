@@ -161,9 +161,10 @@ def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
 
     results = self._sess.survey_results
     if not results:
+        # TO_SERVER so the agent actually sees this message and can tell the user.
         return ToolResult(
             json.dumps({"error": "No survey results available. Complete the survey first."}),
-            ToolResultDirection.TO_CLIENT,
+            ToolResultDirection.TO_SERVER,
         )
     total_score = sum(r["score"] for r in results.values())
     num_questions = len(results)
@@ -232,9 +233,13 @@ def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
             ),
         }
 
+    # CRITICAL: must be TO_SERVER so the agent receives the data and can answer
+    # the user's question. TO_CLIENT would only send to the frontend and the
+    # agent would get an empty function output, leading to "I'm working on it"
+    # placeholder replies for every follow-up question after a report is delivered.
     return ToolResult(
         json.dumps(response_data),
-        ToolResultDirection.TO_CLIENT,
+        ToolResultDirection.TO_SERVER,
     )
 
 
