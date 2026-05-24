@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { VideoPanel } from "@/components/ui/video-panel";
-import { SentimentHistoryPanel } from "@/components/ui/sentiment-history-panel";
 import { DetailedReport } from "@/components/ui/detailed-report";
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
@@ -13,11 +12,9 @@ import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 
-import { SentimentUpdate, EmotionResult, SentimentHistoryItem, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult } from "./types";
+import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult } from "./types";
 
 import logo from "./assets/logo.png";
-
-const TIME_FRAME_SECONDS = 5;
 
 function App() {
     // New UUID on every page load → agent always starts fresh after a refresh.
@@ -27,8 +24,6 @@ function App() {
     const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test">("assessment");
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
-    const [lastEmotion, setLastEmotion] = useState<EmotionResult | null>(null);
-    const [sentimentHistory, setSentimentHistory] = useState<SentimentHistoryItem[]>([]);
     const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
     const [surveyTotal, setSurveyTotal] = useState(0);
     const [surveyCompleted, setSurveyCompleted] = useState(0);
@@ -38,9 +33,7 @@ function App() {
     const [enableSentiment, setEnableSentiment] = useState(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [enableBiometrics, setEnableBiometrics] = useState(true);
-    const [multipleFacesWarning, setMultipleFacesWarning] = useState(false);
     const [isReasonExpanded, setIsReasonExpanded] = useState(false);
-    const frameCounterRef = useRef(0);
 
     // Biometrics state
     const [currentBiometrics, setCurrentBiometrics] = useState<BiometricResult | null>(null);
@@ -120,19 +113,12 @@ function App() {
         async (biometrics: BiometricResult) => {
             if (!enableBiometrics) return;
 
-            const faceEmotion = lastEmotion?.emotion;
             const blinkChange = biometrics.metrics.blinkRateChangePercent;
-
-            const emotionToSend =
-                faceEmotion && !faceEmotion.includes("No face") && !faceEmotion.includes("multiple") && faceEmotion !== "UNKNOWN" ? faceEmotion : "NEUTRAL";
-
             const blinkToSend = blinkChange !== undefined && blinkChange !== 0 ? blinkChange : 0;
 
             console.log("[App] Sending biometrics update:", {
                 sentiment: sentiment?.sentiment || "neutral",
                 blink_rate_change_percent: blinkToSend,
-                face_emotion: emotionToSend,
-                rawEmotion: lastEmotion?.emotion,
                 rawBlinkChange: blinkChange
             });
 
@@ -144,20 +130,15 @@ function App() {
                         session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
                         blink_rate_change_percent: blinkToSend,
-                        face_emotion: emotionToSend
+                        face_emotion: "NEUTRAL"
                     })
                 });
             } catch (err) {
                 console.error("Failed to update biometrics:", err);
             }
         },
-        [sentiment, lastEmotion, enableBiometrics]
+        [sentiment, enableBiometrics]
     );
-
-    const handleEmotionDetected = (emotion: EmotionResult) => {
-        setLastEmotion(emotion);
-        setMultipleFacesWarning(emotion.emotion === "multiple_faces_detected");
-    };
 
     // Stress analysis effect
     useEffect(() => {
@@ -309,51 +290,6 @@ function App() {
         setBaselineSessionStatus("idle");
     }, []);
 
-    useEffect(() => {
-        if (!isRecording) {
-            setSentimentHistory([]);
-            frameCounterRef.current = 0;
-            return;
-        }
-
-        const interval = setInterval(() => {
-            frameCounterRef.current += 1;
-            const newItem: SentimentHistoryItem = {
-                id: `frame-${frameCounterRef.current}-${Date.now()}`,
-                timestamp: Date.now(),
-                timeFrameLabel: `${TIME_FRAME_SECONDS}s frame ${frameCounterRef.current}`,
-                faceEmotion: lastEmotion?.emotion || "No face detected",
-                faceEmotionConfidence: lastEmotion?.confidence || 0,
-                voiceSentiment: sentiment?.sentiment || "neutral",
-                voiceSentimentReason: sentiment?.reason
-            };
-
-            setSentimentHistory(prev => {
-                const updated = [...prev, newItem];
-                if (updated.length > 10) {
-                    return updated.slice(-10);
-                }
-                return updated;
-            });
-        }, TIME_FRAME_SECONDS * 1000);
-
-        return () => clearInterval(interval);
-    }, [isRecording, lastEmotion, sentiment]);
-
-    const getEmotionEmoji = (emotion: string) => {
-        const emotionIcons: Record<string, string> = {
-            HAPPY: "😊",
-            SAD: "😢",
-            ANGRY: "😠",
-            FEAR: "😨",
-            SURPRISED: "😲",
-            DISGUSTED: "🤢",
-            NEUTRAL: "😐",
-            MULTIPLE_FACES_DETECTED: "👥"
-        };
-        return emotionIcons[emotion.toUpperCase()] || "😐";
-    };
-
     const getHeadPoseLabel = (degrees: number): string => {
         if (degrees < -15) return "Turned Left";
         if (degrees > 15) return "Turned Right";
@@ -369,7 +305,7 @@ function App() {
     const getStressColor = (state: string) => {
         switch (state) {
             case "stressed":
-                return "text-[#ff8a8a]";
+                return "text-[#F7F5F5]";
             case "relaxed":
                 return "text-[#5ee5a1]";
             default:
@@ -380,7 +316,7 @@ function App() {
     const getStressBgColor = (state: string) => {
         switch (state) {
             case "stressed":
-                return "bg-[rgba(255,80,80,0.08)] border-[rgba(255,80,80,0.25)]";
+                return "bg-[rgba(255,50,50,0.08)] border-[rgba(255,50,50,0.25)]";
             case "relaxed":
                 return "bg-[rgba(64,212,136,0.08)] border-[rgba(64,212,136,0.25)]";
             default:
@@ -487,7 +423,6 @@ function App() {
                                 <div className="flex-1 p-4">
                                     <VideoPanel
                                         isRecording={isRecording}
-                                        onEmotionDetected={handleEmotionDetected}
                                         surveyQuestions={surveyQuestions}
                                         surveyTotal={surveyTotal}
                                         surveyCompleted={surveyCompleted}
@@ -531,39 +466,10 @@ function App() {
                         <section className="ciq-glass-card">
                             <div className="flex h-full flex-col">
                                 <div className="border-b border-white/[0.10] px-5 py-3">
-                                    <h2 className="text-sm font-semibold text-[#fffaf2]">Face Emotion & Sentiment</h2>
+                                    <h2 className="text-sm font-semibold text-[#785b4a]">Voice Sentiment</h2>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4">
-                                    {/* Current Emotion & Voice Sentiment - Side by Side */}
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {/* Current Emotion */}
-                                        <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="flex shrink-0 items-center gap-2">
-                                                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-xl">
-                                                        {lastEmotion ? (
-                                                            <span>{getEmotionEmoji(lastEmotion.emotion)}</span>
-                                                        ) : (
-                                                            <span className="text-[rgba(255,250,242,0.60)]">-</span>
-                                                        )}
-                                                    </div>
-                                                    <div>
-                                                        <p className="max-w-20 truncate text-xs font-semibold text-[#fffaf2]">
-                                                            {lastEmotion
-                                                                ? lastEmotion.emotion.charAt(0) + lastEmotion.emotion.slice(1).toLowerCase()
-                                                                : "No face"}
-                                                        </p>
-                                                        <p className="text-[9px] text-[rgba(255,250,242,0.60)]">
-                                                            Conf: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                {isRecording && (
-                                                    <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-green-500/70 ring-1 ring-green-500/20"></div>
-                                                )}
-                                            </div>
-                                        </div>
-
+                                    <div className="grid grid-cols-1 gap-2">
                                         {/* Voice Sentiment */}
                                         {sentiment && (
                                             <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
@@ -761,19 +667,6 @@ function App() {
                                         </div>
                                     )}
 
-                                    {/* Sentiment History Panel */}
-                                    <div className="mt-4">
-                                        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">Sentiment History</h3>
-                                        <SentimentHistoryPanel history={sentimentHistory} timeFrameSeconds={TIME_FRAME_SECONDS} />
-                                    </div>
-
-                                    {/* Multiple Faces Warning */}
-                                    {multipleFacesWarning && isRecording && (
-                                        <div className="mt-4 flex items-center justify-center rounded-lg bg-yellow-900/50 p-3">
-                                            <AlertTriangle className="mr-2 h-5 w-5 text-yellow-500" />
-                                            <span className="text-sm text-yellow-500">Only one face should be visible</span>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         </section>
