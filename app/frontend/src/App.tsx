@@ -369,11 +369,11 @@ function App() {
     const getStressColor = (state: string) => {
         switch (state) {
             case "stressed":
-                return "text-red-400";
+                return "text-[#ff8a8a]";
             case "relaxed":
-                return "text-green-400";
+                return "text-[#5ee5a1]";
             default:
-                return "text-yellow-400";
+                return "text-[#fbd585]";
         }
     };
 
@@ -391,10 +391,10 @@ function App() {
     const { t } = useTranslation();
 
     return (
-        <div className="flex min-h-screen flex-col bg-[#0b1012] text-gray-100">
+        <div className="flex min-h-screen flex-col bg-[#f6f1e9] text-gray-100">
             {/* ── Floating pill header ── */}
-            <div className="sticky top-0 z-40 px-5 pt-4 pb-2">
-                <div className="flex items-center justify-between rounded-[40px] border border-white/[0.16] bg-[rgba(18,25,23,0.28)] px-6 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] backdrop-blur-[34px] saturate-150">
+            <div className="sticky top-0 z-40 px-5 pb-2 pt-4">
+                <div className="flex items-center justify-between rounded-[40px] border border-white/[0.16] bg-[rgba(18,25,23,0.28)] px-6 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] saturate-150 backdrop-blur-[34px]">
                     <div className="flex items-center gap-3">
                         <img src={logo} alt="CIQ logo" className="h-10 w-10" />
                         <div>
@@ -426,8 +426,8 @@ function App() {
                     onClick={() => setActiveTab("assessment")}
                     className={`transition-all ${
                         activeTab === "assessment"
-                            ? "rounded-full border border-white/[0.34] bg-white/[0.16] px-8 py-2 text-sm font-semibold text-white shadow-[0_18px_46px_rgba(0,0,0,0.18),inset_0_1px_1px_rgba(255,255,255,0.36)]"
-                            : "px-6 py-2 text-sm font-medium text-[rgba(255,250,242,0.46)] hover:text-[rgba(255,250,242,0.86)]"
+                            ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
+                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
                     }`}
                 >
                     Assessment
@@ -436,8 +436,8 @@ function App() {
                     onClick={() => setActiveTab("admin")}
                     className={`transition-all ${
                         activeTab === "admin"
-                            ? "rounded-full border border-white/[0.34] bg-white/[0.16] px-8 py-2 text-sm font-semibold text-white shadow-[0_18px_46px_rgba(0,0,0,0.18),inset_0_1px_1px_rgba(255,255,255,0.36)]"
-                            : "px-6 py-2 text-sm font-medium text-[rgba(255,250,242,0.46)] hover:text-[rgba(255,250,242,0.86)]"
+                            ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
+                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
                     }`}
                 >
                     Admin
@@ -446,8 +446,8 @@ function App() {
                     onClick={() => setActiveTab("test")}
                     className={`transition-all ${
                         activeTab === "test"
-                            ? "rounded-full border border-white/[0.34] bg-white/[0.16] px-8 py-2 text-sm font-semibold text-white shadow-[0_18px_46px_rgba(0,0,0,0.18),inset_0_1px_1px_rgba(255,255,255,0.36)]"
-                            : "px-6 py-2 text-sm font-medium text-[rgba(255,250,242,0.46)] hover:text-[rgba(255,250,242,0.86)]"
+                            ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
+                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
                     }`}
                 >
                     Test Generator
@@ -470,382 +470,400 @@ function App() {
 
             {/* ── Assessment Panel ── */}
             {activeTab === "assessment" && (
-            <main className="flex flex-1 overflow-hidden p-4">
-                <div className="grid h-full w-full grid-cols-2 grid-rows-3 gap-4">
-                    {/* Camera Feed Panel - Top Left */}
-                    <section className="ciq-glass-card">
-                        <div className="flex h-full flex-col">
-                            <div className="border-b border-white/8 px-5 py-3">
-                                <div className="flex items-center gap-2">
-                                    <div className="h-2 w-2 rounded-full bg-green-500 ring-2 ring-green-500/30"></div>
-                                    <h2 className="text-sm font-semibold text-slate-200">Camera Feed</h2>
-                                    <span className="ml-auto rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold tracking-widest text-slate-400">LIVE</span>
-                                </div>
-                            </div>
-                            <div className="flex-1 p-4">
-                                <VideoPanel
-                                    isRecording={isRecording}
-                                    onEmotionDetected={handleEmotionDetected}
-                                    surveyQuestions={surveyQuestions}
-                                    surveyTotal={surveyTotal}
-                                    surveyCompleted={surveyCompleted}
-                                    surveyOptions={surveyOptions}
-                                />
-                            </div>
-                            <div className="border-t border-white/8 px-5 py-4">
-                                <div className="flex flex-col gap-2">
-                                    <Button
-                                        onClick={onToggleListening}
-                                        className={`group relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
-                                            isRecording
-                                                ? "border border-white/[0.16] bg-white/[0.08] text-[rgba(255,250,242,0.68)] hover:bg-white/[0.12]"
-                                                : "bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
-                                        }`}
-                                    >
-                                        {isRecording ? (
-                                            <>
-                                                <MicOff className="h-4 w-4" />
-                                                {t("app.stopConversation")}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Mic className="h-4 w-4" />
-                                                {t("app.startRecording") || "Start Conversation"}
-                                            </>
-                                        )}
-                                    </Button>
-                                    {isRecording && (
-                                        <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[rgba(25,122,75,0.40)] bg-[rgba(25,122,75,0.20)] text-sm font-medium text-[#77f2ae]">
-                                            <Mic className="h-4 w-4 animate-pulse" />
-                                            Conversation Active
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* Face Emotion & Sentiment Panel - Top Right */}
-                    <section className="ciq-glass-card">
-                        <div className="flex h-full flex-col">
-                            <div className="border-b border-white/[0.10] px-5 py-3">
-                                <h2 className="text-sm font-semibold text-slate-200">Face Emotion & Sentiment</h2>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-4">
-                                {/* Current Emotion & Voice Sentiment - Side by Side */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    {/* Current Emotion */}
-                                    <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div className="flex shrink-0 items-center gap-2">
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-xl">
-                                                    {lastEmotion ? (
-                                                        <span>{getEmotionEmoji(lastEmotion.emotion)}</span>
-                                                    ) : (
-                                                        <span className="text-slate-500">-</span>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <p className="max-w-20 truncate text-xs font-semibold text-slate-200">
-                                                        {lastEmotion ? lastEmotion.emotion.charAt(0) + lastEmotion.emotion.slice(1).toLowerCase() : "No face"}
-                                                    </p>
-                                                    <p className="text-[9px] text-slate-500">Conf: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%</p>
-                                                </div>
-                                            </div>
-                                            {isRecording && (
-                                                <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-green-500/70 ring-1 ring-green-500/20"></div>
-                                            )}
-                                        </div>
+                <main className="flex flex-1 overflow-hidden p-4">
+                    <div className="grid h-full w-full grid-cols-2 grid-rows-3 gap-4">
+                        {/* Camera Feed Panel - Top Left */}
+                        <section className="ciq-glass-card">
+                            <div className="flex h-full flex-col">
+                                <div className="border-white/8 border-b px-5 py-3">
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-2 w-2 rounded-full bg-green-500 ring-2 ring-green-500/30"></div>
+                                        <h2 className="text-sm font-semibold text-[#fffaf2]">Camera Feed</h2>
+                                        <span className="ml-auto rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold tracking-widest text-slate-400">
+                                            LIVE
+                                        </span>
                                     </div>
+                                </div>
+                                <div className="flex-1 p-4">
+                                    <VideoPanel
+                                        isRecording={isRecording}
+                                        onEmotionDetected={handleEmotionDetected}
+                                        surveyQuestions={surveyQuestions}
+                                        surveyTotal={surveyTotal}
+                                        surveyCompleted={surveyCompleted}
+                                        surveyOptions={surveyOptions}
+                                    />
+                                </div>
+                                <div className="border-white/8 border-t px-5 py-4">
+                                    <div className="flex flex-col gap-2">
+                                        <Button
+                                            onClick={onToggleListening}
+                                            className={`group relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
+                                                isRecording
+                                                    ? "border border-white/[0.16] bg-white/[0.08] text-[rgba(255,250,242,0.68)] hover:bg-white/[0.12]"
+                                                    : "bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
+                                            }`}
+                                        >
+                                            {isRecording ? (
+                                                <>
+                                                    <MicOff className="h-4 w-4" />
+                                                    {t("app.stopConversation")}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Mic className="h-4 w-4" />
+                                                    {t("app.startRecording") || "Start Conversation"}
+                                                </>
+                                            )}
+                                        </Button>
+                                        {isRecording && (
+                                            <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[rgba(25,122,75,0.40)] bg-[rgba(25,122,75,0.20)] text-sm font-medium text-[#77f2ae]">
+                                                <Mic className="h-4 w-4 animate-pulse" />
+                                                Conversation Active
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
 
-                                    {/* Voice Sentiment */}
-                                    {sentiment && (
+                        {/* Face Emotion & Sentiment Panel - Top Right */}
+                        <section className="ciq-glass-card">
+                            <div className="flex h-full flex-col">
+                                <div className="border-b border-white/[0.10] px-5 py-3">
+                                    <h2 className="text-sm font-semibold text-[#fffaf2]">Face Emotion & Sentiment</h2>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4">
+                                    {/* Current Emotion & Voice Sentiment - Side by Side */}
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {/* Current Emotion */}
                                         <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
-                                            <div className="flex items-start justify-between gap-2">
+                                            <div className="flex items-center justify-between gap-2">
                                                 <div className="flex shrink-0 items-center gap-2">
-                                                    {sentiment.sentiment === "positive" && (
-                                                        <div className="flex h-7 w-7 items-center justify-center rounded bg-green-500/20">
-                                                            <Smile className="h-3.5 w-3.5 text-green-400" />
-                                                        </div>
-                                                    )}
-                                                    {sentiment.sentiment === "neutral" && (
-                                                        <div className="flex h-7 w-7 items-center justify-center rounded bg-yellow-500/20">
-                                                            <Meh className="h-3.5 w-3.5 text-yellow-400" />
-                                                        </div>
-                                                    )}
-                                                    {sentiment.sentiment === "negative" && (
-                                                        <div className="flex h-7 w-7 items-center justify-center rounded bg-red-500/20">
-                                                            <Frown className="h-3.5 w-3.5 text-red-400" />
-                                                        </div>
-                                                    )}
+                                                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.08] text-xl">
+                                                        {lastEmotion ? (
+                                                            <span>{getEmotionEmoji(lastEmotion.emotion)}</span>
+                                                        ) : (
+                                                            <span className="text-[rgba(255,250,242,0.60)]">-</span>
+                                                        )}
+                                                    </div>
                                                     <div>
-                                                        <p className="text-[10px] font-semibold capitalize text-slate-200">{sentiment.sentiment}</p>
-                                                        <button
-                                                            onClick={() => setIsReasonExpanded(!isReasonExpanded)}
-                                                            className="mt-1 cursor-pointer text-[9px] text-slate-500 hover:text-slate-300 focus:outline-none"
-                                                        >
-                                                            {isReasonExpanded ? "Show less" : "Show reason"}
-                                                        </button>
+                                                        <p className="max-w-20 truncate text-xs font-semibold text-[#fffaf2]">
+                                                            {lastEmotion
+                                                                ? lastEmotion.emotion.charAt(0) + lastEmotion.emotion.slice(1).toLowerCase()
+                                                                : "No face"}
+                                                        </p>
+                                                        <p className="text-[9px] text-[rgba(255,250,242,0.60)]">
+                                                            Conf: {lastEmotion ? lastEmotion.confidence.toFixed(0) : 0}%
+                                                        </p>
                                                     </div>
                                                 </div>
+                                                {isRecording && (
+                                                    <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-green-500/70 ring-1 ring-green-500/20"></div>
+                                                )}
                                             </div>
-                                            {sentiment.reason && isReasonExpanded && (
-                                                <div className="mt-2 rounded-lg bg-white/[0.06] p-2">
-                                                    <p className="text-[10px] leading-relaxed text-slate-300">{sentiment.reason}</p>
+                                        </div>
+
+                                        {/* Voice Sentiment */}
+                                        {sentiment && (
+                                            <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex shrink-0 items-center gap-2">
+                                                        {sentiment.sentiment === "positive" && (
+                                                            <div className="flex h-7 w-7 items-center justify-center rounded bg-green-500/20">
+                                                                <Smile className="h-3.5 w-3.5 text-[#5ee5a1]" />
+                                                            </div>
+                                                        )}
+                                                        {sentiment.sentiment === "neutral" && (
+                                                            <div className="flex h-7 w-7 items-center justify-center rounded bg-yellow-500/20">
+                                                                <Meh className="h-3.5 w-3.5 text-[#fbd585]" />
+                                                            </div>
+                                                        )}
+                                                        {sentiment.sentiment === "negative" && (
+                                                            <div className="flex h-7 w-7 items-center justify-center rounded bg-red-500/20">
+                                                                <Frown className="h-3.5 w-3.5 text-[#ff8a8a]" />
+                                                            </div>
+                                                        )}
+                                                        <div>
+                                                            <p className="text-[10px] font-semibold capitalize text-[#fffaf2]">{sentiment.sentiment}</p>
+                                                            <button
+                                                                onClick={() => setIsReasonExpanded(!isReasonExpanded)}
+                                                                className="mt-1 cursor-pointer text-[9px] text-[rgba(255,250,242,0.60)] hover:text-[rgba(255,250,242,0.86)] focus:outline-none"
+                                                            >
+                                                                {isReasonExpanded ? "Show less" : "Show reason"}
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            )}
+                                                {sentiment.reason && isReasonExpanded && (
+                                                    <div className="mt-2 rounded-lg bg-white/[0.06] p-2">
+                                                        <p className="text-[10px] leading-relaxed text-[rgba(255,250,242,0.86)]">{sentiment.reason}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Baseline Prompt UI */}
+                                    {isRecording && baselineSessionStatus === "idle" && enableBiometrics && (
+                                        <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
+                                            <h3 className="text-md mb-2 font-semibold text-white">Baseline Measurement Required</h3>
+                                            <p className="mb-4 text-sm text-[#fffaf2]">
+                                                To measure biometric changes during conversation, we need to record a baseline measurement first. Please look at
+                                                the camera for 30 seconds while we record your baseline pupil size and blink rate.
+                                            </p>
+                                            <div className="flex gap-2">
+                                                <Button onClick={handleStartBaselineSession} size="sm" className="flex-1">
+                                                    <Play className="mr-2 h-4 w-4" />
+                                                    Start Baseline (30s)
+                                                </Button>
+                                                <Button onClick={handleProceedWithoutBaseline} size="sm" variant="outline">
+                                                    Skip
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Baseline Recording Progress */}
+                                    {baselineSessionStatus === "collecting" && (
+                                        <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
+                                            <div className="mb-3 flex items-center justify-center">
+                                                <Loader2 className="mr-2 h-6 w-6 animate-spin text-blue-400" />
+                                                <span className="text-blue-300">Recording baseline...</span>
+                                            </div>
+                                            <div className="h-2 w-full rounded-full bg-[#2a3830]">
+                                                <div
+                                                    className="h-2 rounded-full bg-blue-500 transition-all duration-100"
+                                                    style={{ width: `${baselineProgress}%` }}
+                                                />
+                                            </div>
+                                            <p className="mt-2 text-center text-sm text-[rgba(255,250,242,0.68)]">
+                                                {Math.round((baselineProgress / 100) * 30)} / 30 seconds
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Baseline Completed */}
+                                    {baselineSessionStatus === "completed" && baselineData && (
+                                        <div className="mb-3 rounded-lg border border-[rgba(64,212,136,0.25)] bg-[rgba(64,212,136,0.06)] p-2">
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-xs font-medium text-green-300">Baseline Recorded</p>
+                                                <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 px-2 text-[10px]">
+                                                    <RotateCcw className="mr-1 h-3 w-3" />
+                                                    Rerecord
+                                                </Button>
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-3 text-[10px]">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[rgba(255,250,242,0.68)]">Pupil:</span>
+                                                    <span className="text-white">{baselineData.pupilSize.toFixed(1)} mm</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[rgba(255,250,242,0.68)]">Blink:</span>
+                                                    <span className="text-white">{baselineData.blinkRate.toFixed(1)}/min</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Biometric Metrics */}
+                                    {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
+                                        <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-2">
+                                            <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">
+                                                Biometric Metrics
+                                            </h3>
+                                            <div className="grid grid-cols-3 gap-1">
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Blink Rate</p>
+                                                    <p className="text-xs font-semibold text-[#fffaf2]">{currentBiometrics.metrics.blinkRate.toFixed(1)}/min</p>
+                                                    <p className="text-[9px] text-[#5ee5a1]">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
+                                                </div>
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Eye Openness</p>
+                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                        {formatMetric(currentBiometrics.metrics.eyeOpenness)}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Smile</p>
+                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                        {formatMetric(currentBiometrics.metrics.smileIntensity)}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Head Pose</p>
+                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                        {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Pupil Size</p>
+                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                        {currentBiometrics.metrics.pupilSizeMm.toFixed(1)} mm
+                                                    </p>
+                                                    <p className="text-[9px] text-[#5ee5a1]">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
+                                                </div>
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Blink Change</p>
+                                                    <p
+                                                        className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-[#ff8a8a]" : "text-[#5ee5a1]"}`}
+                                                    >
+                                                        {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
+                                                        {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Stress Analysis */}
+                                    {stressResult && isRecording && (
+                                        <div className={`mt-3 rounded-lg border p-2 ${getStressBgColor(stressResult.state)}`}>
+                                            <div className="flex items-center justify-between">
+                                                <h4 className="text-xs font-semibold text-[#fffaf2]">Blink Rate Stress</h4>
+                                                <span className={`text-[10px] font-medium ${getStressColor(stressResult.state)}`}>
+                                                    {stressResult.state.toUpperCase()}
+                                                </span>
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-3 text-[10px]">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[rgba(255,250,242,0.68)]">State:</span>
+                                                    <span className={`font-medium ${getStressColor(stressResult.state)}`}>{stressResult.state}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[rgba(255,250,242,0.68)]">Change:</span>
+                                                    <span
+                                                        className={`font-medium ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-[#ff8a8a]" : "text-[#5ee5a1]"}`}
+                                                    >
+                                                        {(stressResult.blink_rate_change_percent || 0) >= 0 ? "+" : ""}
+                                                        {stressResult.blink_rate_change_percent?.toFixed(1) || "0.0"}%
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[rgba(255,250,242,0.68)]">Conf:</span>
+                                                    <span className="text-white">{(stressResult.confidence * 100).toFixed(0)}%</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[rgba(255,250,242,0.68)]">Trend:</span>
+                                                    <span
+                                                        className={`font-medium ${
+                                                            stressResult.trend === "increasing"
+                                                                ? "text-[#ff8a8a]"
+                                                                : stressResult.trend === "decreasing"
+                                                                  ? "text-[#5ee5a1]"
+                                                                  : "text-[#fbd585]"
+                                                        }`}
+                                                    >
+                                                        {stressResult.trend}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Sentiment History Panel */}
+                                    <div className="mt-4">
+                                        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">Sentiment History</h3>
+                                        <SentimentHistoryPanel history={sentimentHistory} timeFrameSeconds={TIME_FRAME_SECONDS} />
+                                    </div>
+
+                                    {/* Multiple Faces Warning */}
+                                    {multipleFacesWarning && isRecording && (
+                                        <div className="mt-4 flex items-center justify-center rounded-lg bg-yellow-900/50 p-3">
+                                            <AlertTriangle className="mr-2 h-5 w-5 text-yellow-500" />
+                                            <span className="text-sm text-yellow-500">Only one face should be visible</span>
                                         </div>
                                     )}
                                 </div>
+                            </div>
+                        </section>
 
-                                {/* Baseline Prompt UI */}
-                                {isRecording && baselineSessionStatus === "idle" && enableBiometrics && (
-                                    <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
-                                        <h3 className="text-md mb-2 font-semibold text-white">Baseline Measurement Required</h3>
-                                        <p className="mb-4 text-sm text-gray-300">
-                                            To measure biometric changes during conversation, we need to record a baseline measurement first. Please look at the
-                                            camera for 30 seconds while we record your baseline pupil size and blink rate.
-                                        </p>
-                                        <div className="flex gap-2">
-                                            <Button onClick={handleStartBaselineSession} size="sm" className="flex-1">
-                                                <Play className="mr-2 h-4 w-4" />
-                                                Start Baseline (30s)
-                                            </Button>
-                                            <Button onClick={handleProceedWithoutBaseline} size="sm" variant="outline">
-                                                Skip
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Baseline Recording Progress */}
-                                {baselineSessionStatus === "collecting" && (
-                                    <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
-                                        <div className="mb-3 flex items-center justify-center">
-                                            <Loader2 className="mr-2 h-6 w-6 animate-spin text-blue-400" />
-                                            <span className="text-blue-300">Recording baseline...</span>
-                                        </div>
-                                        <div className="h-2 w-full rounded-full bg-[#2a3830]">
-                                            <div
-                                                className="h-2 rounded-full bg-blue-500 transition-all duration-100"
-                                                style={{ width: `${baselineProgress}%` }}
-                                            />
-                                        </div>
-                                        <p className="mt-2 text-center text-sm text-gray-400">{Math.round((baselineProgress / 100) * 30)} / 30 seconds</p>
-                                    </div>
-                                )}
-
-                                {/* Baseline Completed */}
-                                {baselineSessionStatus === "completed" && baselineData && (
-                                    <div className="mb-3 rounded-lg border border-[rgba(64,212,136,0.25)] bg-[rgba(64,212,136,0.06)] p-2">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-xs font-medium text-green-300">Baseline Recorded</p>
-                                            <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 px-2 text-[10px]">
-                                                <RotateCcw className="mr-1 h-3 w-3" />
-                                                Rerecord
-                                            </Button>
-                                        </div>
-                                        <div className="mt-1 flex items-center gap-3 text-[10px]">
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-gray-400">Pupil:</span>
-                                                <span className="text-white">{baselineData.pupilSize.toFixed(1)} mm</span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-gray-400">Blink:</span>
-                                                <span className="text-white">{baselineData.blinkRate.toFixed(1)}/min</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Biometric Metrics */}
-                                {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
-                                    <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-2">
-                                        <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">Biometric Metrics</h3>
-                                        <div className="grid grid-cols-3 gap-1">
-                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                <p className="text-[9px] text-slate-500">Blink Rate</p>
-                                                <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.blinkRate.toFixed(1)}/min</p>
-                                                <p className="text-[9px] text-green-400">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
-                                            </div>
-                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                <p className="text-[9px] text-slate-500">Eye Openness</p>
-                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.eyeOpenness)}</p>
-                                            </div>
-                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                <p className="text-[9px] text-slate-500">Smile</p>
-                                                <p className="text-xs font-semibold text-slate-200">{formatMetric(currentBiometrics.metrics.smileIntensity)}</p>
-                                            </div>
-                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                <p className="text-[9px] text-slate-500">Head Pose</p>
-                                                <p className="text-xs font-semibold text-slate-200">
-                                                    {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
-                                                </p>
-                                            </div>
-                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                <p className="text-[9px] text-slate-500">Pupil Size</p>
-                                                <p className="text-xs font-semibold text-slate-200">{currentBiometrics.metrics.pupilSizeMm.toFixed(1)} mm</p>
-                                                <p className="text-[9px] text-green-400">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
-                                            </div>
-                                            <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                <p className="text-[9px] text-slate-500">Blink Change</p>
-                                                <p
-                                                    className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-red-400" : "text-green-400"}`}
-                                                >
-                                                    {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
-                                                    {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Stress Analysis */}
-                                {stressResult && isRecording && (
-                                    <div className={`mt-3 rounded-lg border p-2 ${getStressBgColor(stressResult.state)}`}>
-                                        <div className="flex items-center justify-between">
-                                            <h4 className="text-xs font-semibold text-gray-300">Blink Rate Stress</h4>
-                                            <span className={`text-[10px] font-medium ${getStressColor(stressResult.state)}`}>
-                                                {stressResult.state.toUpperCase()}
-                                            </span>
-                                        </div>
-                                        <div className="mt-1 flex items-center gap-3 text-[10px]">
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-gray-400">State:</span>
-                                                <span className={`font-medium ${getStressColor(stressResult.state)}`}>{stressResult.state}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-gray-400">Change:</span>
-                                                <span
-                                                    className={`font-medium ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-red-400" : "text-green-400"}`}
-                                                >
-                                                    {(stressResult.blink_rate_change_percent || 0) >= 0 ? "+" : ""}
-                                                    {stressResult.blink_rate_change_percent?.toFixed(1) || "0.0"}%
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-gray-400">Conf:</span>
-                                                <span className="text-white">{(stressResult.confidence * 100).toFixed(0)}%</span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-gray-400">Trend:</span>
-                                                <span
-                                                    className={`font-medium ${
-                                                        stressResult.trend === "increasing"
-                                                            ? "text-red-400"
-                                                            : stressResult.trend === "decreasing"
-                                                              ? "text-green-400"
-                                                              : "text-yellow-400"
-                                                    }`}
-                                                >
-                                                    {stressResult.trend}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Sentiment History Panel */}
-                                <div className="mt-4">
-                                    <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Sentiment History</h3>
-                                    <SentimentHistoryPanel history={sentimentHistory} timeFrameSeconds={TIME_FRAME_SECONDS} />
+                        {/* Final Results Panel - Burnout Assessment (spans 2 columns, row 3) */}
+                        <section className="ciq-glass-card col-span-2">
+                            <div className="flex h-full flex-col">
+                                <div className="border-b border-white/[0.10] px-5 py-3">
+                                    <h2 className="text-sm font-semibold text-[#fffaf2]">Final Results - Burnout Assessment</h2>
                                 </div>
-
-                                {/* Multiple Faces Warning */}
-                                {multipleFacesWarning && isRecording && (
-                                    <div className="mt-4 flex items-center justify-center rounded-lg bg-yellow-900/50 p-3">
-                                        <AlertTriangle className="mr-2 h-5 w-5 text-yellow-500" />
-                                        <span className="text-sm text-yellow-500">Only one face should be visible</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* Final Results Panel - Burnout Assessment (spans 2 columns, row 3) */}
-                    <section className="col-span-2 ciq-glass-card">
-                        <div className="flex h-full flex-col">
-                            <div className="border-b border-white/[0.10] px-5 py-3">
-                                <h2 className="text-sm font-semibold text-slate-200">Final Results - Burnout Assessment</h2>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-4">
-                                {surveyTotal > 0 ? (
-                                    <>
-                                        <div className="mb-4">
-                                            <div className="mb-2 flex justify-between text-xs text-slate-400">
-                                                <span>Overall Assessment Progress</span>
-                                                <span>{Math.round((surveyCompleted / surveyTotal) * 100)}%</span>
-                                            </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-                                                <div
-                                                    className="h-full rounded-full bg-gradient-to-r from-purple-600 to-pink-500 transition-all duration-500"
-                                                    style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {surveyQuestions.length > 0 && (
+                                <div className="flex-1 overflow-y-auto p-4">
+                                    {surveyTotal > 0 ? (
+                                        <>
                                             <div className="mb-4">
-                                                <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">Assessment Summary</h3>
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div className="rounded-lg bg-slate-800/30 p-3">
-                                                        <p className="text-xs text-slate-500">Total Questions</p>
-                                                        <p className="text-2xl font-semibold text-slate-200">{surveyTotal}</p>
-                                                    </div>
-                                                    <div className="rounded-lg bg-slate-800/30 p-3">
-                                                        <p className="text-xs text-slate-500">Completed</p>
-                                                        <p className="text-2xl font-semibold text-purple-400">{surveyCompleted}</p>
-                                                    </div>
-                                                    <div className="rounded-lg bg-slate-800/30 p-3">
-                                                        <p className="text-xs text-slate-500">Current Score</p>
-                                                        <p className="text-2xl font-semibold text-slate-200">
-                                                            {surveyQuestions[surveyQuestions.length - 1].score}/5
-                                                        </p>
-                                                    </div>
-                                                    <div className="rounded-lg bg-slate-800/30 p-3">
-                                                        <p className="text-xs text-slate-500">Average Score</p>
-                                                        <p className="text-2xl font-semibold text-slate-200">
-                                                            {surveyQuestions.length > 0
-                                                                ? (surveyQuestions.reduce((sum, q) => sum + q.score, 0) / surveyQuestions.length).toFixed(1)
-                                                                : "0.0"}
-                                                            /5
-                                                        </p>
-                                                    </div>
+                                                <div className="mb-2 flex justify-between text-xs text-slate-400">
+                                                    <span>Overall Assessment Progress</span>
+                                                    <span>{Math.round((surveyCompleted / surveyTotal) * 100)}%</span>
+                                                </div>
+                                                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                                                    <div
+                                                        className="h-full rounded-full bg-gradient-to-r from-purple-600 to-pink-500 transition-all duration-500"
+                                                        style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
+                                                    />
                                                 </div>
                                             </div>
-                                        )}
 
-                                        {showDetailedReport && biometricSnapshots.length > 0 && (
-                                            <div className="mt-4">
-                                                <DetailedReport
-                                                    snapshots={biometricSnapshots}
-                                                    totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
-                                                    sessionId={sessionId}
-                                                    onClose={() => setShowDetailedReport(false)}
-                                                    onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
-                                                    onReportDelivered={refreshSession}
-                                                />
-                                            </div>
-                                        )}
+                                            {surveyQuestions.length > 0 && (
+                                                <div className="mb-4">
+                                                    <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">
+                                                        Assessment Summary
+                                                    </h3>
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="rounded-lg bg-slate-800/30 p-3">
+                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Total Questions</p>
+                                                            <p className="text-2xl font-semibold text-[#fffaf2]">{surveyTotal}</p>
+                                                        </div>
+                                                        <div className="rounded-lg bg-slate-800/30 p-3">
+                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Completed</p>
+                                                            <p className="text-2xl font-semibold text-purple-400">{surveyCompleted}</p>
+                                                        </div>
+                                                        <div className="rounded-lg bg-slate-800/30 p-3">
+                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Current Score</p>
+                                                            <p className="text-2xl font-semibold text-[#fffaf2]">
+                                                                {surveyQuestions[surveyQuestions.length - 1].score}/5
+                                                            </p>
+                                                        </div>
+                                                        <div className="rounded-lg bg-slate-800/30 p-3">
+                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Average Score</p>
+                                                            <p className="text-2xl font-semibold text-[#fffaf2]">
+                                                                {surveyQuestions.length > 0
+                                                                    ? (surveyQuestions.reduce((sum, q) => sum + q.score, 0) / surveyQuestions.length).toFixed(1)
+                                                                    : "0.0"}
+                                                                /5
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                        {!showDetailedReport && (
-                                            <div className="mt-4 text-center text-sm text-slate-500">
-                                                Complete the survey to view detailed burnout assessment results
-                                            </div>
-                                        )}
-                                    </>
-                                ) : (
-                                    <div className="flex h-full flex-col items-center justify-center text-center">
-                                        <ClipboardList className="mb-3 h-12 w-12 text-slate-600" />
-                                        <p className="text-sm text-slate-500">No assessment data</p>
-                                        <p className="text-xs text-slate-600">Begin conversation to start the survey assessment</p>
-                                    </div>
-                                )}
+                                            {showDetailedReport && biometricSnapshots.length > 0 && (
+                                                <div className="mt-4">
+                                                    <DetailedReport
+                                                        snapshots={biometricSnapshots}
+                                                        totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
+                                                        sessionId={sessionId}
+                                                        onClose={() => setShowDetailedReport(false)}
+                                                        onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
+                                                        onReportDelivered={refreshSession}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {!showDetailedReport && (
+                                                <div className="mt-4 text-center text-sm text-[rgba(255,250,242,0.60)]">
+                                                    Complete the survey to view detailed burnout assessment results
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="flex h-full flex-col items-center justify-center text-center">
+                                            <ClipboardList className="mb-3 h-12 w-12 text-slate-600" />
+                                            <p className="text-sm text-[rgba(255,250,242,0.60)]">No assessment data</p>
+                                            <p className="text-xs text-slate-600">Begin conversation to start the survey assessment</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    </section>
-                </div>
-            </main>
+                        </section>
+                    </div>
+                </main>
             )}
         </div>
     );
