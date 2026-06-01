@@ -7,18 +7,23 @@ import { SurveyOption, SurveyQuestion } from "@/types";
 interface VideoPanelProps {
     isRecording?: boolean;
     onEmotionDetected?: (emotion: EmotionResult) => void;
+    onVideoReady?: (video: HTMLVideoElement) => void;
     surveyQuestions?: SurveyQuestion[];
     surveyTotal?: number;
     surveyCompleted?: number;
     surveyOptions?: SurveyOption[];
 }
 
-export function VideoPanel({ isRecording = false, onEmotionDetected, surveyQuestions, surveyTotal, surveyCompleted, surveyOptions }: VideoPanelProps) {
+export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoReady, surveyQuestions, surveyTotal, surveyCompleted, surveyOptions }: VideoPanelProps) {
     const { videoRef, canvasRef, isStreaming, startVideo, stopVideo, startAnalysis, stopAnalysis } = useVideoCapture({ onEmotionDetected });
 
     useEffect(() => {
         if (isRecording && !isStreaming) {
             startVideo().then(() => {
+                if (videoRef.current) {
+                    console.log("[VideoPanel] Camera ready, passing video element to biometrics hook");
+                    onVideoReady?.(videoRef.current);
+                }
                 setTimeout(() => {
                     startAnalysis();
                 }, 500);

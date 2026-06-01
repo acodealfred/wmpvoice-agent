@@ -221,6 +221,10 @@ Branch : ssot-integration-report
 - Generate prompt with required fillings and ask suggestion from SSOT.
 Branch : test-generation
 - To genrate query summaries to SSOT. This is to avoid repetitive user survey to test SSOT.
+Branch : feature/simple-product-v1
+- Branched off from uni-optimization branch 
+- Implment basic product features to shwocase in product launch 
+- This will help to implement the actual product with more scalable application 
 
 ---Manual Steps after Each azd up (infra refrsh)
 Change the 

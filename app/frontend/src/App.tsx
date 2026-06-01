@@ -3,6 +3,7 @@ import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw
 import { useTranslation } from "react-i18next";
 
 import { VideoPanel } from "@/components/ui/video-panel";
+import { GazeIndicator, gazeLabel } from "@/components/ui/gaze-indicator";
 import { DetailedReport } from "@/components/ui/detailed-report";
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
+import { useBiometrics } from "@/hooks/useBiometrics";
 
 import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult } from "./types";
 
@@ -35,12 +37,20 @@ function App() {
     const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [isReasonExpanded, setIsReasonExpanded] = useState(false);
 
-    // Biometrics state
-    const [currentBiometrics, setCurrentBiometrics] = useState<BiometricResult | null>(null);
-    const [baselineSessionStatus, setBaselineSessionStatus] = useState<"idle" | "collecting" | "completed">("idle");
-    const [baselineData, setBaselineData] = useState<{ pupilSize: number; blinkRate: number; timestamp: number } | null>(null);
-    const [baselineProgress, setBaselineProgress] = useState(0);
     const [stressResult, setStressResult] = useState<{ state: string; confidence: number; blink_rate_change_percent?: number; trend: string } | null>(null);
+
+    // Real biometrics from MediaPipe face landmarker
+    const {
+        currentBiometrics,
+        baselineSessionStatus,
+        baselineData,
+        baselineProgress,
+        setVideoElement,
+        startAnalysis: startBiometricAnalysis,
+        stopAnalysis: stopBiometricAnalysis,
+        startBaselineSession,
+        clearBaseline
+    } = useBiometrics();
 
     useEffect(() => {
         fetch("/config")
@@ -52,19 +62,7 @@ function App() {
             .catch(err => console.error("Failed to fetch config:", err));
     }, []);
 
-    // Load baseline from localStorage on mount
-    useEffect(() => {
-        try {
-            const savedBaseline = localStorage.getItem("voicerag_biometric_baseline");
-            if (savedBaseline) {
-                const data = JSON.parse(savedBaseline);
-                setBaselineData(data);
-                setBaselineSessionStatus("completed");
-            }
-        } catch (error) {
-            console.error("Error loading baseline:", error);
-        }
-    }, []);
+    // Baseline is loaded from localStorage by useBiometrics hook itself
 
     const { startSession, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         sessionId,
@@ -176,80 +174,28 @@ function App() {
         return () => clearInterval(intervalId);
     }, [isRecording, currentBiometrics, enableBiometrics, baselineData]);
 
-    // Capture biometrics from video (simplified - in real app would use biometrics hook)
-    // For demo, we'll simulate biometrics when recording and camera is active
+    // Forward real biometrics to backend whenever the hook produces a new result
     useEffect(() => {
-        let intervalId: number | null = null;
-
-        if (isRecording && baselineSessionStatus === "completed" && enableBiometrics) {
-            intervalId = window.setInterval(() => {
-                // Generate mock biometric data
-                const mockBiometrics: BiometricResult = {
-                    metrics: {
-                        headPose: { pitch: 0, roll: 0, yaw: 0 },
-                        blinkRate: Math.random() * 20 + 10,
-                        blinkCount: Math.floor(Math.random() * 10),
-                        eyeOpenness: Math.random() * 0.3 + 0.5,
-                        mouthOpenness: Math.random() * 0.2,
-                        smileIntensity: Math.random() * 0.5,
-                        faceWidth: 100,
-                        faceHeight: 120,
-                        interocularDistance: 6.5,
-                        irisPosition: { x: 0.5, y: 0.5 },
-                        pupilSize: Math.random() * 0.1 + 0.4,
-                        pupilSizeMm: Math.random() * 2 + 3,
-                        pupilSizeChangePercent: (Math.random() - 0.5) * 10,
-                        blinkRateChangePercent: (Math.random() - 0.5) * 15,
-                        smoothedBlinkRate: Math.random() * 20 + 10,
-                        baselineRateForChange: baselineData?.blinkRate || 0
-                    },
-                    timestamp: Date.now(),
-                    faceDetected: true,
-                    analysisDuration: Math.floor(Date.now() / 1000)
-                };
-                setCurrentBiometrics(mockBiometrics);
-                handleBiometricsUpdate(mockBiometrics);
-            }, 3000);
+        if (currentBiometrics?.faceDetected && enableBiometrics) {
+            handleBiometricsUpdate(currentBiometrics);
         }
+    }, [currentBiometrics, enableBiometrics, handleBiometricsUpdate]);
 
-        return () => {
-            if (intervalId) clearInterval(intervalId);
-        };
-    }, [isRecording, baselineSessionStatus, enableBiometrics, baselineData, handleBiometricsUpdate]);
+    // Start/stop MediaPipe analysis with recording
+    useEffect(() => {
+        if (isRecording && enableBiometrics) {
+            startBiometricAnalysis();
+        } else {
+            stopBiometricAnalysis();
+        }
+    }, [isRecording, enableBiometrics, startBiometricAnalysis, stopBiometricAnalysis]);
 
-    // Baseline session effect
+    // Auto-start baseline when recording begins
     useEffect(() => {
         if (isRecording && enableBiometrics && baselineSessionStatus === "idle") {
-            // Automatically start baseline when recording starts
-            setBaselineSessionStatus("collecting");
-            setBaselineProgress(0);
-
-            const durationMs = 30 * 1000;
-            let elapsed = 0;
-
-            const timer = setInterval(() => {
-                elapsed += 100;
-                const progress = Math.min((elapsed / durationMs) * 100, 100);
-                setBaselineProgress(progress);
-
-                if (elapsed >= durationMs) {
-                    clearInterval(timer);
-                    const newBaseline = {
-                        pupilSize: Math.random() * 1 + 3,
-                        blinkRate: Math.random() * 10 + 15,
-                        timestamp: Date.now()
-                    };
-                    setBaselineData(newBaseline);
-                    setBaselineSessionStatus("completed");
-                    try {
-                        localStorage.setItem("voicerag_biometric_baseline", JSON.stringify(newBaseline));
-                    } catch (error) {
-                        console.error("Error saving baseline:", error);
-                    }
-                }
-            }, 100);
+            startBaselineSession();
         }
-    }, [isRecording, enableBiometrics, baselineSessionStatus]);
+    }, [isRecording, enableBiometrics, baselineSessionStatus, startBaselineSession]);
 
     const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
@@ -271,24 +217,17 @@ function App() {
     };
 
     const handleStartBaselineSession = useCallback(() => {
-        setBaselineSessionStatus("collecting");
-        setBaselineProgress(0);
-    }, []);
+        startBaselineSession();
+    }, [startBaselineSession]);
 
     const handleProceedWithoutBaseline = useCallback(() => {
-        setBaselineSessionStatus("completed");
-        setBaselineData({ pupilSize: 0, blinkRate: 0, timestamp: Date.now() });
-    }, []);
+        // Skip baseline — hook treats missing baseline as "completed with no reference"
+        startBaselineSession();
+    }, [startBaselineSession]);
 
     const handleRerecordBaseline = useCallback(() => {
-        try {
-            localStorage.removeItem("voicerag_biometric_baseline");
-        } catch (error) {
-            console.error("Error clearing baseline:", error);
-        }
-        setBaselineData(null);
-        setBaselineSessionStatus("idle");
-    }, []);
+        clearBaseline();
+    }, [clearBaseline]);
 
     const getHeadPoseLabel = (degrees: number): string => {
         if (degrees < -15) return "Turned Left";
@@ -427,6 +366,7 @@ function App() {
                                         surveyTotal={surveyTotal}
                                         surveyCompleted={surveyCompleted}
                                         surveyOptions={surveyOptions}
+                                        onVideoReady={setVideoElement}
                                     />
                                 </div>
                                 <div className="border-white/8 border-t px-5 py-4">
@@ -617,6 +557,16 @@ function App() {
                                                         {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
                                                         {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
                                                     </p>
+                                                </div>
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Left Gaze</p>
+                                                    <GazeIndicator gaze={currentBiometrics.metrics.leftGaze} />
+                                                    <p className="text-[9px] text-[#fffaf2]">{gazeLabel(currentBiometrics.metrics.leftGaze)}</p>
+                                                </div>
+                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Right Gaze</p>
+                                                    <GazeIndicator gaze={currentBiometrics.metrics.rightGaze} />
+                                                    <p className="text-[9px] text-[#fffaf2]">{gazeLabel(currentBiometrics.metrics.rightGaze)}</p>
                                                 </div>
                                             </div>
                                         </div>

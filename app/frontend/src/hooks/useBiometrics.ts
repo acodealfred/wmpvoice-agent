@@ -40,6 +40,42 @@ const getIrisPosition = (landmarks: { x: number; y: number }[]): { x: number; y:
     return { x: irisOffset, y: -verticalOffset };
 };
 
+// The iris only moves ~10-20% of eye width in any direction, so raw normalized
+// position is always near 0.5. We compute deviation from the eye's geometric
+// center and amplify it to produce a visible 0-1 gaze signal.
+const GAZE_H_SENSITIVITY = 4.0; // amplify horizontal iris deviation
+const GAZE_V_SENSITIVITY = 6.0; // vertical movement is smaller, needs more gain
+
+const computeGazeAxis = (irisCoord: number, cornerA: number, cornerB: number, sensitivity: number, flip = false): number => {
+    const center = (cornerA + cornerB) / 2;
+    const halfWidth = Math.abs(cornerB - cornerA) / 2;
+    if (halfWidth === 0) return 0.5;
+    const deviation = ((irisCoord - center) / halfWidth) * sensitivity;
+    const v = 0.5 + (flip ? -deviation : deviation) * 0.5;
+    return Math.max(0, Math.min(1, v));
+};
+
+const getBothGazePositions = (landmarks: { x: number; y: number }[]): { left: { x: number; y: number }; right: { x: number; y: number } } => {
+    // Left eye: iris center = 468, corners = 362 (nasal/inner) / 263 (temporal/outer), lids = 386 (upper) / 374 (lower)
+    // In front-facing camera image space: nasal corner (362) has lower x, temporal (263) has higher x.
+    // When user looks right: iris moves toward lower x → nasal side → flip so right = higher value.
+    const leftIris = landmarks[468];
+    const leftX = computeGazeAxis(leftIris.x, landmarks[362].x, landmarks[263].x, GAZE_H_SENSITIVITY, true);
+    const leftY = computeGazeAxis(leftIris.y, landmarks[386].y, landmarks[374].y, GAZE_V_SENSITIVITY, false);
+
+    // Right eye: iris center = 473, corners = 33 (temporal/outer) / 133 (nasal/inner), lids = 159 (upper) / 145 (lower)
+    // Temporal (33) has lower x, nasal (133) has higher x.
+    // When user looks right: iris moves toward lower x → toward 33 → flip.
+    const rightIris = landmarks[473];
+    const rightX = computeGazeAxis(rightIris.x, landmarks[33].x, landmarks[133].x, GAZE_H_SENSITIVITY, true);
+    const rightY = computeGazeAxis(rightIris.y, landmarks[159].y, landmarks[145].y, GAZE_V_SENSITIVITY, false);
+
+    return {
+        left: { x: leftX, y: leftY },
+        right: { x: rightX, y: rightY }
+    };
+};
+
 const calculateIrisSize = (landmarks: { x: number; y: number }[]): number => {
     const leftIrisLeft = landmarks[469];
     const leftIrisRight = landmarks[471];
@@ -362,6 +398,13 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             }
 
             const irisPosition = getIrisPosition(faceLandmarks);
+            const bothGaze = getBothGazePositions(faceLandmarks);
+            if (shouldLog) {
+                console.log("[Gaze] raw landmarks 468:", faceLandmarks[468], "473:", faceLandmarks[473]);
+                console.log("[Gaze] L-corners 362:", faceLandmarks[362], "263:", faceLandmarks[263]);
+                console.log("[Gaze] R-corners 33:", faceLandmarks[33], "133:", faceLandmarks[133]);
+                console.log("[Gaze] left:", bothGaze.left, "right:", bothGaze.right);
+            }
             const normalizedIrisSize = calculateIrisSize(faceLandmarks);
             const pupilSize = calculatePupilSize(normalizedIrisSize, interocularDistance);
             const pupilSizeMm = pupilSize;
@@ -388,6 +431,8 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 faceHeight: interocularDistance * 4,
                 interocularDistance,
                 irisPosition,
+                leftGaze: bothGaze.left,
+                rightGaze: bothGaze.right,
                 pupilSize: normalizedIrisSize,
                 pupilSizeMm,
                 pupilSizeChangePercent,
@@ -439,6 +484,8 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                     faceHeight: 0,
                     interocularDistance: 0,
                     irisPosition: { x: 0, y: 0 },
+                    leftGaze: { x: 0.5, y: 0.5 },
+                    rightGaze: { x: 0.5, y: 0.5 },
                     pupilSize: 0,
                     pupilSizeMm: 0,
                     pupilSizeChangePercent: 0,
