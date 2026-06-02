@@ -14,7 +14,7 @@ import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 import { useBiometrics } from "@/hooks/useBiometrics";
 
-import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult } from "./types";
+import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig } from "./types";
 
 import logo from "./assets/logo.png";
 
@@ -34,6 +34,7 @@ function App() {
     const [showDetailedReport, setShowDetailedReport] = useState(false);
     const [enableSentiment, setEnableSentiment] = useState(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
+    const [surveyTypeConfig, setSurveyTypeConfig] = useState<SurveyTypeConfig | null>(null);
     const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [isReasonExpanded, setIsReasonExpanded] = useState(false);
 
@@ -58,8 +59,29 @@ function App() {
             .then(data => {
                 setEnableSentiment(data.enableSentimentAnalysis);
                 setEnableSurvey(data.enableSurveyMode);
+                setSurveyTypeConfig({
+                    surveyTypeOverridden: data.surveyTypeOverridden ?? false,
+                    activeSurveyType: data.activeSurveyType ?? "TEST",
+                    availableSurveyTypes: data.availableSurveyTypes ?? ["TEST", "BATFULL", "CBTFULL"],
+                });
             })
             .catch(err => console.error("Failed to fetch config:", err));
+    }, []);
+
+    const handleSurveyTypeChange = useCallback(async (type: string) => {
+        try {
+            const res = await fetch("/survey-type", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ surveyType: type }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setSurveyTypeConfig(prev => prev ? { ...prev, activeSurveyType: data.activeSurveyType } : prev);
+            }
+        } catch (err) {
+            console.error("Failed to set survey type:", err);
+        }
     }, []);
 
     // Baseline is loaded from localStorage by useBiometrics hook itself
@@ -371,6 +393,34 @@ function App() {
                                 </div>
                                 <div className="border-white/8 border-t px-5 py-4">
                                     <div className="flex flex-col gap-2">
+                                        {enableSurvey && surveyTypeConfig && (
+                                            <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-3">
+                                                <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">Survey Type</p>
+                                                {surveyTypeConfig.surveyTypeOverridden ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs text-[#fffaf2]">{surveyTypeConfig.activeSurveyType}</span>
+                                                        <span className="text-[9px] text-[rgba(255,250,242,0.40)]">(locked by deployment)</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex gap-2">
+                                                        {surveyTypeConfig.availableSurveyTypes.map(type => (
+                                                            <button
+                                                                key={type}
+                                                                onClick={() => handleSurveyTypeChange(type)}
+                                                                disabled={isRecording}
+                                                                className={`rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                                                    surveyTypeConfig.activeSurveyType === type
+                                                                        ? "bg-[#5ee5a1] text-[#0d1a14]"
+                                                                        : "bg-white/[0.08] text-[rgba(255,250,242,0.68)] hover:bg-white/[0.12]"
+                                                                }`}
+                                                            >
+                                                                {type}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                         <Button
                                             onClick={onToggleListening}
                                             className={`group relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${

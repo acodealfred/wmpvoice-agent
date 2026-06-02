@@ -221,3 +221,9 @@ export type SSoTReport = {
     answer: string;
     citations: Citation[];
 };
+
+export type SurveyTypeConfig = {
+    surveyTypeOverridden: boolean;
+    activeSurveyType: "TEST" | "BATFULL" | "CBTFULL";
+    availableSurveyTypes: string[];
+};

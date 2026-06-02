@@ -1,0 +1,34 @@
+{
+  "name": "BAT Full Survey (32Q)",
+  "type": "BATFULL",
+  "options": [
+    {"value": 1, "label": "Never"},
+    {"value": 2, "label": "Rarely"},
+    {"value": 3, "label": "Sometimes"},
+    {"value": 4, "label": "Often"},
+    {"value": 5, "label": "Always"}
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Placeholder Q1",
+      "domain": "Placeholder",
+      "prompt": "PLACEHOLDER — replace with BAT question 1."
+    },
+    {
+      "id": "q2",
+      "text": "Placeholder Q2",
+      "domain": "Placeholder",
+      "prompt": "PLACEHOLDER — replace with BAT question 2."
+    }
+  ],
+  "thresholds": {
+    "low_max": 80,
+    "moderate_max": 130
+  },
+  "interpretation": {
+    "low": "Low burnout risk - Keep up the great work!",
+    "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.",
+    "high": "High burnout risk - Please consider reaching out to HR or a mental health professional."
+  }
+}

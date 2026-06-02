@@ -1,0 +1,52 @@
+{
+  "name": "Test Survey (5Q)",
+  "type": "TEST",
+  "options": [
+    {"value": 1, "label": "Never"},
+    {"value": 2, "label": "Rarely"},
+    {"value": 3, "label": "Sometimes"},
+    {"value": 4, "label": "Often"},
+    {"value": 5, "label": "Always"}
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Emotional Exhaustion",
+      "domain": "Emotional Exhaustion",
+      "prompt": "How often do you feel emotionally exhausted at the end of a work day?"
+    },
+    {
+      "id": "q2",
+      "text": "Depersonalization",
+      "domain": "Depersonalization",
+      "prompt": "How often do you feel detached or cynical about your job?"
+    },
+    {
+      "id": "q3",
+      "text": "Personal Accomplishment",
+      "domain": "Personal Accomplishment",
+      "prompt": "How confident do you feel about your work?"
+    },
+    {
+      "id": "q4",
+      "text": "Physical Exhaustion",
+      "domain": "Physical Exhaustion",
+      "prompt": "How often do you feel physically tired?"
+    },
+    {
+      "id": "q5",
+      "text": "Job Satisfaction",
+      "domain": "Job Satisfaction",
+      "prompt": "How often do you feel positive about your job?"
+    }
+  ],
+  "thresholds": {
+    "low_max": 12,
+    "moderate_max": 22
+  },
+  "interpretation": {
+    "low": "Low burnout risk - Keep up the great work!",
+    "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.",
+    "high": "High burnout risk - Please consider reaching out to HR or a mental health professional."
+  }
+}

@@ -118,15 +118,17 @@ Output JSON format:
         # Compute totals and risk
         total_score = sum(s.get('score', 0) for s in snapshots)
         max_score = len(snapshots) * 5
-        if total_score <= 12:
+        thresholds = rtmt._survey_config.get("thresholds", {"low_max": 12, "moderate_max": 22})
+        interp_map = rtmt._survey_config.get("interpretation", {})
+        if total_score <= thresholds["low_max"]:
             risk_level = "Low"
-            interpretation = "Low burnout risk"
-        elif total_score <= 22:
+            interpretation = interp_map.get("low", "Low burnout risk")
+        elif total_score <= thresholds["moderate_max"]:
             risk_level = "Moderate"
-            interpretation = "Moderate burnout risk"
+            interpretation = interp_map.get("moderate", "Moderate burnout risk")
         else:
             risk_level = "High"
-            interpretation = "High burnout risk"
+            interpretation = interp_map.get("high", "High burnout risk")
 
         # Domain totals
         domain_totals = {}
@@ -394,6 +396,7 @@ async def analyze_face(request, rtmt: RTMiddleTier):
 
 async def get_config(request):
     """Return current feature configuration to frontend"""
+    rtmt = request.app.get("rtmt")
     return web.json_response(
         {
             "enableSentimentAnalysis": os.environ.get(
@@ -402,8 +405,24 @@ async def get_config(request):
             == "true",
             "enableSurveyMode": os.environ.get("ENABLE_SURVEY_MODE", "false").lower()
             == "true",
+            "surveyTypeOverridden": rtmt.survey_type_overridden if rtmt else False,
+            "activeSurveyType": rtmt.active_survey_type if rtmt else "TEST",
+            "availableSurveyTypes": ["TEST", "BATFULL", "CBTFULL"],
         }
     )
+
+
+async def set_survey_type(request):
+    """Update the active survey type (blocked when overridden by ENV)"""
+    rtmt = request.app.get("rtmt")
+    if not rtmt:
+        return web.json_response({"error": "Service not available"}, status=503)
+    if rtmt.survey_type_overridden:
+        return web.json_response({"error": "Survey type is locked by environment configuration"}, status=403)
+    data = await request.json()
+    survey_type = data.get("surveyType", "TEST").upper()
+    rtmt.set_survey_type(survey_type)
+    return web.json_response({"activeSurveyType": rtmt.active_survey_type})
 
 
 async def get_version(request):
@@ -1047,8 +1066,17 @@ async def create_app():
     # Enable survey mode based on environment variable
     enable_survey = os.environ.get("ENABLE_SURVEY_MODE", "false").lower() == "true"
     if enable_survey:
-        rtmt.enable_survey()
-        logger.info("Survey mode is enabled")
+        from survey_loader import load_survey, SURVEY_MAP
+        override = os.environ.get("OVERRIDE_SURVEY_TYPE", "false").lower() == "true"
+        survey_type_env = os.environ.get("SURVEY_TYPE", "TEST").upper()
+        if survey_type_env not in SURVEY_MAP:
+            logger.warning("Unknown SURVEY_TYPE=%s, defaulting to TEST", survey_type_env)
+            survey_type_env = "TEST"
+        rtmt.survey_type_overridden = override
+        rtmt.active_survey_type = survey_type_env
+        survey_config = load_survey(survey_type_env)
+        rtmt.enable_survey(survey_config)
+        logger.info("Survey mode is enabled (type=%s, overridden=%s)", survey_type_env, override)
 
     # Set system message - burnout specialist when survey mode is enabled
     if enable_survey:
@@ -1089,6 +1117,7 @@ async def create_app():
     app.router.add_post("/analyze", lambda request: analyze_face(request, rtmt))
     app.router.add_post("/analyze-stress", analyze_stress)
     app.router.add_get("/config", get_config)
+    app.router.add_post("/survey-type", set_survey_type)
     app.router.add_post("/clear-conversation", lambda request: clear_conversation_state(request, rtmt))
     app.router.add_post("/update-stress", lambda request: update_stress_state(request, rtmt))
     app.router.add_get("/session", lambda request: get_session(request, rtmt))

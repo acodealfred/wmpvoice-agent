@@ -189,7 +189,7 @@ def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     elif query_type == "contributing_domains":
         domain_scores = {}
         for qid, result in results.items():
-            dom = _get_question_domain(qid)
+            dom = _get_question_domain(qid, self._survey_config)
             domain_scores[dom] = domain_scores.get(dom, 0) + result["score"]
         response_data["domains"] = domain_scores
         # Identify highest contributing domain (highest score indicates more burnout in that domain)
@@ -201,7 +201,7 @@ def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     elif query_type == "stress_questions":
         # Identify questions where score indicates high stress (4-5)
         high_stress = [
-            {"question_id": qid, "score": r["score"], "domain": _get_question_domain(qid)}
+            {"question_id": qid, "score": r["score"], "domain": _get_question_domain(qid, self._survey_config)}
             for qid, r in results.items()
             if r["score"] >= 4
         ]
@@ -212,14 +212,14 @@ def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
         if domain:
             domain_total = sum(
                 r["score"] for qid, r in results.items()
-                if _get_question_domain(qid) == domain
+                if _get_question_domain(qid, self._survey_config) == domain
             )
             response_data["domain"] = domain
             response_data["domain_score"] = domain_total
         else:
             domain_scores = {}
             for qid, result in results.items():
-                dom = _get_question_domain(qid)
+                dom = _get_question_domain(qid, self._survey_config)
                 domain_scores[dom] = domain_scores.get(dom, 0) + result["score"]
             response_data["domain_scores"] = domain_scores
 
@@ -300,7 +300,7 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
         "face_emotion": face_emotion,
     }
 
-    domain = _get_question_domain(question_id)
+    domain = _get_question_domain(question_id, self._survey_config)
     total_score = sum(r["score"] for r in sess.survey_results.values())
     completed = len(sess.survey_results)
     total = len(self._survey_config.get("questions", []))
@@ -337,16 +337,13 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     )
 
 
-def _get_question_domain(question_id: str) -> str:
-    """Get the domain name for a question ID."""
-    domain_map = {
-        "q1": "Emotional Exhaustion",
-        "q2": "Depersonalization",
-        "q3": "Personal Accomplishment",
-        "q4": "Physical Exhaustion",
-        "q5": "Job Satisfaction",
-    }
-    return domain_map.get(question_id, "Unknown")
+def _get_question_domain(question_id: str, survey_config: dict | None = None) -> str:
+    """Get the domain name for a question ID from the survey config."""
+    if survey_config:
+        for q in survey_config.get("questions", []):
+            if q["id"] == question_id:
+                return q.get("domain", q.get("text", "Unknown"))
+    return "Unknown"
 
 
 class Tool:
@@ -393,6 +390,8 @@ class RTMiddleTier:
     _token_provider = None
     # Shared survey config (same for all sessions)
     _survey_config: dict = {}
+    active_survey_type: str = "TEST"
+    survey_type_overridden: bool = False
     _MAX_HISTORY_SIZE = 50
 
     def __init__(
@@ -470,49 +469,15 @@ class RTMiddleTier:
             schema=_tool_query_survey_schema, target=lambda args: _query_survey_tool(self, args)
         )
 
-        self._survey_config = survey_config or {
-            "name": "Burnout Assessment",
-            "options": [
-                {"value": 1, "label": "Never"},
-                {"value": 2, "label": "Rarely"},
-                {"value": 3, "label": "Sometimes"},
-                {"value": 4, "label": "Often"},
-                {"value": 5, "label": "Always"},
-            ],
-            "questions": [
-                {
-                    "id": "q1",
-                    "text": "Emotional Exhaustion",
-                    "prompt": "How often do you feel emotionally exhausted at the end of a work day?",
-                },
-                {
-                    "id": "q2",
-                    "text": "Depersonalization",
-                    "prompt": "How often do you feel detached or cynical about your job?",
-                },
-                {
-                    "id": "q3",
-                    "text": "Personal Accomplishment",
-                    "prompt": "How confident do you feel about your work?",
-                },
-                {
-                    "id": "q4",
-                    "text": "Physical Exhaustion",
-                    "prompt": "How often do you feel physically tired?",
-                },
-                {
-                    "id": "q5",
-                    "text": "Job Satisfaction",
-                    "prompt": "How often do you feel positive about your job?",
-                },
-            ],
-            "interpretation": {
-                "low": "Low burnout risk - Keep up the great work!",
-                "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.",
-                "high": "High burnout risk - Please consider reaching out to HR or a mental health professional.",
-            },
-        }
+        self._survey_config = survey_config or {}
         logger.info("Survey mode enabled with record_survey_response and query_survey_results tools")
+
+    def set_survey_type(self, survey_type: str) -> None:
+        from survey_loader import load_survey
+        config = load_survey(survey_type)
+        self._survey_config = config
+        self.active_survey_type = survey_type
+        logger.info("[RTMT] Survey type set to %s", survey_type)
 
     def set_stress_state_for_session(self, session_id: str, state: str) -> None:
         valid_states = ["stressed", "relaxed", "normal"]
@@ -1173,7 +1138,7 @@ TOOL RULES (silent, never tell the user):
                                             "type": "survey.biometric.update",
                                             "snapshot": {
                                                 "questionId": question_id,
-                                                "domain": _get_question_domain(question_id),
+                                                "domain": _get_question_domain(question_id, self._survey_config),
                                                 "score": score,
                                                 "voiceSentiment": voice_sentiment,
                                                 "blinkRateChange": blink_change,
