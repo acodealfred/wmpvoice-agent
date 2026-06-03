@@ -5,3 +5,5 @@ azure-storage-blob==12.23.1
 boto3==1.35.0
 gunicorn
 rich
+aiosqlite==0.20.0
+bcrypt==4.1.3

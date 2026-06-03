@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { KBDocument } from "@/types";
+import { KBDocument, AdminUser } from "@/types";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -15,7 +15,7 @@ export function AdminPanel() {
         setRegStatus("loading");
         setRegMessage("");
         try {
-            const resp = await fetch("/admin/kb/settings");
+            const resp = await fetch("/admin/kb/settings", { credentials: "same-origin" });
             if (resp.ok) {
                 const data = await resp.json();
                 if (typeof data.minCitationsCount === "number") {
@@ -57,6 +57,7 @@ export function AdminPanel() {
             const resp = await fetch("/admin/kb/settings", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
                 body: JSON.stringify({ minCitationsCount: 1 })
             });
             if (resp.ok) {
@@ -93,6 +94,7 @@ export function AdminPanel() {
             const resp = await fetch("/admin/kb/papers/search", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
                 body: JSON.stringify({ limit: 100 }),
             });
             if (resp.ok) {
@@ -125,6 +127,31 @@ export function AdminPanel() {
 
     useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
 
+    // ── User Management ───────────────────────────────────────────────
+    const [users, setUsers] = useState<AdminUser[]>([]);
+    const [usersLoading, setUsersLoading] = useState(false);
+    const [usersError, setUsersError] = useState<string | null>(null);
+
+    const fetchUsers = useCallback(async () => {
+        setUsersLoading(true);
+        setUsersError(null);
+        try {
+            const resp = await fetch("/admin/users", { credentials: "same-origin" });
+            if (resp.ok) {
+                const data = await resp.json();
+                setUsers(data.users);
+            } else {
+                setUsersError("Failed to load users.");
+            }
+        } catch {
+            setUsersError("Network error.");
+        } finally {
+            setUsersLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -146,7 +173,7 @@ export function AdminPanel() {
             form.append("title", effectiveTitle);
             form.append("file", uploadFile);
 
-            const resp = await fetch("/admin/kb/upload", { method: "POST", body: form });
+            const resp = await fetch("/admin/kb/upload", { method: "POST", credentials: "same-origin", body: form });
             const data = await resp.json();
 
             if (resp.ok) {
@@ -173,7 +200,7 @@ export function AdminPanel() {
         setDeletingId(doc.paperId);
         setDeleteMsg(null);
         try {
-            const resp = await fetch(`/admin/kb/documents/${doc.paperId}`, { method: "DELETE" });
+            const resp = await fetch(`/admin/kb/documents/${doc.paperId}`, { method: "DELETE", credentials: "same-origin" });
             if (resp.status === 204 || resp.ok) {
                 setDeleteMsg({ paperId: doc.paperId, text: `"${doc.title}" deleted.`, ok: true });
                 await fetchDocuments(); // refresh from server
@@ -402,6 +429,98 @@ export function AdminPanel() {
 
             {/* ── Section D: Delete by Paper ID ── */}
             <DeleteByPaperId onDeleted={fetchDocuments} />
+
+            {/* ── Section E: User Management ── */}
+            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+                <div className="mb-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Users className="h-5 w-5 text-purple-400" />
+                        <h2 className="text-base font-semibold text-white">User Management</h2>
+                        {!usersLoading && (
+                            <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
+                                {users.length}
+                            </span>
+                        )}
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fetchUsers}
+                        disabled={usersLoading}
+                        className="border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                    >
+                        <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${usersLoading ? "animate-spin" : ""}`} />
+                        Refresh
+                    </Button>
+                </div>
+
+                {usersError && (
+                    <div className="mb-3 flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-2 text-sm text-red-300">
+                        <XCircle className="h-4 w-4 shrink-0" />
+                        {usersError}
+                    </div>
+                )}
+
+                {usersLoading && users.length === 0 ? (
+                    <div className="flex items-center justify-center py-8 text-slate-500">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading users…
+                    </div>
+                ) : users.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-slate-500">No users found.</p>
+                ) : (
+                    <div className="overflow-x-auto rounded-lg border border-slate-700">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="bg-slate-800 text-xs font-medium uppercase tracking-wide text-slate-400">
+                                    <th className="px-4 py-3 text-left">User</th>
+                                    <th className="px-4 py-3 text-center">Sessions</th>
+                                    <th className="hidden px-4 py-3 text-left sm:table-cell">Last Session ID</th>
+                                    <th className="hidden px-4 py-3 text-left md:table-cell">Last Active</th>
+                                    <th className="hidden px-4 py-3 text-left lg:table-cell">Member Since</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {users.map((u, i) => (
+                                    <tr
+                                        key={u.user_id}
+                                        className={i % 2 === 0 ? "bg-slate-900" : "bg-slate-800/40"}
+                                    >
+                                        <td className="px-4 py-3 font-medium text-white">{u.name}</td>
+                                        <td className="px-4 py-3 text-center">
+                                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                                u.session_count > 0
+                                                    ? "bg-purple-900/50 text-purple-300"
+                                                    : "bg-slate-700 text-slate-400"
+                                            }`}>
+                                                {u.session_count}
+                                            </span>
+                                        </td>
+                                        <td className="hidden px-4 py-3 sm:table-cell">
+                                            {u.last_session_id ? (
+                                                <span className="font-mono text-xs text-slate-400">
+                                                    {u.last_session_id.slice(0, 8)}…
+                                                </span>
+                                            ) : (
+                                                <span className="text-slate-600">—</span>
+                                            )}
+                                        </td>
+                                        <td className="hidden px-4 py-3 text-slate-400 md:table-cell">
+                                            {u.last_active_at
+                                                ? new Date(u.last_active_at).toLocaleString()
+                                                : <span className="text-slate-600">—</span>
+                                            }
+                                        </td>
+                                        <td className="hidden px-4 py-3 text-slate-400 lg:table-cell">
+                                            {new Date(u.created_at).toLocaleDateString()}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
@@ -418,7 +537,7 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
         setDeleting(true);
         setMsg(null);
         try {
-            const resp = await fetch(`/admin/kb/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
+            const resp = await fetch(`/admin/kb/documents/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
             if (resp.status === 204 || resp.ok) {
                 setMsg({ text: `Document ${id} deleted successfully.`, ok: true });
                 setPaperId("");

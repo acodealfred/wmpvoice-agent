@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { LoginScreen } from "@/components/ui/login-screen";
 import { VideoPanel } from "@/components/ui/video-panel";
 import { GazeIndicator, gazeLabel } from "@/components/ui/gaze-indicator";
 import { DetailedReport } from "@/components/ui/detailed-report";
@@ -14,15 +15,15 @@ import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 import { useBiometrics } from "@/hooks/useBiometrics";
 
-import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig } from "./types";
+import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig, AuthUser, AuthState } from "./types";
 
 import logo from "./assets/logo.png";
 
 function App() {
-    // New UUID on every page load → agent always starts fresh after a refresh.
-    // WS auto-reconnects (same page lifecycle, same React instance) reuse the same
-    // ID so the backend still injects context to survive network drops mid-survey.
-    const [sessionId] = useState<string>(() => crypto.randomUUID());
+    const [authState, setAuthState] = useState<AuthState>("checking");
+    const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+    // Session ID starts as a local UUID and is replaced with the server-issued one on login
+    const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
     const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test">("assessment");
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
@@ -53,8 +54,34 @@ function App() {
         clearBaseline
     } = useBiometrics();
 
+    // Check existing session cookie on mount
     useEffect(() => {
-        fetch("/config")
+        fetch("/me", { credentials: "same-origin" })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(data => {
+                setCurrentUser({ user_id: data.user_id, name: "", session_id: data.session_id });
+                setSessionId(data.session_id);
+                setAuthState("authenticated");
+            })
+            .catch(() => setAuthState("unauthenticated"));
+    }, []);
+
+    const handleLogin = useCallback((user: AuthUser) => {
+        setCurrentUser(user);
+        setSessionId(user.session_id);
+        setAuthState("authenticated");
+    }, []);
+
+    const handleLogout = useCallback(async () => {
+        await fetch("/logout", { method: "POST", credentials: "same-origin" });
+        setAuthState("unauthenticated");
+        setCurrentUser(null);
+        setSessionId(crypto.randomUUID());
+    }, []);
+
+    useEffect(() => {
+        if (authState !== "authenticated") return;
+        fetch("/config", { credentials: "same-origin" })
             .then(res => res.json())
             .then(data => {
                 setEnableSentiment(data.enableSentimentAnalysis);
@@ -66,13 +93,14 @@ function App() {
                 });
             })
             .catch(err => console.error("Failed to fetch config:", err));
-    }, []);
+    }, [authState]);
 
     const handleSurveyTypeChange = useCallback(async (type: string) => {
         try {
             const res = await fetch("/survey-type", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
                 body: JSON.stringify({ surveyType: type }),
             });
             if (res.ok) {
@@ -146,6 +174,7 @@ function App() {
                 await fetch("/biometrics", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
                     body: JSON.stringify({
                         session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
@@ -176,6 +205,7 @@ function App() {
                 const response = await fetch("/analyze-stress", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
                     body: JSON.stringify({
                         blink_rate: blinkRate,
                         baseline_blink_rate: baselineBlinkRate
@@ -287,6 +317,18 @@ function App() {
 
     const { t } = useTranslation();
 
+    if (authState === "checking") {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-[#f6f1e9]">
+                <p className="text-sm text-[rgba(20,18,14,0.50)]">Loading…</p>
+            </div>
+        );
+    }
+
+    if (authState === "unauthenticated") {
+        return <LoginScreen onLogin={handleLogin} />;
+    }
+
     return (
         <div className="flex min-h-screen flex-col bg-[#f6f1e9] text-gray-100">
             {/* ── Floating pill header ── */}
@@ -313,6 +355,15 @@ function App() {
                             </div>
                         )}
                         {!isRecording && <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-[rgba(255,250,242,0.68)]">Ready</span>}
+                        <div className="flex items-center gap-2 border-l border-white/[0.12] pl-3">
+                            <span className="text-xs text-[rgba(255,250,242,0.60)]">{currentUser?.name}</span>
+                            <button
+                                onClick={handleLogout}
+                                className="rounded-full bg-white/[0.08] px-3 py-1.5 text-xs font-medium text-[rgba(255,250,242,0.68)] transition-colors hover:bg-white/[0.16]"
+                            >
+                                Sign Out
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -51,6 +51,7 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
             const response = await fetch("/ssot-report", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
                 body: JSON.stringify(payload)
             });
 

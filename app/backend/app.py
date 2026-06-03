@@ -11,7 +11,10 @@ from azure.core.credentials import AzureKeyCredential
 from azure.identity import AzureDeveloperCliCredential, DefaultAzureCredential
 from dotenv import load_dotenv
 
+from auth import auth_middleware, login, logout, me
 from biometric_interpreter import analyze_stress
+from db import save_session_results
+from db_init import init_db
 from rtmt import RTMiddleTier
 
 logging.basicConfig(
@@ -210,6 +213,40 @@ RISK LEVEL: {risk_level} ({interpretation})
             rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context_full)
         logger.info("[APP] ★ Report delivered, state=report_delivered with full context including burnout state")
 
+        # Persist results to DB if the request is from an authenticated user
+        if request.get("auth_session"):
+            survey_results_snapshot = {
+                s.get("questionId", ""): {
+                    "score": s.get("score"),
+                    "domain": s.get("domain"),
+                    "voiceSentiment": s.get("voiceSentiment"),
+                    "blinkRateChange": s.get("blinkRateChange"),
+                    "faceEmotion": s.get("faceEmotion"),
+                }
+                for s in snapshots
+            }
+            technical_report_data = {
+                "analysis": analysis_data,
+                "totalScore": total_score,
+                "riskLevel": risk_level,
+                "interpretation": interpretation,
+                "domainTotals": domain_totals,
+            }
+            prompt_info_data = {
+                "snapshotCount": len(snapshots),
+                "promptPreview": consultative_prompt[:300],
+            }
+            try:
+                await save_session_results(
+                    request["session_token"],
+                    survey_results_snapshot,
+                    technical_report_data,
+                    prompt_info_data,
+                )
+                logger.info("[APP] Report persisted to DB for session %s", request["session_token"][:8])
+            except Exception as db_err:
+                logger.error("[APP] Failed to persist report to DB: %s", db_err)
+
         return web.json_response({
             "analysis": analysis_data,
             "agentResponse": response_text,
@@ -246,6 +283,13 @@ def _save_kb_docs(docs: list) -> None:
 async def admin_kb_list_documents(request):
     """GET /admin/kb/documents — return persisted document metadata."""
     return web.json_response({"documents": _load_kb_docs()})
+
+
+async def admin_list_users(request: web.Request) -> web.Response:
+    """GET /admin/users — list all users with session stats."""
+    from db import get_all_users_with_session_info
+    users = await get_all_users_with_session_info()
+    return web.json_response({"users": users})
 
 
 # ── SSOT report ─────────────────────────────────────────────────────────────
@@ -1029,6 +1073,8 @@ async def create_app():
         logger.info("Running in development mode, loading from .env file")
         load_dotenv()
 
+    await init_db()
+
     llm_key = os.environ.get("AZURE_OPENAI_API_KEY")
 
     credential = None
@@ -1045,7 +1091,7 @@ async def create_app():
             credential = DefaultAzureCredential()
     llm_credential = AzureKeyCredential(llm_key) if llm_key else credential
 
-    app = web.Application()
+    app = web.Application(middlewares=[auth_middleware])
 
     # Create RTMiddleTier instance first
     rtmt = RTMiddleTier(
@@ -1112,6 +1158,9 @@ async def create_app():
     # Store rtmt in app for access by request handlers
     app["rtmt"] = rtmt
 
+    app.router.add_post("/login", login)
+    app.router.add_post("/logout", logout)
+    app.router.add_get("/me", me)
     app.router.add_post("/biometrics", lambda request: update_biometrics(request, rtmt))
     app.router.add_post("/analyze-report", analyze_report)
     app.router.add_post("/analyze", lambda request: analyze_face(request, rtmt))
@@ -1126,6 +1175,7 @@ async def create_app():
     app.router.add_post("/ssot-report", generate_ssot_report)
 
     # Mithra Knowledge Base admin proxy routes
+    app.router.add_get("/admin/users", admin_list_users)
     app.router.add_get("/admin/kb/documents", admin_kb_list_documents)
     app.router.add_post("/admin/kb/upload", admin_kb_upload)
     app.router.add_delete("/admin/kb/documents/{paperId}", admin_kb_delete)

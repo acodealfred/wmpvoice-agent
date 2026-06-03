@@ -227,3 +227,20 @@ export type SurveyTypeConfig = {
     activeSurveyType: "TEST" | "BATFULL" | "CBTFULL";
     availableSurveyTypes: string[];
 };
+
+export type AuthUser = {
+    user_id: string;
+    name: string;
+    session_id: string;
+};
+
+export type AuthState = "checking" | "unauthenticated" | "authenticated";
+
+export type AdminUser = {
+    user_id: string;
+    name: string;
+    created_at: string;
+    session_count: number;
+    last_active_at: string | null;
+    last_session_id: string | null;
+};
