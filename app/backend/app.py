@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from auth import auth_middleware, login, logout, me
 from biometric_interpreter import analyze_stress
-from db import save_session_results
+from db import save_session_results, save_survey_snapshot, update_session_ssot_report, get_user_sessions
 from db_init import init_db
 from rtmt import RTMiddleTier
 
@@ -235,6 +235,7 @@ RISK LEVEL: {risk_level} ({interpretation})
             prompt_info_data = {
                 "snapshotCount": len(snapshots),
                 "promptPreview": consultative_prompt[:300],
+                "agentResponse": response_text,
             }
             try:
                 await save_session_results(
@@ -292,6 +293,20 @@ async def admin_list_users(request: web.Request) -> web.Response:
     return web.json_response({"users": users})
 
 
+async def user_sessions_history(request: web.Request) -> web.Response:
+    """GET /api/history — return the logged-in user's completed survey sessions."""
+    user_id = request["auth_session"]["user_id"]
+    sessions = await get_user_sessions(user_id)
+    for s in sessions:
+        for col in ("survey_results", "technical_report", "prompt_info"):
+            if s.get(col):
+                try:
+                    s[col] = json.loads(s[col])
+                except Exception:
+                    pass
+    return web.json_response({"sessions": sessions})
+
+
 # ── SSOT report ─────────────────────────────────────────────────────────────
 
 async def generate_ssot_report(request):
@@ -321,6 +336,36 @@ async def generate_ssot_report(request):
 
         sorted_domains = sorted(domain_totals.items(), key=lambda x: x[1], reverse=True)
 
+        # Persist survey snapshots so they appear in the user's History tab.
+        # Uses COALESCE so it never overwrites data saved by /analyze-report.
+        if request.get("auth_session") and snapshots:
+            survey_results_snapshot = {
+                s.get("questionId", s.get("domain", str(i))): {
+                    "score": s.get("score", 0),
+                    "domain": s.get("domain", ""),
+                    "voiceSentiment": s.get("voiceSentiment", "neutral"),
+                    "blinkRateChange": s.get("blinkRateChange", 0),
+                    "faceEmotion": s.get("faceEmotion", "NEUTRAL"),
+                }
+                for i, s in enumerate(snapshots)
+            }
+            risk_level = "Low" if total_score <= 12 else "Moderate" if total_score <= 22 else "High"
+            technical_snapshot = {
+                "totalScore": total_score,
+                "riskLevel": risk_level,
+                "interpretation": interpretation,
+                "domainTotals": domain_totals,
+                "analysis": {},
+            }
+            try:
+                await save_survey_snapshot(
+                    request["session_token"],
+                    survey_results_snapshot,
+                    technical_snapshot,
+                )
+            except Exception as snap_err:
+                logger.error("[APP] Failed to save survey snapshot from SSoT: %s", snap_err)
+
         # Allow the frontend (test generator) to supply a custom query.
         # If query_override is provided and non-empty, use it directly.
         if query_override:
@@ -337,6 +382,15 @@ async def generate_ssot_report(request):
         # Stage 1: Mithra KB — raw facts + citations
         mithra_raw = await _call_mithra_kb_chat(mithra_query)
         if not mithra_raw:
+            # Persist failure so history tab can show "KB unavailable" message
+            if request.get("auth_session"):
+                try:
+                    await update_session_ssot_report(
+                        request["session_token"],
+                        {"error": "Knowledge Base unreachable — ensure documents are uploaded and MITHRA_APP_TOKEN is set."},
+                    )
+                except Exception:
+                    pass
             return web.json_response(
                 {"error": "Could not reach Knowledge Base. "
                           "Check MITHRA_APP_TOKEN and ensure documents are uploaded."},
@@ -351,11 +405,18 @@ async def generate_ssot_report(request):
         report_text = await _call_report_llm(mithra_answer, mithra_citations)
         llm_used = bool(report_text)
         ssot_report = {
-            "answer": report_text if llm_used else "",
+            "answer": report_text if llm_used else mithra_answer,
             "citations": mithra_citations,
         }
         logger.info("[APP] /ssot-report complete — llm_used=%s answer_len=%d citations=%d",
                     llm_used, len(ssot_report["answer"]), len(ssot_report["citations"]))
+
+        # Persist SSoT result to DB for history view
+        if request.get("auth_session"):
+            try:
+                await update_session_ssot_report(request["session_token"], ssot_report)
+            except Exception as db_err:
+                logger.error("[APP] Failed to persist SSoT report: %s", db_err)
 
         # Store conversation state so the agent can answer follow-up Q&A
         rtmt_instance = request.app.get("rtmt")
@@ -1175,6 +1236,7 @@ async def create_app():
     app.router.add_post("/ssot-report", generate_ssot_report)
 
     # Mithra Knowledge Base admin proxy routes
+    app.router.add_get("/api/history", user_sessions_history)
     app.router.add_get("/admin/users", admin_list_users)
     app.router.add_get("/admin/kb/documents", admin_kb_list_documents)
     app.router.add_post("/admin/kb/upload", admin_kb_upload)

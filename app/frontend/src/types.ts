@@ -244,3 +244,29 @@ export type AdminUser = {
     last_active_at: string | null;
     last_session_id: string | null;
 };
+
+export type UserSession = {
+    session_token: string;
+    session_id: string;
+    created_at: string;
+    last_active_at: string;
+    survey_results: Record<string, {
+        score: number;
+        domain: string;
+        voiceSentiment: string;
+        blinkRateChange: number;
+        faceEmotion: string;
+    }> | null;
+    technical_report: {
+        totalScore: number;
+        riskLevel: "Low" | "Moderate" | "High";
+        interpretation: string;
+        domainTotals: Record<string, number>;
+        analysis: Record<string, unknown>;
+    } | null;
+    prompt_info: {
+        snapshotCount: number;
+        agentResponse?: string;
+        ssotReport?: { answer: string; citations: Array<{ paperId: string; paperTitle: string; paperPage: number }> } | { error: string };
+    } | null;
+};

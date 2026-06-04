@@ -8,6 +8,7 @@ import { GazeIndicator, gazeLabel } from "@/components/ui/gaze-indicator";
 import { DetailedReport } from "@/components/ui/detailed-report";
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
+import { UserHistory } from "@/components/ui/user-history";
 import { Button } from "@/components/ui/button";
 
 import useRealTime from "@/hooks/useRealtime";
@@ -24,7 +25,7 @@ function App() {
     const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
     // Session ID starts as a local UUID and is replaced with the server-issued one on login
     const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
-    const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test">("assessment");
+    const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test" | "history">("assessment");
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
@@ -74,6 +75,7 @@ function App() {
 
     const handleLogout = useCallback(async () => {
         await fetch("/logout", { method: "POST", credentials: "same-origin" });
+        setActiveTab("assessment");
         setAuthState("unauthenticated");
         setCurrentUser(null);
         setSessionId(crypto.randomUUID());
@@ -400,6 +402,16 @@ function App() {
                 >
                     Test Generator
                 </button>
+                <button
+                    onClick={() => setActiveTab("history")}
+                    className={`transition-all ${
+                        activeTab === "history"
+                            ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
+                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
+                    }`}
+                >
+                    History
+                </button>
             </div>
 
             {/* ── Admin Panel ── */}
@@ -413,6 +425,13 @@ function App() {
             {activeTab === "test" && (
                 <div className="flex-1 overflow-y-auto">
                     <TestGenerator />
+                </div>
+            )}
+
+            {/* ── User History ── */}
+            {activeTab === "history" && (
+                <div className="flex-1 overflow-y-auto">
+                    <UserHistory />
                 </div>
             )}
 

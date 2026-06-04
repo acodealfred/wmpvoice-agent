@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import uuid
 
@@ -10,7 +9,6 @@ from db import (
     delete_session,
     get_session_by_token,
     get_user_by_name,
-    update_session_activity,
 )
 
 logger = logging.getLogger("voicerag")
@@ -31,16 +29,22 @@ async def auth_middleware(request: web.Request, handler):
 
     token = request.cookies.get("session_token")
     if not token:
+        logger.warning("[Auth] 401 no cookie on %s %s", request.method, request.path)
         return web.json_response({"error": "Unauthorized"}, status=401)
 
-    session = await get_session_by_token(token)
+    try:
+        session = await get_session_by_token(token)
+    except Exception as db_err:
+        logger.error("[Auth] DB error looking up session on %s: %s", request.path, db_err)
+        return web.json_response({"error": "Service unavailable"}, status=503)
+
     if not session:
+        logger.warning("[Auth] 401 session not found (token=%s...) on %s %s",
+                       token[:8], request.method, request.path)
         return web.json_response({"error": "Session expired"}, status=401)
 
     request["auth_session"] = session
     request["session_token"] = token
-    # Fire-and-forget — don't block the request on a DB write
-    asyncio.ensure_future(update_session_activity(token))
 
     return await handler(request)
 
@@ -75,7 +79,7 @@ async def login(request: web.Request) -> web.Response:
         "session_token",
         session_token,
         httponly=True,
-        samesite="Strict",
+        samesite="Lax",
         max_age=SESSION_MAX_AGE,
         path="/",
     )
