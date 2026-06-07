@@ -181,7 +181,8 @@ function App() {
                         session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
                         blink_rate_change_percent: blinkToSend,
-                        face_emotion: "NEUTRAL"
+                        face_emotion: "NEUTRAL",
+                        gaze_position: gazeLabel(biometrics.metrics.gaze)
                     })
                 });
             } catch (err) {

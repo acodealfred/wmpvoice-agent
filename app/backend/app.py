@@ -59,6 +59,7 @@ superiority and contempt.
                 "voice_sentiment": s.get("voiceSentiment", "neutral"),
                 "blink_rate_change": br_change,
                 "br_stress": br_stress,
+                "gaze_position": s.get("gazePosition", "Center"),
             })
 
         # System prompt for the analysis engine
@@ -146,7 +147,7 @@ Output JSON format:
         for s in snapshots:
             snapshot_lines.append(
                 f"Q{s.get('questionId','')}: score={s.get('score',0)}, domain={s.get('domain','')}, "
-                f"voice_sentiment={s.get('voiceSentiment','')}, blink_change={s.get('blinkRateChange',0)}%, face_emotion={s.get('faceEmotion','')}"
+                f"voice_sentiment={s.get('voiceSentiment','')}, blink_change={s.get('blinkRateChange',0)}%, gaze_position={s.get('gazePosition','')}"
             )
         snapshot_summary = "\n".join(snapshot_lines)
 
@@ -221,7 +222,8 @@ RISK LEVEL: {risk_level} ({interpretation})
                     "domain": s.get("domain"),
                     "voiceSentiment": s.get("voiceSentiment"),
                     "blinkRateChange": s.get("blinkRateChange"),
-                    "faceEmotion": s.get("faceEmotion"),
+                    "gazePosition": s.get("gazePosition"),
+                    "responseLatencyMs": s.get("responseLatencyMs"),
                 }
                 for s in snapshots
             }
@@ -345,7 +347,8 @@ async def generate_ssot_report(request):
                     "domain": s.get("domain", ""),
                     "voiceSentiment": s.get("voiceSentiment", "neutral"),
                     "blinkRateChange": s.get("blinkRateChange", 0),
-                    "faceEmotion": s.get("faceEmotion", "NEUTRAL"),
+                    "gazePosition": s.get("gazePosition", "Center"),
+                    "responseLatencyMs": s.get("responseLatencyMs"),
                 }
                 for i, s in enumerate(snapshots)
             }
@@ -577,6 +580,7 @@ async def clear_stress_state(request, rtmt: RTMiddleTier):
         sess.face_emotion_history.clear()
         sess.current_blink_rate_change = 0.0
         sess.current_face_emotion = "NEUTRAL"
+        sess.current_gaze_position = "Center"
         logger.info("[APP] ★ Stress state and biometric history cleared (session=%s)", session_id)
         return web.json_response({"success": True, "stress_state": "normal"})
     except Exception as e:
@@ -607,6 +611,7 @@ async def update_biometrics(request, rtmt: RTMiddleTier):
         sentiment = data.get("sentiment", "neutral")
         blink_rate_change = data.get("blink_rate_change_percent", 0.0)
         face_emotion = data.get("face_emotion", "NEUTRAL")
+        gaze_position = data.get("gaze_position", "Center")
 
         if not session_id:
             return web.json_response({"error": "session_id is required"}, status=400)
@@ -615,10 +620,11 @@ async def update_biometrics(request, rtmt: RTMiddleTier):
         sess.current_sentiment = sentiment
         sess.current_blink_rate_change = blink_rate_change
         sess.current_face_emotion = face_emotion
+        sess.current_gaze_position = gaze_position
         rtmt._update_biometric_history_for_session(sess, blink_rate_change, face_emotion)
 
         logger.info(
-            f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, emotion={face_emotion} (session={session_id})"
+            f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, emotion={face_emotion}, gaze={gaze_position} (session={session_id})"
         )
         logger.info(
             f"[APP] ★ History Debug - blink_history length: {len(sess.blink_rate_history)}, "

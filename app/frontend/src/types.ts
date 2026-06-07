@@ -96,7 +96,8 @@ export interface BiometricSnapshot {
     score: number;
     voiceSentiment: "positive" | "neutral" | "negative";
     blinkRateChange: number;
-    faceEmotion: string;
+    gazePosition: string;
+    responseLatencyMs?: number | null;
 }
 
 export type SurveyBiometricUpdate = {
@@ -254,7 +255,8 @@ export type UserSession = {
         domain: string;
         voiceSentiment: string;
         blinkRateChange: number;
-        faceEmotion: string;
+        gazePosition: string;
+        responseLatencyMs?: number | null;
     }> | null;
     technical_report: {
         totalScore: number;

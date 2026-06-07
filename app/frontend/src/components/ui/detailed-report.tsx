@@ -17,24 +17,12 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
     const [ssotError, setSsotError] = useState<string | null>(null);
     const [ssotQuery, setSsotQuery] = useState<string | null>(null);
 
-    const getStressLevel = (blinkRateChange: number): string => {
-        if (blinkRateChange > 30) return "High";
-        if (blinkRateChange < -30) return "Low";
-        return "Normal";
-    };
-
     const getSentimentColor = (sentiment: string): string => {
         switch (sentiment) {
             case "positive": return "text-green-700";
             case "negative": return "text-red-700";
             default: return "text-yellow-700";
         }
-    };
-
-    const getStressColor = (blinkRateChange: number): string => {
-        if (blinkRateChange > 30) return "text-red-700";
-        if (blinkRateChange < -30) return "text-green-700";
-        return "text-gray-700";
     };
 
     const handleGenerateAIReport = async () => {
@@ -119,8 +107,8 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                             <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Score</th>
                             <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Voice Sentiment</th>
                             <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Blink Rate Δ</th>
-                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">BR Stress</th>
-                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Face Emotion</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Gaze Position</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Response Latency</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -137,10 +125,10 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                                         {snapshot.blinkRateChange >= 0 ? "+" : ""}{snapshot.blinkRateChange.toFixed(1)}%
                                     </span>
                                 </td>
-                                <td className={`border border-gray-200 px-3 py-2 text-center font-medium ${getStressColor(snapshot.blinkRateChange)}`}>
-                                    {getStressLevel(snapshot.blinkRateChange)}
+                                <td className="border border-gray-200 px-3 py-2 text-center text-gray-900">{snapshot.gazePosition}</td>
+                                <td className="border border-gray-200 px-3 py-2 text-center text-gray-900">
+                                    {snapshot.responseLatencyMs != null ? `${(snapshot.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
                                 </td>
-                                <td className="border border-gray-200 px-3 py-2 text-center text-gray-900">{snapshot.faceEmotion}</td>
                             </tr>
                         ))}
                     </tbody>

@@ -8,18 +8,6 @@ function riskColor(risk: string) {
     return "bg-red-100 text-red-800";
 }
 
-function stressLabel(change: number) {
-    if (change > 30) return "High";
-    if (change < -30) return "Low";
-    return "Normal";
-}
-
-function stressColor(change: number) {
-    if (change > 30) return "text-red-600";
-    if (change < -30) return "text-green-600";
-    return "text-gray-600";
-}
-
 function sentimentColor(s: string) {
     if (s === "positive") return "text-green-600";
     if (s === "negative") return "text-red-600";
@@ -196,8 +184,9 @@ function SessionCard({ session }: { session: UserSession }) {
                                             <th className="px-3 py-2 text-left">Domain</th>
                                             <th className="px-3 py-2 text-center">Score</th>
                                             <th className="hidden px-3 py-2 text-left sm:table-cell">Voice</th>
-                                            <th className="hidden px-3 py-2 text-left md:table-cell">Blink Stress</th>
-                                            <th className="hidden px-3 py-2 text-left md:table-cell">Face</th>
+                                            <th className="hidden px-3 py-2 text-left md:table-cell">Blink Δ</th>
+                                            <th className="hidden px-3 py-2 text-left md:table-cell">Gaze Position</th>
+                                            <th className="hidden px-3 py-2 text-left lg:table-cell">Response Latency</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -208,11 +197,16 @@ function SessionCard({ session }: { session: UserSession }) {
                                                 <td className={`hidden px-3 py-2 capitalize sm:table-cell ${sentimentColor(r.voiceSentiment)}`}>
                                                     {r.voiceSentiment}
                                                 </td>
-                                                <td className={`hidden px-3 py-2 md:table-cell ${stressColor(r.blinkRateChange)}`}>
-                                                    {stressLabel(r.blinkRateChange)}
+                                                <td className="hidden px-3 py-2 md:table-cell">
+                                                    <span className={r.blinkRateChange >= 0 ? "text-red-600" : "text-green-600"}>
+                                                        {r.blinkRateChange >= 0 ? "+" : ""}{r.blinkRateChange.toFixed(1)}%
+                                                    </span>
                                                 </td>
-                                                <td className="hidden px-3 py-2 capitalize text-gray-600 md:table-cell">
-                                                    {r.faceEmotion?.toLowerCase() || "—"}
+                                                <td className="hidden px-3 py-2 text-gray-600 md:table-cell">
+                                                    {r.gazePosition || "—"}
+                                                </td>
+                                                <td className="hidden px-3 py-2 text-gray-600 lg:table-cell">
+                                                    {r.responseLatencyMs != null ? `${(r.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
                                                 </td>
                                             </tr>
                                         ))}

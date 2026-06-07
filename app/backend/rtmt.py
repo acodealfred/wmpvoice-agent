@@ -35,12 +35,18 @@ class SessionState:
     current_sentiment: str = "neutral"
     current_blink_rate_change: float = 0.0
     current_face_emotion: str = "NEUTRAL"
+    current_gaze_position: str = "Center"
     blink_rate_history: list = field(default_factory=list)
     face_emotion_history: list = field(default_factory=list)
 
     conversation_state: str = "active"  # "active" | "report_delivered" | "qa_mode"
     report_context: str | None = None
     last_agent_response_type: str | None = None
+
+    # Voice response latency: time between the agent finishing a turn (e.g. asking
+    # a survey question) and the user starting to speak their answer.
+    last_agent_turn_end_at: float | None = None
+    current_response_latency_ms: float | None = None
 
 
 # Per-coroutine context variable: set in _websocket_handler before any async work starts.
@@ -279,25 +285,27 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
         else self._get_average_blink_rate_change()
     )
 
-    provided_emotion = args.get("face_emotion")
-    face_emotion = provided_emotion if provided_emotion else self._get_dominant_emotion()
+    gaze_position = sess.current_gaze_position
+
+    # Voice response latency captured between the agent finishing the question
+    # and the user starting to speak (set in the input_audio_buffer.speech_started handler).
+    response_latency_ms = sess.current_response_latency_ms
+    sess.current_response_latency_ms = None
 
     logger.info(
         f"[RTMT] ★ Survey Tool Debug - question_id={question_id}, "
         f"provided_blink={provided_blink}, calculated_blink={blink_rate_change_percent}%, "
-        f"provided_emotion={provided_emotion}, calculated_emotion={face_emotion}"
+        f"gaze_position={gaze_position}"
     )
-    logger.info(
-        f"[RTMT] ★ Blink History: {sess.blink_rate_history[-10:]}, "
-        f"Emotion History: {sess.face_emotion_history[-10:]}"
-    )
+    logger.info(f"[RTMT] ★ Blink History: {sess.blink_rate_history[-10:]}")
 
     sess.survey_results[question_id] = {
         "score": score,
         "user_response": user_response,
         "voice_sentiment": voice_sentiment,
         "blink_rate_change_percent": blink_rate_change_percent,
-        "face_emotion": face_emotion,
+        "gaze_position": gaze_position,
+        "response_latency_ms": response_latency_ms,
     }
 
     domain = _get_question_domain(question_id, self._survey_config)
@@ -306,7 +314,7 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     total = len(self._survey_config.get("questions", []))
 
     logger.info(
-        f"Survey response recorded: {question_id} = {score}, sentiment={voice_sentiment}, blink_change={blink_rate_change_percent}%, emotion={face_emotion}"
+        f"Survey response recorded: {question_id} = {score}, sentiment={voice_sentiment}, blink_change={blink_rate_change_percent}%, gaze={gaze_position}"
     )
 
     client_message = {
@@ -317,7 +325,8 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
             "score": score,
             "voiceSentiment": voice_sentiment,
             "blinkRateChange": blink_rate_change_percent,
-            "faceEmotion": face_emotion,
+            "gazePosition": gaze_position,
+            "responseLatencyMs": response_latency_ms,
         },
         "totalScore": total_score,
         "completed": completed,
@@ -633,6 +642,7 @@ class RTMiddleTier:
         sess.face_emotion_history.clear()
         sess.current_blink_rate_change = 0.0
         sess.current_face_emotion = "NEUTRAL"
+        sess.current_gaze_position = "Center"
         logger.info("[RTMT] ★ Biometric history cleared")
 
     def _get_average_blink_rate_change(self) -> float:
@@ -946,6 +956,17 @@ TOOL RULES (silent, never tell the user):
                     # Track this so we never send response.create over an active one.
                     self._response_in_progress = True
 
+                case "input_audio_buffer.speech_started":
+                    # User started speaking — if the agent had just finished a turn
+                    # (e.g. asking a survey question), this marks the end of the
+                    # "voice response latency" window for that turn.
+                    sess = self._sess
+                    if sess.last_agent_turn_end_at is not None:
+                        latency_ms = (time.time() - sess.last_agent_turn_end_at) * 1000
+                        sess.current_response_latency_ms = max(0.0, latency_ms)
+                        sess.last_agent_turn_end_at = None
+                        logger.info(f"[RTMT] Voice response latency: {sess.current_response_latency_ms:.0f}ms")
+
                 case "response.output_item.added":
                     if "item" in message and message["item"]["type"] == "function_call":
                         updated_message = None
@@ -1127,10 +1148,10 @@ TOOL RULES (silent, never tell the user):
                                         if survey_result_data and survey_result_data.get("blink_rate_change_percent") is not None
                                         else self._get_average_blink_rate_change()
                                     )
-                                    face_emotion = (
-                                        survey_result_data.get("face_emotion")
-                                        if survey_result_data and survey_result_data.get("face_emotion")
-                                        else self._get_dominant_emotion()
+                                    gaze_position = (
+                                        survey_result_data.get("gaze_position")
+                                        if survey_result_data and survey_result_data.get("gaze_position")
+                                        else sess.current_gaze_position
                                     )
 
                                     await client_ws.send_json(
@@ -1142,7 +1163,8 @@ TOOL RULES (silent, never tell the user):
                                                 "score": score,
                                                 "voiceSentiment": voice_sentiment,
                                                 "blinkRateChange": blink_change,
-                                                "faceEmotion": face_emotion,
+                                                "gazePosition": gaze_position,
+                                                "responseLatencyMs": survey_result_data.get("response_latency_ms"),
                                             },
                                             "totalScore": sum(r["score"] for r in sess.survey_results.values()),
                                             "completed": completed,
@@ -1150,7 +1172,7 @@ TOOL RULES (silent, never tell the user):
                                         }
                                     )
                                     logger.info(
-                                        f"Survey biometric update sent: {question_id}, sentiment={voice_sentiment}, blink_change={blink_change}, emotion={face_emotion}"
+                                        f"Survey biometric update sent: {question_id}, sentiment={voice_sentiment}, blink_change={blink_change}, gaze={gaze_position}"
                                     )
 
                                     # Clear biometric history if survey is complete for next round
@@ -1164,6 +1186,11 @@ TOOL RULES (silent, never tell the user):
                     # The active response is finished — clear the flag first so any
                     # guard below can safely decide whether to start a follow-up.
                     self._response_in_progress = False
+
+                    # Mark the end of the agent's turn as the start of the latency
+                    # window — the next time the user starts speaking, the elapsed
+                    # time is recorded as their voice response latency.
+                    self._sess.last_agent_turn_end_at = time.time()
                     if len(self._tools_pending) > 0:
                         self._tools_pending.clear()
                         # Only request the follow-up response if nothing is already running.

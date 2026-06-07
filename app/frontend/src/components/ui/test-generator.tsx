@@ -85,7 +85,7 @@ function generateScenarios(count: number): TestScenario[] {
             score: primaryDomains.includes(q.domain) ? primary : other,
             voiceSentiment: risk === "high" ? "negative" : risk === "moderate" ? "neutral" : "positive",
             blinkRateChange: risk === "high" ? 35 : risk === "moderate" ? 10 : -10,
-            faceEmotion: risk === "high" ? "SAD" : risk === "moderate" ? "NEUTRAL" : "HAPPY",
+            gazePosition: risk === "high" ? "Down" : risk === "moderate" ? "Center" : "Center",
         }));
 
         results.push({
@@ -444,7 +444,7 @@ export function TestGenerator() {
                                     <th className="border border-slate-700 px-3 py-2 text-left text-slate-300">Domain</th>
                                     <th className="border border-slate-700 px-3 py-2 text-center text-slate-300">Score</th>
                                     <th className="border border-slate-700 px-3 py-2 text-center text-slate-300">Sentiment</th>
-                                    <th className="border border-slate-700 px-3 py-2 text-center text-slate-300">Emotion</th>
+                                    <th className="border border-slate-700 px-3 py-2 text-center text-slate-300">Gaze</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -458,7 +458,7 @@ export function TestGenerator() {
                                         </td>
                                         <td className="border border-slate-700 px-3 py-1.5 text-center font-semibold text-white">{s.score}/5</td>
                                         <td className="border border-slate-700 px-3 py-1.5 text-center capitalize text-slate-300">{s.voiceSentiment}</td>
-                                        <td className="border border-slate-700 px-3 py-1.5 text-center text-slate-300">{s.faceEmotion}</td>
+                                        <td className="border border-slate-700 px-3 py-1.5 text-center text-slate-300">{s.gazePosition}</td>
                                     </tr>
                                 ))}
                             </tbody>
