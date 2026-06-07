@@ -679,14 +679,9 @@ function App() {
                                                     </p>
                                                 </div>
                                                 <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Left Gaze</p>
-                                                    <GazeIndicator gaze={currentBiometrics.metrics.leftGaze} />
-                                                    <p className="text-[9px] text-[#fffaf2]">{gazeLabel(currentBiometrics.metrics.leftGaze)}</p>
-                                                </div>
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Right Gaze</p>
-                                                    <GazeIndicator gaze={currentBiometrics.metrics.rightGaze} />
-                                                    <p className="text-[9px] text-[#fffaf2]">{gazeLabel(currentBiometrics.metrics.rightGaze)}</p>
+                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Gaze</p>
+                                                    <GazeIndicator gaze={currentBiometrics.metrics.gaze} />
+                                                    <p className="text-[9px] text-[#fffaf2]">{gazeLabel(currentBiometrics.metrics.gaze)}</p>
                                                 </div>
                                             </div>
                                         </div>

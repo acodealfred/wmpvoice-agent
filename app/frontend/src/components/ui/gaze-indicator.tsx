@@ -25,7 +25,9 @@ export function GazeIndicator({ gaze }: GazeIndicatorProps) {
 }
 
 export function gazeLabel(g: { x: number; y: number }): string {
-    const h = g.x < 0.4 ? "Left" : g.x > 0.6 ? "Right" : "Center";
-    const v = g.y < 0.35 ? "Up" : g.y > 0.65 ? "Down" : "";
+    // Tighter thresholds because the adaptive baseline keeps neutral at 0.5,
+    // so any real movement produces a clear deviation away from centre.
+    const h = g.x < 0.43 ? "Left" : g.x > 0.57 ? "Right" : "Center";
+    const v = g.y < 0.38 ? "Up" : g.y > 0.62 ? "Down" : "";
     return [v, h].filter(Boolean).join("-") || "Center";
 }

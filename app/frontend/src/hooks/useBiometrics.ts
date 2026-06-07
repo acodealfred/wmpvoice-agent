@@ -41,10 +41,11 @@ const getIrisPosition = (landmarks: { x: number; y: number }[]): { x: number; y:
 };
 
 // The iris only moves ~10-20% of eye width in any direction, so raw normalized
-// position is always near 0.5. We compute deviation from the eye's geometric
-// center and amplify it to produce a visible 0-1 gaze signal.
-const GAZE_H_SENSITIVITY = 4.0; // amplify horizontal iris deviation
-const GAZE_V_SENSITIVITY = 6.0; // vertical movement is smaller, needs more gain
+// position is always near 0.5. Compute deviation from the geometric center of
+// the eye and amplify to produce a visible 0–1 gaze signal.
+// Monocular: left eye only (iris landmark 468) — avoids the binocular flip
+// ambiguity where each eye's x-axis runs in opposite directions.
+const GAZE_V_SENSITIVITY = 6.0;
 
 const computeGazeAxis = (irisCoord: number, cornerA: number, cornerB: number, sensitivity: number, flip = false): number => {
     const center = (cornerA + cornerB) / 2;
@@ -55,26 +56,9 @@ const computeGazeAxis = (irisCoord: number, cornerA: number, cornerB: number, se
     return Math.max(0, Math.min(1, v));
 };
 
-const getBothGazePositions = (landmarks: { x: number; y: number }[]): { left: { x: number; y: number }; right: { x: number; y: number } } => {
-    // Left eye: iris center = 468, corners = 362 (nasal/inner) / 263 (temporal/outer), lids = 386 (upper) / 374 (lower)
-    // In front-facing camera image space: nasal corner (362) has lower x, temporal (263) has higher x.
-    // When user looks right: iris moves toward lower x → nasal side → flip so right = higher value.
-    const leftIris = landmarks[468];
-    const leftX = computeGazeAxis(leftIris.x, landmarks[362].x, landmarks[263].x, GAZE_H_SENSITIVITY, true);
-    const leftY = computeGazeAxis(leftIris.y, landmarks[386].y, landmarks[374].y, GAZE_V_SENSITIVITY, false);
-
-    // Right eye: iris center = 473, corners = 33 (temporal/outer) / 133 (nasal/inner), lids = 159 (upper) / 145 (lower)
-    // Temporal (33) has lower x, nasal (133) has higher x.
-    // When user looks right: iris moves toward lower x → toward 33 → flip.
-    const rightIris = landmarks[473];
-    const rightX = computeGazeAxis(rightIris.x, landmarks[33].x, landmarks[133].x, GAZE_H_SENSITIVITY, true);
-    const rightY = computeGazeAxis(rightIris.y, landmarks[159].y, landmarks[145].y, GAZE_V_SENSITIVITY, false);
-
-    return {
-        left: { x: leftX, y: leftY },
-        right: { x: rightX, y: rightY }
-    };
-};
+// Vertical gaze uses upper-lid landmark 386 and lower-lid 374 via computeGazeAxis.
+// Horizontal gaze uses raw iris.x (faceLandmarks[468].x) with an adaptive baseline
+// computed inside extractMetrics — see that function for details.
 
 const calculateIrisSize = (landmarks: { x: number; y: number }[]): number => {
     const leftIrisLeft = landmarks[469];
@@ -190,6 +174,10 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
     const baselineRateRef = useRef<number>(0);
     const lastBlinkRateUpdateRef = useRef<number>(0);
     const currentSmoothedBlinkRateRef = useRef<number>(0);
+    // Adaptive gaze baseline: slow EMA of the raw iris x position.
+    // Initialised to null so the first detected position sets it instantly,
+    // avoiding a cold-start bias toward 0.5.
+    const gazeBaselineXRef = useRef<number | null>(null);
 
     const initializeModel = useCallback(async () => {
         try {
@@ -310,7 +298,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             const currentTime = Date.now();
 
             logCounterRef.current++;
-            const shouldLog = logCounterRef.current % 60 === 0;
+            const shouldLog = logCounterRef.current % 30 === 0;
 
             if (shouldLog) {
                 console.log("[Biometrics] EyeOpenness:", leftEAR.toFixed(3));
@@ -398,12 +386,42 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             }
 
             const irisPosition = getIrisPosition(faceLandmarks);
-            const bothGaze = getBothGazePositions(faceLandmarks);
+
+            // --- Horizontal gaze: raw iris X + adaptive baseline ---
+            // rawGaze.x (from computeGazeAxis) is already amplified and clamped [0,1],
+            // so the baseline tracked it too tightly. Instead, use the raw MediaPipe
+            // iris coordinate (faceLandmarks[468].x) which varies only ~0.01–0.03
+            // across the full gaze range. Amplify strongly after subtracting the baseline.
+            const irisRawX = faceLandmarks[468].x;
+            const BASELINE_ALPHA = 0.001; // α≈0.001 → ~30 s to adapt 25%; stable for held gaze
+            if (gazeBaselineXRef.current === null) {
+                gazeBaselineXRef.current = irisRawX; // instant calibration on first frame
+            }
+            gazeBaselineXRef.current =
+                gazeBaselineXRef.current * (1 - BASELINE_ALPHA) + irisRawX * BASELINE_ALPHA;
+            // 35× amplification: a 0.01 (1%) deviation from baseline → ±0.35 output swing
+            const gazeX = Math.max(0, Math.min(1,
+                0.5 + (irisRawX - gazeBaselineXRef.current) * 35
+            ));
+
+            // --- Vertical gaze: corner-based (already working) ---
+            const gazeY = computeGazeAxis(
+                faceLandmarks[468].y,
+                faceLandmarks[386].y, // upper lid
+                faceLandmarks[374].y, // lower lid
+                GAZE_V_SENSITIVITY,
+                false
+            );
+
+            const gaze = { x: gazeX, y: gazeY };
+
             if (shouldLog) {
-                console.log("[Gaze] raw landmarks 468:", faceLandmarks[468], "473:", faceLandmarks[473]);
-                console.log("[Gaze] L-corners 362:", faceLandmarks[362], "263:", faceLandmarks[263]);
-                console.log("[Gaze] R-corners 33:", faceLandmarks[33], "133:", faceLandmarks[133]);
-                console.log("[Gaze] left:", bothGaze.left, "right:", bothGaze.right);
+                console.log(
+                    "[Gaze] irisX:", irisRawX.toFixed(4),
+                    "| baseline:", (gazeBaselineXRef.current ?? 0).toFixed(4),
+                    "| Δ:", (irisRawX - (gazeBaselineXRef.current ?? irisRawX)).toFixed(4),
+                    "| out:", gazeX.toFixed(3), gazeY.toFixed(3)
+                );
             }
             const normalizedIrisSize = calculateIrisSize(faceLandmarks);
             const pupilSize = calculatePupilSize(normalizedIrisSize, interocularDistance);
@@ -431,8 +449,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 faceHeight: interocularDistance * 4,
                 interocularDistance,
                 irisPosition,
-                leftGaze: bothGaze.left,
-                rightGaze: bothGaze.right,
+                gaze,
                 pupilSize: normalizedIrisSize,
                 pupilSizeMm,
                 pupilSizeChangePercent,
@@ -484,8 +501,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                     faceHeight: 0,
                     interocularDistance: 0,
                     irisPosition: { x: 0, y: 0 },
-                    leftGaze: { x: 0.5, y: 0.5 },
-                    rightGaze: { x: 0.5, y: 0.5 },
+                    gaze: { x: 0.5, y: 0.5 },
                     pupilSize: 0,
                     pupilSizeMm: 0,
                     pupilSizeChangePercent: 0,
@@ -506,6 +522,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
 
     const stopAnalysis = useCallback(() => {
         setIsAnalyzing(false);
+        gazeBaselineXRef.current = null; // reset so next session recalibrates
         if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;

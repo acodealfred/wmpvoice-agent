@@ -144,8 +144,7 @@ export interface BiometricMetrics {
     faceHeight: number;
     interocularDistance: number;
     irisPosition: { x: number; y: number };
-    leftGaze: { x: number; y: number };
-    rightGaze: { x: number; y: number };
+    gaze: { x: number; y: number };
     pupilSize: number;
     pupilSizeMm: number;
     pupilSizeChangePercent: number;
