@@ -224,7 +224,11 @@ Branch : test-generation
 Branch : feature/simple-product-v1
 - Branched off from uni-optimization branch 
 - Implment basic product features to shwocase in product launch 
-- This will help to implement the actual product with more scalable application 
+- This will help to implement the actual product with more scalable application
+## We are freezing this MVP creation in this branch feature/simple-product-v1
+## Creating a new branch for invester demostration product 
+- Branch Name : release/ciq-alpha-v1
+- From here onwards features are created on feature/ciq-alpha-* and merged at every success.
 
 ---Manual Steps after Each azd up (infra refrsh)
 Change the 
