@@ -87,8 +87,22 @@ Browser mic → useAudioRecorder → WebSocket /realtime
 | Tool | Trigger | What it does |
 |---|---|---|
 | `report_sentiment` | After each utterance (when sentiment enabled) | Captures voice sentiment; broadcasts `sentiment_update` back to frontend |
-| `record_survey_response` | After the model scores a BAT question | Stores score + biometrics in `_survey_results`; broadcasts `survey_biometric_update` |
-| `query_survey_results` | When user asks about their results post-survey | Queries `_survey_results` and returns structured data to the model |
+| `record_survey_response` | After the model scores a BAT question | Idempotently stores score + aggregated biometrics in per-session `survey_results`; broadcasts `survey_biometric_update` |
+| `query_survey_results` | When user asks about their results post-survey | Queries `survey_results` and returns structured data to the model |
+
+Per-connection state lives in a `SessionState` keyed by `session_id` (in-memory dict with a 4-hour TTL, exposed to tool handlers via an `asyncio.ContextVar`). On reconnect with the same `session_id`, `RTMiddleTier` injects "reconnect instructions" so the agent resumes (doesn't restart the survey or re-introduce itself) — see `_get_reconnect_instructions()` in `rtmt.py`.
+
+### Authentication & persistence
+
+`auth.py` middleware gates all routes except `/login`, `/logout`, `/config`, `/` via a session-token cookie validated against SQLite (`db.py`, WAL mode). Tables: `users` (bcrypt password hashes) and `user_sessions` (links a login session-token to a realtime `session_id`, and stores JSON blobs for survey results, technical report, and SSoT prompt/report info). `GET /api/history` and `GET /admin/users` read from this store.
+
+### Report generation paths
+
+Two parallel report paths exist:
+1. **`POST /analyze-report`** — the two-stage LLM pipeline described above (behavioral analysis → consultative response via `rtmt.analyze_with_prompt()`), persisted via `save_session_results`.
+2. **`POST /ssot-report`** — builds a query from survey snapshots, queries the external **Mithra knowledge base** (`MITHRA_API_BASE_URL`/`MITHRA_APP_TOKEN`) for evidence-based recommendations, optionally reformats the answer with a separate "report LLM" (`REPORT_OPENAI_*` env vars), and persists the result via `update_session_ssot_report`. Both paths flip the agent's conversation state to `report_delivered` (then `qa_mode` on follow-up) so it can answer questions about the report without restarting the survey.
+
+Knowledge-base admin endpoints (`/admin/kb/*`, `/kb/chats/*`) manage Mithra documents/settings and degrade gracefully (HTTP 503) if the KB is unreachable — same graceful-degradation pattern as AWS Rekognition and the report LLM.
 
 ### Biometrics pipeline
 
