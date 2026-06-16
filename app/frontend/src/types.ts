@@ -96,6 +96,7 @@ export interface BiometricSnapshot {
     score: number;
     voiceSentiment: "positive" | "neutral" | "negative";
     blinkRateChange: number;
+    pupilMmChange?: number;
     gazePosition: string;
     responseLatencyMs?: number | null;
 }
@@ -200,6 +201,17 @@ export type AnalysisResult = {
     contradictions: AnalysisInsight[];
     patterns: AnalysisInsight[];
     summary: string;
+};
+
+// Response from POST /analyze-report — the data-driven technical report.
+export type AnalyzeReportResponse = {
+    analysis: AnalysisResult;
+    agentResponse: string;
+    totalScore: number;
+    maxScore: number;
+    riskLevel: "Low" | "Moderate" | "High";
+    interpretation: string;
+    domainTotals: Record<string, number>;
 };
 
 export type KBDocument = {

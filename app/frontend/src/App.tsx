@@ -170,11 +170,10 @@ function App() {
             const blinkChange = biometrics.metrics.blinkRateChangePercent;
             const blinkToSend = blinkChange !== undefined && blinkChange !== 0 ? blinkChange : 0;
 
-            console.log("[App] Sending biometrics update:", {
-                sentiment: sentiment?.sentiment || "neutral",
-                blink_rate_change_percent: blinkToSend,
-                rawBlinkChange: blinkChange
-            });
+            // Pupil dilation as mm change vs the calibrated baseline (CIQ thresholds use mm).
+            const pupilMm = biometrics.metrics.pupilSizeMm;
+            const basePupil = baselineData?.pupilSize ?? 0;
+            const pupilMmChange = basePupil > 0 && pupilMm > 0 ? pupilMm - basePupil : 0;
 
             try {
                 await fetch("/biometrics", {
@@ -185,6 +184,7 @@ function App() {
                         session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
                         blink_rate_change_percent: blinkToSend,
+                        pupil_mm_change: pupilMmChange,
                         face_emotion: "NEUTRAL",
                         gaze_position: gazeLabel(biometrics.metrics.gaze)
                     })
@@ -193,7 +193,7 @@ function App() {
                 console.error("Failed to update biometrics:", err);
             }
         },
-        [sentiment, enableBiometrics]
+        [sentiment, enableBiometrics, sessionId, baselineData]
     );
 
     // Stress analysis effect

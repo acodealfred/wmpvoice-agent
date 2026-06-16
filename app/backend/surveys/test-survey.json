@@ -25,7 +25,8 @@
       "id": "q3",
       "text": "Personal Accomplishment",
       "domain": "Personal Accomplishment",
-      "prompt": "How confident do you feel about your work?"
+      "prompt": "How confident do you feel about your work?",
+      "reverse": true
     },
     {
       "id": "q4",
@@ -37,7 +38,8 @@
       "id": "q5",
       "text": "Job Satisfaction",
       "domain": "Job Satisfaction",
-      "prompt": "How often do you feel positive about your job?"
+      "prompt": "How often do you feel positive about your job?",
+      "reverse": true
     }
   ],
   "thresholds": {

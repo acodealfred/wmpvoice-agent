@@ -27,6 +27,45 @@ _APP_VERSION = "v2025-admin-routes"  # bump this string whenever you need to ver
 logger.info("=== CIQ backend starting — build %s ===", _APP_VERSION)
 
 
+def _blink_band(change_pct) -> str:
+    """Map a baseline-relative blink-rate change (%) to a Low/Medium/High category.
+
+    Bands from the CIQ Signal-Thresholds reference (blink rate is baseline-relative):
+      Normal:   |Δ| ≤ 15%
+      Elevated: 15% < |Δ| ≤ 40%
+      High:     |Δ| > 40%
+    Direction is retained because it changes meaning — suppression (below baseline)
+    indicates focused visual attention; an increase (above baseline) indicates fatigue
+    or higher arousal. Stress must NOT be inferred from blink rate alone.
+    """
+    if change_pct is None:
+        return "Unknown"
+    mag = abs(change_pct)
+    if mag <= 15:
+        return "Normal"
+    level = "Elevated" if mag <= 40 else "High"
+    direction = "above baseline" if change_pct > 0 else "below baseline"
+    return f"{level} ({direction})"
+
+
+def _pupil_band(mm_change) -> str:
+    """Map pupil-dilation change (mm vs baseline) to a category.
+
+    Bands from the CIQ Signal-Thresholds reference (pupil dilation / TEPR):
+      Low:    Δ ≤ +0.1 mm  (includes constriction)
+      Medium: +0.1 < Δ ≤ +0.3 mm
+      High:   Δ > +0.3 mm
+    Caveat: dominated by the pupillary light reflex — webcam estimates are coarse.
+    """
+    if mm_change is None:
+        return "Unknown"
+    if mm_change <= 0.1:
+        return "Low"
+    if mm_change <= 0.3:
+        return "Medium"
+    return "High"
+
+
 async def analyze_report(request):
     """Analyze the detailed burnout report using behavioral analysis engine"""
     try:
@@ -37,28 +76,45 @@ async def analyze_report(request):
         if not snapshots:
             return web.json_response({"error": "No snapshot data provided"}, status=400)
 
-        # Ground truth for analysis - blink rate behavioral rules
+        rtmt = request.app.get("rtmt")
+        if not rtmt:
+            return web.json_response({"error": "Analysis service not available"}, status=503)
+        from survey_loader import effective_score
+        survey_config = rtmt._survey_config
+
+        # Ground truth for analysis — biometric behavioral rules, expressed as the
+        # categorical (Low/Medium/High) bands from the CIQ Signal-Thresholds reference.
         research_rules = """
-Blink Rate (BR): The blink-rate varies with emotional and physical stimulus. When humans are 
-captivated, interested or otherwise curious about something in their field of view, the blink 
-rate will slow and gradually decline as the interest piquies. Conversely, an increasing or 
-rapid blink rate is indicative of high-stress and associated with low levels of concentration 
-and interest. A rapid blinking during conversation can also be interpreted as a feeling of 
-superiority and contempt.
+Blink-rate category (relative to the person's own calibrated baseline):
+- "Normal": blink rate within ±15% of baseline.
+- "Elevated": a sustained 15–40% change from baseline.
+- "High": a sustained change greater than 40% from baseline (treat as significant only
+  if corroborated by another signal).
+Direction matters and is encoded in the category:
+- "below baseline" (suppression) is associated with focused visual attention / engagement.
+- "above baseline" (increase) is associated with fatigue or higher arousal / non-visual load.
+
+Pupil-dilation category (change in mm vs the person's baseline):
+- "Low": ≤ +0.1 mm (includes constriction).
+- "Medium": +0.1 to +0.3 mm — moderate cognitive load.
+- "High": > +0.3 mm — high cognitive load.
+Caveat: pupil size is dominated by the light reflex; webcam estimates are coarse.
+
+Do NOT infer stress from any single signal — none of these has a validated stress threshold.
+The "burnout_score" per question is already burnout-direction (positive items reverse-scored).
 """
 
-        # Build input data from snapshots - only using required fields
+        # Build input data from snapshots — biometrics are provided as CATEGORIES (not raw
+        # numbers) and the score is burnout-direction (reverse items already flipped).
         input_data = []
         for s in snapshots:
-            br_change = s.get("blinkRateChange", 0)
-            br_stress = "High" if br_change > 30 else "Low" if br_change < -30 else "Normal"
             input_data.append({
                 "question": s.get("questionId", ""),
                 "domain": s.get("domain", ""),
-                "score": s.get("score", 0),
+                "burnout_score": effective_score(survey_config, s.get("questionId", ""), s.get("score", 0)),
                 "voice_sentiment": s.get("voiceSentiment", "neutral"),
-                "blink_rate_change": br_change,
-                "br_stress": br_stress,
+                "blink_rate_category": _blink_band(s.get("blinkRateChange")),
+                "pupil_dilation_category": _pupil_band(s.get("pupilMmChange")),
                 "gaze_position": s.get("gazePosition", "Center"),
             })
 
@@ -106,10 +162,6 @@ Output JSON format:
 }}
 """
 
-        rtmt = request.app.get("rtmt")
-        if not rtmt:
-            return web.json_response({"error": "Analysis service not available"}, status=503)
-
         # Call LLM for behavioral analysis
         analysis_result_str = await rtmt.analyze_with_prompt(system_prompt)
 
@@ -119,11 +171,14 @@ Output JSON format:
         except json.JSONDecodeError:
             analysis_data = {"raw": analysis_result_str}
 
-        # Compute totals and risk
-        total_score = sum(s.get('score', 0) for s in snapshots)
+        # Compute totals and risk — reverse-aware: positive items (e.g. Personal
+        # Accomplishment, Job Satisfaction) are flipped so the total reflects burnout.
+        total_score = sum(
+            effective_score(survey_config, s.get("questionId", ""), s.get("score", 0)) for s in snapshots
+        )
         max_score = len(snapshots) * 5
-        thresholds = rtmt._survey_config.get("thresholds", {"low_max": 12, "moderate_max": 22})
-        interp_map = rtmt._survey_config.get("interpretation", {})
+        thresholds = survey_config.get("thresholds", {"low_max": 12, "moderate_max": 22})
+        interp_map = survey_config.get("interpretation", {})
         if total_score <= thresholds["low_max"]:
             risk_level = "Low"
             interpretation = interp_map.get("low", "Low burnout risk")
@@ -134,41 +189,53 @@ Output JSON format:
             risk_level = "High"
             interpretation = interp_map.get("high", "High burnout risk")
 
-        # Domain totals
+        # Domain totals (reverse-aware)
         domain_totals = {}
         for s in snapshots:
             dom = s.get('domain', 'Unknown')
-            domain_totals[dom] = domain_totals.get(dom, 0) + s.get('score', 0)
+            domain_totals[dom] = domain_totals.get(dom, 0) + effective_score(
+                survey_config, s.get("questionId", ""), s.get("score", 0)
+            )
         domain_lines = [f"- {dom}: {score} points" for dom, score in domain_totals.items()]
         domain_summary = "\n".join(domain_lines)
 
-        # Snapshot lines
+        # Snapshot lines — biometrics stated as categories, not raw numbers.
         snapshot_lines = []
         for s in snapshots:
             snapshot_lines.append(
                 f"Q{s.get('questionId','')}: score={s.get('score',0)}, domain={s.get('domain','')}, "
-                f"voice_sentiment={s.get('voiceSentiment','')}, blink_change={s.get('blinkRateChange',0)}%, gaze_position={s.get('gazePosition','')}"
+                f"voice_sentiment={s.get('voiceSentiment','')}, blink_rate={_blink_band(s.get('blinkRateChange'))}, "
+                f"pupil_dilation={_pupil_band(s.get('pupilMmChange'))}, gaze_position={s.get('gazePosition','')}"
             )
         snapshot_summary = "\n".join(snapshot_lines)
 
         # Aggregate biometric readings to STATE factually in the spoken report
-        # (no interpretation, no link to burnout — just the numbers/values).
+        # (no interpretation, no link to burnout — just the categories/values).
         blink_changes = [s.get("blinkRateChange") or 0 for s in snapshots]
         avg_blink_change = sum(blink_changes) / len(blink_changes) if blink_changes else 0
+        overall_blink_category = _blink_band(avg_blink_change)
+        pupil_changes = [s.get("pupilMmChange") or 0 for s in snapshots]
+        avg_pupil_change = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
+        overall_pupil_category = _pupil_band(avg_pupil_change)
         gaze_counts: dict = {}
         for s in snapshots:
             g = s.get("gazePosition") or "Center"
             gaze_counts[g] = gaze_counts.get(g, 0) + 1
         dominant_gaze = max(gaze_counts, key=gaze_counts.get) if gaze_counts else "Center"
         per_q_blink = ", ".join(
-            f"{s.get('questionId','')}={(s.get('blinkRateChange') or 0):+.0f}%" for s in snapshots
+            f"{s.get('questionId','')}={_blink_band(s.get('blinkRateChange'))}" for s in snapshots
+        )
+        per_q_pupil = ", ".join(
+            f"{s.get('questionId','')}={_pupil_band(s.get('pupilMmChange'))}" for s in snapshots
         )
         per_q_gaze = ", ".join(
             f"{s.get('questionId','')}={s.get('gazePosition') or 'Center'}" for s in snapshots
         )
         biometric_facts = (
-            f"- Average blink-rate change from baseline: {avg_blink_change:+.0f}%\n"
-            f"- Blink-rate change per question: {per_q_blink}\n"
+            f"- Overall blink-rate category: {overall_blink_category}\n"
+            f"- Blink-rate category per question: {per_q_blink}\n"
+            f"- Overall pupil-dilation category: {overall_pupil_category}\n"
+            f"- Pupil-dilation category per question: {per_q_pupil}\n"
             f"- Most frequent eye-gaze position: {dominant_gaze}\n"
             f"- Eye-gaze position per question: {per_q_gaze}"
         )
@@ -193,7 +260,8 @@ Please provide a consultative response that:
 4. Offers actionable insights and next steps based on the burnout findings.
 5. Maintains a warm, supportive, professional tone.
 6. Ends with a SEPARATE final paragraph that begins with the word "Also" and simply
-   STATES the biometric readings above (blink-rate change and eye-gaze position) as plain facts.
+   STATES the biometric readings above (blink-rate category, pupil-dilation category and
+   eye-gaze position) as plain facts.
 
 STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
 - Only report the biometric values exactly as given in BIOMETRIC READINGS.
@@ -206,23 +274,23 @@ IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code fo
 
         response_text = await rtmt.analyze_with_prompt(consultative_prompt)
 
-        # ── Mithra KB Consultative Report ────────────────────────────────────
-        # Build a templated query from the survey findings and send it to the
-        # Mithra RAG system. The response includes citations from uploaded docs.
-        sorted_domains = sorted(domain_totals.items(), key=lambda x: x[1], reverse=True)
-        top_domains_str = ", ".join(f"{name} ({score} pts)" for name, score in sorted_domains[:3])
-        mithra_query = (
-            f"Write a consultative wellbeing report for an employee who completed a burnout "
-            f"assessment with a total score of {total_score} out of {max_score}, indicating "
-            f"{interpretation}. The primary contributing factors are: {top_domains_str}. "
-            f"Provide evidence-based recommendations, support strategies, and actionable next "
-            f"steps to address these specific burnout indicators."
-        )
-        logger.info("[APP] Mithra query: %s", mithra_query[:200])
-        ssot_report = await _call_mithra_kb_chat(mithra_query)
-        if ssot_report:
-            logger.info("[APP] Mithra KB report received (%d chars, %d citations)",
-                        len(ssot_report.get("answer", "")), len(ssot_report.get("citations", [])))
+        # If the chat-completions deployment is unavailable, analyze_with_prompt returns
+        # an {"error": ...} JSON string. Blank both outputs so the report simply omits the
+        # analysis section (as if the feature isn't there) instead of surfacing a raw error.
+        # The deterministic score/risk computed above are unaffected.
+        try:
+            _parsed = json.loads(response_text)
+            if isinstance(_parsed, dict) and "error" in _parsed:
+                response_text = ""
+        except Exception:
+            pass
+        if isinstance(analysis_data, dict) and "error" in analysis_data:
+            analysis_data = {}
+
+        # The Mithra/KB evidence report is generated separately by the UI's
+        # "Generate AI Report" button (POST /ssot-report), so /analyze-report no
+        # longer makes a redundant KB call here — keeping it fast and focused on
+        # the data-driven risk + behavioral analysis + consultative summary.
 
         # Build comprehensive report context for follow-up Q&A
         analysis_block = json.dumps(analysis_data, indent=2) if isinstance(analysis_data, dict) else str(analysis_data)
@@ -286,7 +354,13 @@ RISK LEVEL: {risk_level} ({interpretation})
         return web.json_response({
             "analysis": analysis_data,
             "agentResponse": response_text,
-            "ssotReport": ssot_report,  # None when Mithra is not configured
+            # Data-driven values computed from the active survey's thresholds/interpretation
+            # (single source of truth for the report UI — replaces the old hardcoded bands).
+            "totalScore": total_score,
+            "maxScore": max_score,
+            "riskLevel": risk_level,
+            "interpretation": interpretation,
+            "domainTotals": domain_totals,
         })
 
     except Exception as e:
@@ -645,6 +719,7 @@ async def update_biometrics(request, rtmt: RTMiddleTier):
         blink_rate_change = data.get("blink_rate_change_percent", 0.0)
         face_emotion = data.get("face_emotion", "NEUTRAL")
         gaze_position = data.get("gaze_position", "Center")
+        pupil_mm_change = data.get("pupil_mm_change", 0.0)
 
         if not session_id:
             return web.json_response({"error": "session_id is required"}, status=400)
@@ -654,6 +729,7 @@ async def update_biometrics(request, rtmt: RTMiddleTier):
         sess.current_blink_rate_change = blink_rate_change
         sess.current_face_emotion = face_emotion
         sess.current_gaze_position = gaze_position
+        sess.current_pupil_mm_change = pupil_mm_change
         rtmt._update_biometric_history_for_session(sess, blink_rate_change, face_emotion)
 
         logger.info(

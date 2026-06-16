@@ -243,6 +243,21 @@ var openAiDeployments = [
       capacity: realtimeDeploymentCapacity
     }
   }
+  // Chat-completions deployment used by /analyze-report (behavioral analysis +
+  // consultative summary). AZURE_OPENAI_CHAT_DEPLOYMENT must match this name.
+  // NOTE: index 0 must stay 'gpt-realtime' — it backs AZURE_OPENAI_REALTIME_DEPLOYMENT.
+  {
+    name: openAiChatDeployment
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-4o'
+      version: '2024-08-06'
+    }
+    sku: {
+      name: 'GlobalStandard'
+      capacity: 30
+    }
+  }
   // RAG features disabled - embedding deployment no longer needed
   // {
   //   name: embedModel

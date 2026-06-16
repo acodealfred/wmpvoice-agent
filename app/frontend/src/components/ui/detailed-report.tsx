@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { BiometricSnapshot, SSoTReport } from "@/types";
+import { useState, useEffect } from "react";
+import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisInsight } from "@/types";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles } from "lucide-react";
 
 interface DetailedReportProps {
@@ -16,6 +16,8 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
     const [ssotReport, setSsotReport] = useState<SSoTReport | null>(null);
     const [ssotError, setSsotError] = useState<string | null>(null);
     const [ssotQuery, setSsotQuery] = useState<string | null>(null);
+
+    const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
 
     const getSentimentColor = (sentiment: string): string => {
         switch (sentiment) {
@@ -69,6 +71,105 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
         }
     };
 
+    // ── Data-driven technical report (POST /analyze-report) ───────────────
+    // Fires once when the report opens; populates risk, behavioral analysis and
+    // the consultative summary from the backend (single source of truth).
+    useEffect(() => {
+        if (snapshots.length === 0) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch("/analyze-report", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
+                    body: JSON.stringify({ snapshots, session_id: sessionId ?? "" })
+                });
+                if (!res.ok || cancelled) return;
+                const data = (await res.json()) as AnalyzeReportResponse;
+                if (cancelled) return;
+                setAnalyzeData(data);
+                onReportDelivered?.();
+            } catch {
+                // Analysis is optional — on any failure the section is simply omitted.
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [snapshots, sessionId]);
+
+    // Prefer the backend's data-driven values; fall back to props until they load.
+    const displayScore = analyzeData?.totalScore ?? totalScore;
+    const displayMax = analyzeData?.maxScore ?? snapshots.length * 5;
+    const riskLevel = analyzeData?.riskLevel ?? (displayScore <= 12 ? "Low" : displayScore <= 22 ? "Moderate" : "High");
+    const riskText = analyzeData?.interpretation ?? `${riskLevel} burnout risk`;
+    const riskColor = riskLevel === "Low" ? "text-green-600" : riskLevel === "Moderate" ? "text-yellow-600" : "text-red-600";
+
+    const confidenceColor = (c: string) =>
+        c === "high" ? "bg-green-100 text-green-700" : c === "medium" ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-600";
+
+    // Blink-rate change → Low/Medium/High category (CIQ Signal-Thresholds bands).
+    // Magnitude sets the level; the arrow keeps direction (↑ above / ↓ below baseline).
+    const blinkBand = (changePct: number): { label: string; color: string } => {
+        const mag = Math.abs(changePct);
+        if (mag <= 15) return { label: "Normal", color: "bg-green-100 text-green-700" };
+        const arrow = changePct > 0 ? "↑" : "↓";
+        if (mag <= 40) return { label: `Elevated ${arrow}`, color: "bg-yellow-100 text-yellow-700" };
+        return { label: `High ${arrow}`, color: "bg-red-100 text-red-700" };
+    };
+
+    // Pupil-dilation change (mm vs baseline) → category (CIQ Signal-Thresholds bands).
+    const pupilBand = (mmChange?: number): { label: string; color: string } => {
+        if (mmChange == null) return { label: "—", color: "bg-gray-100 text-gray-500" };
+        if (mmChange <= 0.1) return { label: "Low", color: "bg-green-100 text-green-700" };
+        if (mmChange <= 0.3) return { label: "Medium", color: "bg-yellow-100 text-yellow-700" };
+        return { label: "High", color: "bg-red-100 text-red-700" };
+    };
+
+    const renderInsightGroup = (title: string, items?: AnalysisInsight[]) => {
+        if (!items || items.length === 0) return null;
+        return (
+            <div>
+                <h4 className="mb-2 text-sm font-semibold text-gray-700">{title}</h4>
+                <ul className="space-y-2">
+                    {items.map((it, i) => (
+                        <li key={`${title}-${i}`} className="rounded-lg border border-gray-200 p-3">
+                            <div className="flex items-start justify-between gap-2">
+                                <p className="text-sm text-gray-800">{it.insight}</p>
+                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${confidenceColor(it.confidence)}`}>
+                                    {it.confidence}
+                                </span>
+                            </div>
+                            {(it.rule || it.dataPoint) && (
+                                <p className="mt-1 text-xs text-gray-500">
+                                    {it.rule && (
+                                        <span>
+                                            <span className="font-medium">Rule:</span> {it.rule}{" "}
+                                        </span>
+                                    )}
+                                    {it.dataPoint && (
+                                        <span>
+                                            · <span className="font-medium">Data:</span> {it.dataPoint}
+                                        </span>
+                                    )}
+                                </p>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        );
+    };
+
+    const insightCount = analyzeData
+        ? (analyzeData.analysis?.correlations?.length ?? 0) +
+          (analyzeData.analysis?.contradictions?.length ?? 0) +
+          (analyzeData.analysis?.patterns?.length ?? 0)
+        : 0;
+    const hasConsultative = !!analyzeData?.agentResponse?.trim();
+
     return (
         <div className="w-full max-w-4xl rounded-lg bg-white p-6 shadow-lg">
 
@@ -84,16 +185,14 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                 )}
             </div>
 
-            {/* Score summary */}
+            {/* Score summary — data-driven from the active survey's thresholds/interpretation */}
             <div className="mb-6 rounded-lg bg-purple-50 p-4">
                 <div className="text-center">
                     <span className="text-lg font-medium text-gray-700">Total Burnout Score</span>
-                    <div className="mt-2 text-4xl font-bold text-purple-600">{totalScore} / 25</div>
-                    <div className="mt-2 text-sm">
-                        {totalScore <= 12 && <span className="text-green-600">Low burnout risk</span>}
-                        {totalScore > 12 && totalScore <= 22 && <span className="text-yellow-600">Moderate burnout risk</span>}
-                        {totalScore > 22 && <span className="text-red-600">High burnout risk</span>}
+                    <div className="mt-2 text-4xl font-bold text-purple-600">
+                        {displayScore} / {displayMax}
                     </div>
+                    <div className={`mt-2 text-sm font-medium ${riskColor}`}>{riskText}</div>
                 </div>
             </div>
 
@@ -106,7 +205,8 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                             <th className="border border-gray-300 px-3 py-2 text-left font-semibold text-white">Domain</th>
                             <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Score</th>
                             <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Voice Sentiment</th>
-                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Blink Rate Δ</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Blink Rate</th>
+                            <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Pupil Dilation</th>
                             <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Gaze Position</th>
                             <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-white">Response Latency</th>
                         </tr>
@@ -121,9 +221,24 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                                     {snapshot.voiceSentiment}
                                 </td>
                                 <td className="border border-gray-200 px-3 py-2 text-center">
-                                    <span className={snapshot.blinkRateChange >= 0 ? "font-medium text-green-700" : "font-medium text-red-700"}>
-                                        {snapshot.blinkRateChange >= 0 ? "+" : ""}{snapshot.blinkRateChange.toFixed(1)}%
-                                    </span>
+                                    {(() => {
+                                        const b = blinkBand(snapshot.blinkRateChange);
+                                        return (
+                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>
+                                                {b.label}
+                                            </span>
+                                        );
+                                    })()}
+                                </td>
+                                <td className="border border-gray-200 px-3 py-2 text-center">
+                                    {(() => {
+                                        const b = pupilBand(snapshot.pupilMmChange);
+                                        return (
+                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>
+                                                {b.label}
+                                            </span>
+                                        );
+                                    })()}
                                 </td>
                                 <td className="border border-gray-200 px-3 py-2 text-center text-gray-900">{snapshot.gazePosition}</td>
                                 <td className="border border-gray-200 px-3 py-2 text-center text-gray-900">
@@ -138,6 +253,31 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
             <p className="mb-6 text-xs text-gray-400">
                 Note: This is a demonstration only. Results should be validated by a healthcare professional.
             </p>
+
+            {/* ── Behavioral Analysis — rendered ONLY when the model produced real
+                 content. If /analyze-report fails or returns nothing usable, the whole
+                 section is omitted, as if the feature isn't there. ─── */}
+            {analyzeData && (insightCount > 0 || hasConsultative) && (
+                <div className="mb-6 border-t border-gray-200 pt-6">
+                    <h3 className="mb-3 text-lg font-semibold text-gray-800">Behavioral Analysis</h3>
+                    <div className="space-y-4">
+                        {renderInsightGroup("Correlations", analyzeData.analysis?.correlations)}
+                        {renderInsightGroup("Contradictions", analyzeData.analysis?.contradictions)}
+                        {renderInsightGroup("Patterns", analyzeData.analysis?.patterns)}
+
+                        {hasConsultative && (
+                            <div className="rounded-lg bg-gray-50 p-4">
+                                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Consultative Summary
+                                </p>
+                                <p className="whitespace-pre-line text-sm leading-relaxed text-gray-700">
+                                    {analyzeData.agentResponse}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ── Generate AI Report button ─────────────────────────── */}
             <div className="mb-6 border-t border-gray-200 pt-6">

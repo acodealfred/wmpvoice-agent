@@ -36,6 +36,7 @@ class SessionState:
     current_blink_rate_change: float = 0.0
     current_face_emotion: str = "NEUTRAL"
     current_gaze_position: str = "Center"
+    current_pupil_mm_change: float = 0.0
     blink_rate_history: list = field(default_factory=list)
     face_emotion_history: list = field(default_factory=list)
 
@@ -160,6 +161,29 @@ class ToolResult:
         return self.text if isinstance(self.text, str) else json.dumps(self.text)
 
 
+def _blink_band(change_pct) -> str:
+    """Blink-rate change (% vs baseline) → category (CIQ Signal-Thresholds bands)."""
+    if change_pct is None:
+        return "Unknown"
+    mag = abs(change_pct)
+    if mag <= 15:
+        return "Normal"
+    level = "Elevated" if mag <= 40 else "High"
+    direction = "above baseline" if change_pct > 0 else "below baseline"
+    return f"{level} ({direction})"
+
+
+def _pupil_band(mm_change) -> str:
+    """Pupil-dilation change (mm vs baseline) → category (CIQ Signal-Thresholds bands)."""
+    if mm_change is None:
+        return "Unknown"
+    if mm_change <= 0.1:
+        return "Low"
+    if mm_change <= 0.3:
+        return "Medium"
+    return "High"
+
+
 async def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     """Tool to query survey results and provide insights.
 
@@ -177,23 +201,33 @@ async def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
             json.dumps({"error": "No survey results available. Complete the survey first."}),
             ToolResultDirection.TO_SERVER,
         )
-    total_score = sum(r["score"] for r in results.values())
+    from survey_loader import effective_score
+    cfg = self._survey_config
+
+    def _eff(qid, raw):
+        return effective_score(cfg, qid, raw)
+
+    thresholds = cfg.get("thresholds", {"low_max": 12, "moderate_max": 22})
+    interp_map = cfg.get("interpretation", {})
+
+    def _risk(total):
+        if total <= thresholds.get("low_max", 12):
+            return "low", interp_map.get("low", "Low burnout risk")
+        if total <= thresholds.get("moderate_max", 22):
+            return "moderate", interp_map.get("moderate", "Moderate burnout risk")
+        return "high", interp_map.get("high", "High burnout risk")
+
+    # All totals are reverse-aware: positive items (reverse=true) are flipped so the
+    # score reflects burnout direction.
+    total_score = sum(_eff(qid, r["score"]) for qid, r in results.items())
     num_questions = len(results)
 
     response_data = {"query_type": query_type, "has_data": True}
 
     if query_type == "burnout_score":
+        level, interpretation = _risk(total_score)
         response_data["total_score"] = total_score
         response_data["max_score"] = num_questions * 5
-        if total_score <= 12:
-            level = "low"
-            interpretation = "Low burnout risk"
-        elif total_score <= 22:
-            level = "moderate"
-            interpretation = "Moderate burnout risk"
-        else:
-            level = "high"
-            interpretation = "High burnout risk"
         response_data["risk_level"] = level
         response_data["interpretation"] = interpretation
 
@@ -201,20 +235,19 @@ async def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
         domain_scores = {}
         for qid, result in results.items():
             dom = _get_question_domain(qid, self._survey_config)
-            domain_scores[dom] = domain_scores.get(dom, 0) + result["score"]
+            domain_scores[dom] = domain_scores.get(dom, 0) + _eff(qid, result["score"])
         response_data["domains"] = domain_scores
-        # Identify highest contributing domain (highest score indicates more burnout in that domain)
         if domain_scores:
             highest = max(domain_scores, key=domain_scores.get)
             response_data["highest_contributor"] = highest
             response_data["highest_score"] = domain_scores[highest]
 
     elif query_type == "stress_questions":
-        # Identify questions where score indicates high stress (4-5)
+        # High-burnout questions = burnout-direction (effective) score of 4–5.
         high_stress = [
-            {"question_id": qid, "score": r["score"], "domain": _get_question_domain(qid, self._survey_config)}
+            {"question_id": qid, "score": _eff(qid, r["score"]), "domain": _get_question_domain(qid, self._survey_config)}
             for qid, r in results.items()
-            if r["score"] >= 4
+            if _eff(qid, r["score"]) >= 4
         ]
         response_data["high_stress_questions"] = high_stress
         response_data["count"] = len(high_stress)
@@ -222,7 +255,7 @@ async def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     elif query_type == "domain_scores":
         if domain:
             domain_total = sum(
-                r["score"] for qid, r in results.items()
+                _eff(qid, r["score"]) for qid, r in results.items()
                 if _get_question_domain(qid, self._survey_config) == domain
             )
             response_data["domain"] = domain
@@ -231,38 +264,41 @@ async def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
             domain_scores = {}
             for qid, result in results.items():
                 dom = _get_question_domain(qid, self._survey_config)
-                domain_scores[dom] = domain_scores.get(dom, 0) + result["score"]
+                domain_scores[dom] = domain_scores.get(dom, 0) + _eff(qid, result["score"])
             response_data["domain_scores"] = domain_scores
 
     elif query_type == "summary":
+        level, interpretation = _risk(total_score)
         response_data["summary"] = {
             "total_score": total_score,
             "questions_answered": num_questions,
             "average_score": total_score / num_questions if num_questions else 0,
-            "risk_level": (
-                "low" if total_score <= 12 else "moderate" if total_score <= 22 else "high"
-            ),
+            "risk_level": level,
+            "interpretation": interpretation,
         }
 
-        # Biometric readings so the agent can report them when asked. State only —
-        # no clinical interpretation or link to burnout.
+        # Biometric readings as CATEGORIES so the agent can state them when asked.
+        # State only — no clinical interpretation or link to burnout.
         blink_changes = [r.get("blink_rate_change_percent") or 0 for r in results.values()]
         avg_blink = sum(blink_changes) / len(blink_changes) if blink_changes else 0
+        pupil_changes = [r.get("pupil_mm_change") or 0 for r in results.values()]
+        avg_pupil = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
         gaze_counts: dict = {}
         for r in results.values():
             g = r.get("gaze_position") or "Center"
             gaze_counts[g] = gaze_counts.get(g, 0) + 1
         dominant_gaze = max(gaze_counts, key=gaze_counts.get) if gaze_counts else "Center"
         response_data["biometrics"] = {
-            "average_blink_rate_change_percent": round(avg_blink, 1),
+            "overall_blink_rate_category": _blink_band(avg_blink),
+            "overall_pupil_dilation_category": _pupil_band(avg_pupil),
             "dominant_gaze_position": dominant_gaze,
             "per_question": [
                 {
                     "question_id": qid,
                     "domain": _get_question_domain(qid, self._survey_config),
-                    "score": r["score"],
                     "voice_sentiment": r.get("voice_sentiment"),
-                    "blink_rate_change_percent": r.get("blink_rate_change_percent"),
+                    "blink_rate_category": _blink_band(r.get("blink_rate_change_percent")),
+                    "pupil_dilation_category": _pupil_band(r.get("pupil_mm_change")),
                     "gaze_position": r.get("gaze_position"),
                 }
                 for qid, r in results.items()
@@ -316,6 +352,7 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
     )
 
     gaze_position = sess.current_gaze_position
+    pupil_mm_change = sess.current_pupil_mm_change
 
     # Voice response latency captured between the agent finishing the question
     # and the user starting to speak (set in the input_audio_buffer.speech_started handler).
@@ -334,6 +371,7 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
         "user_response": user_response,
         "voice_sentiment": voice_sentiment,
         "blink_rate_change_percent": blink_rate_change_percent,
+        "pupil_mm_change": pupil_mm_change,
         "gaze_position": gaze_position,
         "response_latency_ms": response_latency_ms,
     }
@@ -355,6 +393,7 @@ async def _survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
             "score": score,
             "voiceSentiment": voice_sentiment,
             "blinkRateChange": blink_rate_change_percent,
+            "pupilMmChange": pupil_mm_change,
             "gazePosition": gaze_position,
             "responseLatencyMs": response_latency_ms,
         },
@@ -963,16 +1002,17 @@ STRICT RULES:
 - If the user goes off-topic, say: "Let's finish the check-in first." and repeat the current step's question.
 
 AFTER ALL {len(questions)} ANSWERS:
-Share the result (do not show numbers to the user):
-  Total 5–12  → "{interp.get("low", "Low burnout risk")}"
-  Total 13–22 → "{interp.get("moderate", "Moderate burnout risk")}"
-  Total 23–25 → "{interp.get("high", "High burnout risk")}"
+- Do NOT calculate the score yourself. Call query_survey_results with query_type="burnout_score".
+- Tell the user the "interpretation" text it returns, word for word. Do not show numbers.
+- This is the authoritative result — it applies reverse-scoring and the correct thresholds,
+  so never override it with your own estimate.
 
 TOOL RULES (silent, never tell the user):
 - record_survey_response: call ONLY after the user has answered that step's question.
   Required fields: question_id (as shown per step), score 1–5, voice_sentiment, blink_rate_change_percent, face_emotion.
 - DO NOT call record_survey_response for a question_id that you have already recorded.
-- query_survey_results: use only after the survey is complete, to answer follow-up questions."""
+- query_survey_results: call with "burnout_score" to deliver the final result, and use it
+  again for any follow-up questions after the survey is complete."""
 
     async def _process_message_to_client(
         self,
@@ -1199,6 +1239,11 @@ TOOL RULES (silent, never tell the user):
                                         if survey_result_data and survey_result_data.get("gaze_position")
                                         else sess.current_gaze_position
                                     )
+                                    pupil_mm_change = (
+                                        survey_result_data.get("pupil_mm_change")
+                                        if survey_result_data and survey_result_data.get("pupil_mm_change") is not None
+                                        else sess.current_pupil_mm_change
+                                    )
 
                                     await client_ws.send_json(
                                         {
@@ -1209,6 +1254,7 @@ TOOL RULES (silent, never tell the user):
                                                 "score": score,
                                                 "voiceSentiment": voice_sentiment,
                                                 "blinkRateChange": blink_change,
+                                                "pupilMmChange": pupil_mm_change,
                                                 "gazePosition": gaze_position,
                                                 "responseLatencyMs": survey_result_data.get("response_latency_ms"),
                                             },

@@ -40,3 +40,34 @@ def load_survey(survey_type: str) -> dict:
     fallback_path = _BASE_DIR / SURVEY_MAP["TEST"]
     with open(fallback_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# ── Scoring helpers ──────────────────────────────────────────────────────────
+# Positively-worded items (e.g. Personal Accomplishment, Job Satisfaction) are
+# marked "reverse": true in the survey config. For those, a high answer means LESS
+# burnout, so the burnout-direction ("effective") score is flipped: (min+max) - raw.
+# Without this, a burnt-out person who answers low on positive items can never reach
+# the High band — the total is structurally capped in the Moderate range.
+
+def get_score_bounds(config: dict) -> tuple[int, int]:
+    """Return (min, max) option values for a survey; defaults to (1, 5)."""
+    vals = [o.get("value") for o in config.get("options", []) if isinstance(o.get("value"), (int, float))]
+    return (int(min(vals)), int(max(vals))) if vals else (1, 5)
+
+
+def is_reverse_item(config: dict, question_id: str) -> bool:
+    for q in config.get("questions", []):
+        if q.get("id") == question_id:
+            return bool(q.get("reverse", False))
+    return False
+
+
+def effective_score(config: dict, question_id: str, raw_score) -> int:
+    """Burnout-direction score for a question. Reverse items are flipped so that a
+    high answer on a positive item counts toward LOW burnout."""
+    if raw_score is None:
+        return 0
+    if is_reverse_item(config, question_id):
+        lo, hi = get_score_bounds(config)
+        return (lo + hi) - int(raw_score)
+    return int(raw_score)
