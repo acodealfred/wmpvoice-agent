@@ -540,11 +540,27 @@ class RTMiddleTier:
         logger.info(f"[RTMT] ★ Conversation state set to: {state} (session={session_id})")
 
     def clear_conversation_state_for_session(self, session_id: str) -> None:
+        """Fully reset a session so a brand-new survey can run on the same session_id.
+
+        Clears not just the conversation state but also survey_results (otherwise the
+        record_survey_response idempotency guard rejects re-scoring q1..q5) and the
+        reconnect counter (otherwise the 'this is a reconnect — don't start a survey'
+        instructions keep firing). This is what makes retaking a survey deterministic
+        without minting a new session_id.
+        """
         sess = self.get_or_create_session(session_id)
         sess.conversation_state = "active"
         sess.report_context = None
         sess.last_agent_response_type = None
-        logger.info("[RTMT] ★ Conversation state cleared (session=%s)", session_id)
+        sess.survey_results.clear()
+        sess.blink_rate_history.clear()
+        sess.face_emotion_history.clear()
+        sess.current_blink_rate_change = 0.0
+        sess.current_face_emotion = "NEUTRAL"
+        sess.current_gaze_position = "Center"
+        sess.stress_state = "normal"
+        sess.connection_count = 0
+        logger.info("[RTMT] ★ Session fully reset for new survey (session=%s)", session_id)
 
     # Keep backward-compatible wrappers that operate on the current WS session
     def set_stress_state(self, state: str) -> None:

@@ -276,14 +276,24 @@ function App() {
     const onToggleListening = async () => {
         if (!isRecording) {
             // Only begin a brand-new assessment when the previous survey actually
-            // COMPLETED. Minting a fresh session_id then gives the backend a pristine
-            // SessionState (conversation_state="active", no prior survey_results, reset
-            // reconnect counter), so the agent starts a NEW survey instead of resuming a
-            // delivered report. If a survey is still in progress (e.g. the user toggled
-            // the mic off mid-way), we keep the same session_id so it resumes.
+            // COMPLETED. We fully reset the SAME backend session (clears survey_results,
+            // conversation_state and the reconnect counter) and await it before
+            // reconnecting the agent. Resetting server-side on the same session_id is
+            // deterministic — unlike swapping the id and racing a WebSocket reconnect.
+            // A survey still in progress (mic toggled off mid-way) is left untouched so
+            // it resumes.
             if (assessmentComplete) {
+                try {
+                    await fetch("/clear-conversation", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "same-origin",
+                        body: JSON.stringify({ session_id: sessionId })
+                    });
+                } catch (err) {
+                    console.error("Failed to reset session for new assessment:", err);
+                }
                 resetAssessmentState();
-                setSessionId(crypto.randomUUID());
                 setAssessmentComplete(false);
             }
 
