@@ -172,23 +172,23 @@ function ConsultativeReport({ answer, citations }: { answer: string; citations: 
                 panels.map((p, i) => (
                     <div key={i} className={`rounded-lg border ${p.border} ${p.bg} px-4 py-3`}>
                         <p className={`mb-1.5 text-xs font-bold uppercase tracking-wide ${p.colour}`}>{p.label}</p>
-                        <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{p.body}</p>
+                        <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">{p.body}</p>
                     </div>
                 ))
             ) : (
-                <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{answer}</p>
+                <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">{answer}</p>
             )}
 
             {citations.length > 0 && (
-                <div className="border-t border-slate-700 pt-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Citations</p>
+                <div className="border-t border-[color:var(--ciq-line)] pt-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Citations</p>
                     <ul className="space-y-1.5">
                         {citations.map((c, i) => (
-                            <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                            <li key={i} className="flex items-start gap-2 text-xs text-[color:var(--ciq-text-body)]">
                                 <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" />
                                 <span>
                                     <span className="font-medium text-blue-300">{c.paperTitle}</span>
-                                    {c.paperPage > 0 && <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>}
+                                    {c.paperPage > 0 && <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>}
                                 </span>
                             </li>
                         ))}
@@ -385,8 +385,8 @@ export function TestGenerator() {
             <div className="flex items-center gap-3">
                 <FlaskConical className="h-6 w-6 text-purple-400" />
                 <div>
-                    <h2 className="text-lg font-semibold text-white">SSOT Test Generator</h2>
-                    <p className="text-xs text-slate-400">
+                    <h2 className="text-lg font-semibold text-[color:var(--ciq-text-strong)]">SSOT Test Generator</h2>
+                    <p className="text-xs text-[color:var(--ciq-text-muted)]">
                         Generate synthetic burnout scenarios and test the Knowledge Base integration without running the survey.
                     </p>
                 </div>
@@ -394,8 +394,8 @@ export function TestGenerator() {
 
             {/* ── Config panel (shown before generating) ── */}
             {scenarios.length === 0 && (
-                <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-                    <label className="mb-3 block text-sm font-medium text-slate-300">
+                <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5">
+                    <label className="mb-3 block text-sm font-medium text-[color:var(--ciq-text-body)]">
                         Number of test cases:&nbsp;
                         <span className="font-bold text-purple-400">{testCount}</span>
                     </label>
@@ -407,7 +407,7 @@ export function TestGenerator() {
                         onChange={e => setTestCount(Number(e.target.value))}
                         className="mb-4 w-full accent-purple-500"
                     />
-                    <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
+                    <div className="flex items-center justify-between text-xs text-[color:var(--ciq-text-muted)] mb-4">
                         <span>1</span><span>10</span>
                     </div>
                     <button
@@ -422,7 +422,7 @@ export function TestGenerator() {
 
             {/* ── Scenario navigator ── */}
             {scenario && (
-                <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+                <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5">
 
                     {/* Counter + label */}
                     <div className="mb-3 flex items-center gap-3">
@@ -434,31 +434,31 @@ export function TestGenerator() {
                         </span>
                     </div>
 
-                    <p className="mb-4 text-sm font-semibold text-white">{scenario.label}</p>
+                    <p className="mb-4 text-sm font-semibold text-[color:var(--ciq-text-strong)]">{scenario.label}</p>
 
                     {/* Snapshot table */}
                     <div className="mb-4 overflow-x-auto rounded-lg">
                         <table className="w-full border-collapse text-xs">
                             <thead>
-                                <tr className="bg-slate-800">
-                                    <th className="border border-slate-700 px-3 py-2 text-left text-slate-300">Domain</th>
-                                    <th className="border border-slate-700 px-3 py-2 text-center text-slate-300">Score</th>
-                                    <th className="border border-slate-700 px-3 py-2 text-center text-slate-300">Sentiment</th>
-                                    <th className="border border-slate-700 px-3 py-2 text-center text-slate-300">Gaze</th>
+                                <tr className="bg-[color:var(--ciq-card-2)]">
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-left text-[color:var(--ciq-text-body)]">Domain</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Score</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Sentiment</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Gaze</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {scenario.snapshots.map((s, i) => (
-                                    <tr key={s.questionId} className={i % 2 === 0 ? "bg-slate-900" : "bg-slate-800/50"}>
-                                        <td className="border border-slate-700 px-3 py-1.5 text-slate-200">
+                                    <tr key={s.questionId} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-[color:var(--ciq-text-strong)]">
                                             {s.domain}
                                             {scenario.primaryDomains.includes(s.domain) && (
                                                 <span className="ml-2 rounded bg-purple-900/50 px-1 py-0.5 text-[10px] text-purple-300">primary</span>
                                             )}
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-1.5 text-center font-semibold text-white">{s.score}/5</td>
-                                        <td className="border border-slate-700 px-3 py-1.5 text-center capitalize text-slate-300">{s.voiceSentiment}</td>
-                                        <td className="border border-slate-700 px-3 py-1.5 text-center text-slate-300">{s.gazePosition}</td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center font-semibold text-[color:var(--ciq-text-strong)]">{s.score}/5</td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center capitalize text-[color:var(--ciq-text-body)]">{s.voiceSentiment}</td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center text-[color:var(--ciq-text-body)]">{s.gazePosition}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -469,7 +469,7 @@ export function TestGenerator() {
                     <div className="flex gap-2">
                         <button
                             onClick={handleRegenerate}
-                            className="flex items-center gap-1 rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                            className="flex items-center gap-1 rounded-lg border border-[color:var(--ciq-line)] px-3 py-1.5 text-xs text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                         >
                             <RefreshCw className="h-3 w-3" />
                             Regenerate
@@ -477,7 +477,7 @@ export function TestGenerator() {
                         <button
                             onClick={handleNext}
                             disabled={currentIdx >= scenarios.length - 1}
-                            className="ml-auto flex items-center gap-1 rounded-lg bg-slate-700 px-4 py-1.5 text-xs font-medium text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="ml-auto flex items-center gap-1 rounded-lg bg-[color:var(--ciq-card-3)] px-4 py-1.5 text-xs font-medium text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             Next
                             <ChevronRight className="h-3 w-3" />
@@ -490,12 +490,12 @@ export function TestGenerator() {
             {scenario && (
                 <div className="flex gap-4 items-start">
                     {/* Left: query editor */}
-                    <div className="flex-1 min-w-0 rounded-xl border border-slate-700 bg-slate-900 p-5">
+                    <div className="flex-1 min-w-0 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5">
                         <div className="mb-2 flex items-center justify-between">
-                            <p className="text-sm font-semibold text-slate-200">Mithra Query — Edit before sending</p>
+                            <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Mithra Query — Edit before sending</p>
                             <button
                                 onClick={() => setEditableQuery(scenario.previewQuery)}
-                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                                className="flex items-center gap-1 text-xs text-[color:var(--ciq-text-muted)] hover:text-[color:var(--ciq-text-strong)]"
                             >
                                 <ChevronLeft className="h-3 w-3" />
                                 Reset to default
@@ -505,9 +505,9 @@ export function TestGenerator() {
                             value={editableQuery}
                             onChange={e => setEditableQuery(e.target.value)}
                             rows={5}
-                            className="w-full resize-y rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm leading-relaxed text-slate-200 focus:border-purple-500 focus:outline-none"
+                            className="w-full resize-y rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm leading-relaxed text-[color:var(--ciq-text-strong)] focus:border-purple-500 focus:outline-none"
                         />
-                        <p className="mt-1 text-xs text-slate-500">You may freely edit this query before sending it to the Knowledge Base.</p>
+                        <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">You may freely edit this query before sending it to the Knowledge Base.</p>
 
                         <button
                             onClick={handleSendToSSoT}
@@ -523,10 +523,10 @@ export function TestGenerator() {
                     </div>
 
                     {/* Right: AI Consultative Report (or placeholder) */}
-                    <div className="flex-1 min-w-0 rounded-xl border border-blue-700 bg-slate-900 p-5 self-stretch flex flex-col">
+                    <div className="flex-1 min-w-0 rounded-xl border border-blue-700 bg-[color:var(--ciq-card)] p-5 self-stretch flex flex-col">
                         <div className="mb-3 flex items-center gap-2">
                             <BookOpen className="h-5 w-5 text-blue-400" />
-                            <h3 className="text-base font-semibold text-white">AI Consultative Report</h3>
+                            <h3 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">AI Consultative Report</h3>
                             <span className="ml-auto rounded-full bg-blue-900/50 px-2 py-0.5 text-xs font-medium text-blue-300">
                                 SSOT · Evidence-based
                             </span>
@@ -540,14 +540,14 @@ export function TestGenerator() {
                         )}
 
                         {ssotLoading && (
-                            <div className="flex flex-1 items-center justify-center gap-2 text-slate-500">
+                            <div className="flex flex-1 items-center justify-center gap-2 text-[color:var(--ciq-text-muted)]">
                                 <Loader2 className="h-4 w-4 animate-spin" />
                                 <span className="text-sm">Generating report…</span>
                             </div>
                         )}
 
                         {!ssotReport && !ssotLoading && !ssotError && (
-                            <p className="flex-1 text-sm italic text-slate-600">
+                            <p className="flex-1 text-sm italic text-[color:var(--ciq-text-body)]">
                                 Send the query to generate a consultative report here.
                             </p>
                         )}
@@ -561,10 +561,10 @@ export function TestGenerator() {
                         {ssotReport && llmUsed === false && (
                             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-4">
                                 <p className="text-sm font-medium text-amber-300">Reporting LLM not configured</p>
-                                <p className="text-xs text-slate-500 max-w-xs">
-                                    Set <code className="rounded bg-slate-800 px-1 py-0.5 text-amber-300">REPORT_OPENAI_ENDPOINT</code>,{" "}
-                                    <code className="rounded bg-slate-800 px-1 py-0.5 text-amber-300">REPORT_OPENAI_API_KEY</code> and{" "}
-                                    <code className="rounded bg-slate-800 px-1 py-0.5 text-amber-300">REPORT_OPENAI_DEPLOYMENT</code>{" "}
+                                <p className="text-xs text-[color:var(--ciq-text-muted)] max-w-xs">
+                                    Set <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-amber-300">REPORT_OPENAI_ENDPOINT</code>,{" "}
+                                    <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-amber-300">REPORT_OPENAI_API_KEY</code> and{" "}
+                                    <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-amber-300">REPORT_OPENAI_DEPLOYMENT</code>{" "}
                                     in the backend environment to enable the physiometric consultative report.
                                 </p>
                             </div>
@@ -575,30 +575,30 @@ export function TestGenerator() {
 
             {/* ── Knowledge Base Facts (raw Mithra response) ── */}
             {mithraRaw && (
-                <div className="rounded-xl border border-amber-700 bg-slate-900 p-5">
+                <div className="rounded-xl border border-amber-700 bg-[color:var(--ciq-card)] p-5">
                     <div className="mb-3 flex items-center gap-2">
                         <BookOpen className="h-5 w-5 text-amber-400" />
-                        <h3 className="text-base font-semibold text-white">Knowledge Base Facts</h3>
+                        <h3 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Facts</h3>
                         <span className="ml-auto rounded-full bg-amber-900/50 px-2 py-0.5 text-xs font-medium text-amber-300">
                             RAW · Source Material
                         </span>
                     </div>
                     {mithraRaw.answer ? (
-                        <p className="whitespace-pre-line text-sm leading-relaxed text-slate-200">{mithraRaw.answer}</p>
+                        <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">{mithraRaw.answer}</p>
                     ) : (
-                        <p className="text-sm italic text-slate-500">Mithra returned no facts for this query.</p>
+                        <p className="text-sm italic text-[color:var(--ciq-text-muted)]">Mithra returned no facts for this query.</p>
                     )}
                     {mithraRaw.citations.length > 0 && (
-                        <div className="mt-4 border-t border-slate-700 pt-3">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Source Citations</p>
+                        <div className="mt-4 border-t border-[color:var(--ciq-line)] pt-3">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Source Citations</p>
                             <ul className="space-y-1.5">
                                 {mithraRaw.citations.map((c, i) => (
-                                    <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                                    <li key={i} className="flex items-start gap-2 text-xs text-[color:var(--ciq-text-body)]">
                                         <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
                                         <span>
                                             <span className="font-medium text-amber-300">{c.paperTitle}</span>
                                             {c.paperPage > 0 && (
-                                                <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>
+                                                <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>
                                             )}
                                         </span>
                                     </li>
@@ -610,11 +610,11 @@ export function TestGenerator() {
             )}
 
             {/* ── KB Chat (always visible) ── */}
-            <div className="rounded-xl border border-green-800 bg-slate-900 flex flex-col" style={{ minHeight: "420px" }}>
+            <div className="rounded-xl border border-green-800 bg-[color:var(--ciq-card)] flex flex-col" style={{ minHeight: "420px" }}>
                 {/* Header */}
-                <div className="flex items-center gap-2 border-b border-slate-700 px-4 py-3">
+                <div className="flex items-center gap-2 border-b border-[color:var(--ciq-line)] px-4 py-3">
                     <MessageCircle className="h-4 w-4 text-green-400" />
-                    <h3 className="text-sm font-semibold text-white">Chat with Knowledge Base</h3>
+                    <h3 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Chat with Knowledge Base</h3>
                     {chatId && (
                         <span className="ml-1 rounded-full bg-green-900/40 px-2 py-0.5 text-[10px] text-green-400">
                             session active
@@ -622,7 +622,7 @@ export function TestGenerator() {
                     )}
                     <button
                         onClick={handleNewChat}
-                        className="ml-auto flex items-center gap-1 rounded-lg border border-slate-600 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"
+                        className="ml-auto flex items-center gap-1 rounded-lg border border-[color:var(--ciq-line)] px-2 py-1 text-xs text-[color:var(--ciq-text-muted)] hover:bg-[color:var(--ciq-card-2)] hover:text-[color:var(--ciq-text-strong)]"
                     >
                         <PlusCircle className="h-3 w-3" />
                         New Chat
@@ -633,7 +633,7 @@ export function TestGenerator() {
                 <div className="flex-1 overflow-y-auto space-y-4 p-4" style={{ maxHeight: "420px" }}>
                     {chatMessages.length === 0 && (
                         <div className="flex h-full items-center justify-center">
-                            <p className="text-xs text-slate-600">Ask anything about your company's Knowledge Base…</p>
+                            <p className="text-xs text-[color:var(--ciq-text-body)]">Ask anything about your company's Knowledge Base…</p>
                         </div>
                     )}
                     {chatMessages.map((msg, idx) => (
@@ -641,23 +641,23 @@ export function TestGenerator() {
                             <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
                                 msg.role === "user"
                                     ? "bg-green-700 text-white"
-                                    : "bg-slate-800 text-slate-200"
+                                    : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-strong)]"
                             }`}>
                                 {msg.content ? (
                                     <p className="whitespace-pre-line leading-relaxed">{msg.content}</p>
                                 ) : (
-                                    <p className="italic text-slate-500 text-xs">No content returned — check KB documents are uploaded and indexed.</p>
+                                    <p className="italic text-[color:var(--ciq-text-muted)] text-xs">No content returned — check KB documents are uploaded and indexed.</p>
                                 )}
                                 {msg.citations.length > 0 && (
-                                    <div className="mt-2 border-t border-slate-700 pt-2">
-                                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Citations</p>
+                                    <div className="mt-2 border-t border-[color:var(--ciq-line)] pt-2">
+                                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Citations</p>
                                         <ul className="space-y-1">
                                             {msg.citations.map((c, ci) => (
-                                                <li key={ci} className="flex items-start gap-1.5 text-[11px] text-slate-300">
+                                                <li key={ci} className="flex items-start gap-1.5 text-[11px] text-[color:var(--ciq-text-body)]">
                                                     <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-green-400" />
                                                     <span>
                                                         <span className="font-medium text-green-300">{c.paperTitle}</span>
-                                                        {c.paperPage > 0 && <span className="ml-1 text-slate-500">— p.&nbsp;{c.paperPage}</span>}
+                                                        {c.paperPage > 0 && <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>}
                                                     </span>
                                                 </li>
                                             ))}
@@ -669,7 +669,7 @@ export function TestGenerator() {
                     ))}
                     {chatLoading && (
                         <div className="flex justify-start">
-                            <div className="rounded-xl bg-slate-800 px-4 py-2.5">
+                            <div className="rounded-xl bg-[color:var(--ciq-card-2)] px-4 py-2.5">
                                 <Loader2 className="h-4 w-4 animate-spin text-green-400" />
                             </div>
                         </div>
@@ -684,7 +684,7 @@ export function TestGenerator() {
                 </div>
 
                 {/* Input bar */}
-                <div className="border-t border-slate-700 p-3 flex gap-2">
+                <div className="border-t border-[color:var(--ciq-line)] p-3 flex gap-2">
                     <input
                         type="text"
                         value={chatInput}
@@ -692,7 +692,7 @@ export function TestGenerator() {
                         onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
                         placeholder="Ask the Knowledge Base…"
                         disabled={chatLoading}
-                        className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-green-500 focus:outline-none disabled:opacity-50"
+                        className="flex-1 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder-slate-500 focus:border-green-500 focus:outline-none disabled:opacity-50"
                     />
                     <button
                         onClick={handleChatSend}

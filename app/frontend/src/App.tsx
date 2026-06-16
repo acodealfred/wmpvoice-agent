@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { LoginScreen } from "@/components/ui/login-screen";
@@ -21,6 +21,10 @@ import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, Biome
 import logo from "./assets/logo.png";
 
 function App() {
+    const [theme, setTheme] = useState<"light" | "dark">(() => {
+        const saved = localStorage.getItem("ciq-theme");
+        return saved === "dark" ? "dark" : "light";
+    });
     const [authState, setAuthState] = useState<AuthState>("checking");
     const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
     // Session ID starts as a local UUID and is replaced with the server-issued one on login
@@ -57,6 +61,14 @@ function App() {
         startBaselineSession,
         clearBaseline
     } = useBiometrics();
+
+    // Apply the active theme to <html> (drives the CSS theme tokens) and persist it.
+    useEffect(() => {
+        document.documentElement.setAttribute("data-theme", theme);
+        // Also toggle the shadcn `.dark` class so Button/Card primitives follow the theme.
+        document.documentElement.classList.toggle("dark", theme === "dark");
+        localStorage.setItem("ciq-theme", theme);
+    }, [theme]);
 
     // Check existing session cookie on mount
     useEffect(() => {
@@ -339,11 +351,11 @@ function App() {
     const getStressColor = (state: string) => {
         switch (state) {
             case "stressed":
-                return "text-[#F7F5F5]";
+                return "text-[color:var(--ciq-accent-red)]";
             case "relaxed":
-                return "text-[#5ee5a1]";
+                return "text-[color:var(--ciq-accent-green)]";
             default:
-                return "text-[#fbd585]";
+                return "text-[color:var(--ciq-accent-amber)]";
         }
     };
 
@@ -362,8 +374,8 @@ function App() {
 
     if (authState === "checking") {
         return (
-            <div className="flex min-h-screen items-center justify-center bg-[#f6f1e9]">
-                <p className="text-sm text-[rgba(20,18,14,0.50)]">Loading…</p>
+            <div className="flex min-h-screen items-center justify-center ciq-page">
+                <p className="text-sm text-[color:var(--ciq-text-60)]">Loading…</p>
             </div>
         );
     }
@@ -373,36 +385,44 @@ function App() {
     }
 
     return (
-        <div className="flex min-h-screen flex-col bg-[#f6f1e9] text-gray-100">
+        <div className="flex min-h-screen flex-col ciq-page text-[color:var(--ciq-text-strong)]">
             {/* ── Floating pill header ── */}
             <div className="sticky top-0 z-40 px-5 pb-2 pt-4">
-                <div className="flex items-center justify-between rounded-[40px] border border-white/[0.16] bg-[rgba(18,25,23,0.28)] px-6 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] saturate-150 backdrop-blur-[34px]">
+                <div className="flex items-center justify-between rounded-[40px] border border-[color:var(--ciq-border)] bg-[color:var(--ciq-header-bg)] px-6 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] saturate-150 backdrop-blur-[34px]">
                     <div className="flex items-center gap-3">
-                        <img src={logo} alt="CIQ logo" className="h-10 w-10" />
+                        <img src={logo} alt="CIQ logo" className="ciq-logo h-10 w-10" />
                         <div>
-                            <h1 className="text-lg font-bold tracking-tight text-[#fffaf2]">CIQ Voice Agent</h1>
-                            <p className="text-xs text-[rgba(255,250,242,0.46)]">Burnout Assessment Platform</p>
+                            <h1 className="text-lg font-bold tracking-tight text-[color:var(--ciq-text-strong)]">CIQ Voice Agent</h1>
+                            <p className="text-xs text-[color:var(--ciq-text-46)]">Burnout Assessment Platform</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
                         {enableSentiment && (
-                            <div className="flex items-center gap-1.5 rounded-full bg-[rgba(25,122,75,0.28)] px-3 py-1.5 text-xs font-medium text-[#77f2ae]">
+                            <div className="flex items-center gap-1.5 rounded-full bg-[color:var(--ciq-tile-strong)] px-3 py-1.5 text-xs font-medium text-[color:var(--ciq-accent-green)]">
                                 <Smile className="h-3.5 w-3.5" />
                                 Sentiment
                             </div>
                         )}
                         {enableSurvey && (
-                            <div className="flex items-center gap-1.5 rounded-full bg-[rgba(130,52,204,0.28)] px-3 py-1.5 text-xs font-medium text-[#e4c3ff]">
+                            <div className="flex items-center gap-1.5 rounded-full bg-[color:var(--ciq-tile-strong)] px-3 py-1.5 text-xs font-medium text-[color:var(--ciq-accent-purple)]">
                                 <ClipboardList className="h-3.5 w-3.5" />
                                 Survey
                             </div>
                         )}
-                        {!isRecording && <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-[rgba(255,250,242,0.68)]">Ready</span>}
-                        <div className="flex items-center gap-2 border-l border-white/[0.12] pl-3">
-                            <span className="text-xs text-[rgba(255,250,242,0.60)]">{currentUser?.name}</span>
+                        {!isRecording && <span className="rounded-full bg-[color:var(--ciq-tile-strong)] px-3 py-1.5 text-xs font-medium text-[color:var(--ciq-text-68)]">Ready</span>}
+                        <button
+                            onClick={() => setTheme(prev => (prev === "light" ? "dark" : "light"))}
+                            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+                            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)]"
+                        >
+                            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                        </button>
+                        <div className="flex items-center gap-2 border-l border-[color:var(--ciq-divider)] pl-3">
+                            <span className="text-xs text-[color:var(--ciq-text-60)]">{currentUser?.name}</span>
                             <button
                                 onClick={handleLogout}
-                                className="rounded-full bg-white/[0.08] px-3 py-1.5 text-xs font-medium text-[rgba(255,250,242,0.68)] transition-colors hover:bg-white/[0.16]"
+                                className="rounded-full bg-[color:var(--ciq-tile-strong)] px-3 py-1.5 text-xs font-medium text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)]"
                             >
                                 Sign Out
                             </button>
@@ -418,7 +438,7 @@ function App() {
                     className={`transition-all ${
                         activeTab === "assessment"
                             ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
-                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
+                            : "px-6 py-2 text-sm font-medium text-[color:var(--ciq-text-60)] hover:text-[color:var(--ciq-text-86)]"
                     }`}
                 >
                     Assessment
@@ -428,7 +448,7 @@ function App() {
                     className={`transition-all ${
                         activeTab === "admin"
                             ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
-                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
+                            : "px-6 py-2 text-sm font-medium text-[color:var(--ciq-text-60)] hover:text-[color:var(--ciq-text-86)]"
                     }`}
                 >
                     Admin
@@ -438,7 +458,7 @@ function App() {
                     className={`transition-all ${
                         activeTab === "test"
                             ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
-                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
+                            : "px-6 py-2 text-sm font-medium text-[color:var(--ciq-text-60)] hover:text-[color:var(--ciq-text-86)]"
                     }`}
                 >
                     Test Generator
@@ -448,7 +468,7 @@ function App() {
                     className={`transition-all ${
                         activeTab === "history"
                             ? "rounded-full border border-black/[0.20] bg-white/80 px-8 py-2 text-sm font-semibold text-[#1a1a1a] shadow-[0_18px_46px_rgba(0,0,0,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)]"
-                            : "px-6 py-2 text-sm font-medium text-[rgba(20,18,14,0.50)] hover:text-[rgba(20,18,14,0.86)]"
+                            : "px-6 py-2 text-sm font-medium text-[color:var(--ciq-text-60)] hover:text-[color:var(--ciq-text-86)]"
                     }`}
                 >
                     History
@@ -483,11 +503,11 @@ function App() {
                         {/* Camera Feed Panel - Top Left */}
                         <section className="ciq-glass-card">
                             <div className="flex h-full flex-col">
-                                <div className="border-white/8 border-b px-5 py-3">
+                                <div className="border-[color:var(--ciq-divider)] border-b px-5 py-3">
                                     <div className="flex items-center gap-2">
                                         <div className="h-2 w-2 rounded-full bg-green-500 ring-2 ring-green-500/30"></div>
-                                        <h2 className="text-sm font-semibold text-[#fffaf2]">Camera Feed</h2>
-                                        <span className="ml-auto rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold tracking-widest text-slate-400">
+                                        <h2 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Camera Feed</h2>
+                                        <span className="ml-auto rounded-full bg-[color:var(--ciq-tile-strong)] px-2 py-0.5 text-[10px] font-semibold tracking-widest text-[color:var(--ciq-text-60)]">
                                             LIVE
                                         </span>
                                     </div>
@@ -502,15 +522,15 @@ function App() {
                                         onVideoReady={setVideoElement}
                                     />
                                 </div>
-                                <div className="border-white/8 border-t px-5 py-4">
+                                <div className="border-[color:var(--ciq-divider)] border-t px-5 py-4">
                                     <div className="flex flex-col gap-2">
                                         {enableSurvey && surveyTypeConfig && (
-                                            <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-3">
-                                                <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">Survey Type</p>
+                                            <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
+                                                <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">Survey Type</p>
                                                 {surveyTypeConfig.surveyTypeOverridden ? (
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-xs text-[#fffaf2]">{surveyTypeConfig.activeSurveyType}</span>
-                                                        <span className="text-[9px] text-[rgba(255,250,242,0.40)]">(locked by deployment)</span>
+                                                        <span className="text-xs text-[color:var(--ciq-text-strong)]">{surveyTypeConfig.activeSurveyType}</span>
+                                                        <span className="text-[9px] text-[color:var(--ciq-text-40)]">(locked by deployment)</span>
                                                     </div>
                                                 ) : (
                                                     <div className="flex gap-2">
@@ -522,7 +542,7 @@ function App() {
                                                                 className={`rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                                                                     surveyTypeConfig.activeSurveyType === type
                                                                         ? "bg-[#5ee5a1] text-[#0d1a14]"
-                                                                        : "bg-white/[0.08] text-[rgba(255,250,242,0.68)] hover:bg-white/[0.12]"
+                                                                        : "bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)]"
                                                                 }`}
                                                             >
                                                                 {type}
@@ -536,7 +556,7 @@ function App() {
                                             onClick={onToggleListening}
                                             className={`group relative flex h-11 w-full items-center justify-center gap-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${
                                                 isRecording
-                                                    ? "border border-white/[0.16] bg-white/[0.08] text-[rgba(255,250,242,0.68)] hover:bg-white/[0.12]"
+                                                    ? "border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)]"
                                                     : "bg-gradient-to-r from-purple-600 to-pink-600 shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-pink-500"
                                             }`}
                                         >
@@ -553,7 +573,7 @@ function App() {
                                             )}
                                         </Button>
                                         {isRecording && (
-                                            <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[rgba(25,122,75,0.40)] bg-[rgba(25,122,75,0.20)] text-sm font-medium text-[#77f2ae]">
+                                            <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[rgba(25,122,75,0.40)] bg-[rgba(25,122,75,0.20)] text-sm font-medium text-[color:var(--ciq-accent-green)]">
                                                 <Mic className="h-4 w-4 animate-pulse" />
                                                 Conversation Active
                                             </div>
@@ -566,36 +586,36 @@ function App() {
                         {/* Face Emotion & Sentiment Panel - Top Right */}
                         <section className="ciq-glass-card">
                             <div className="flex h-full flex-col">
-                                <div className="border-b border-white/[0.10] px-5 py-3">
-                                    <h2 className="text-sm font-semibold text-[#785b4a]">Voice Sentiment</h2>
+                                <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
+                                    <h2 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Voice Sentiment</h2>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4">
                                     <div className="grid grid-cols-1 gap-2">
                                         {/* Voice Sentiment */}
                                         {sentiment && (
-                                            <div className="rounded-xl border border-white/[0.10] bg-white/[0.06] px-3 py-2">
+                                            <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] px-3 py-2">
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="flex shrink-0 items-center gap-2">
                                                         {sentiment.sentiment === "positive" && (
                                                             <div className="flex h-7 w-7 items-center justify-center rounded bg-green-500/20">
-                                                                <Smile className="h-3.5 w-3.5 text-[#5ee5a1]" />
+                                                                <Smile className="h-3.5 w-3.5 text-[color:var(--ciq-accent-green)]" />
                                                             </div>
                                                         )}
                                                         {sentiment.sentiment === "neutral" && (
                                                             <div className="flex h-7 w-7 items-center justify-center rounded bg-yellow-500/20">
-                                                                <Meh className="h-3.5 w-3.5 text-[#fbd585]" />
+                                                                <Meh className="h-3.5 w-3.5 text-[color:var(--ciq-accent-amber)]" />
                                                             </div>
                                                         )}
                                                         {sentiment.sentiment === "negative" && (
                                                             <div className="flex h-7 w-7 items-center justify-center rounded bg-red-500/20">
-                                                                <Frown className="h-3.5 w-3.5 text-[#ff8a8a]" />
+                                                                <Frown className="h-3.5 w-3.5 text-[color:var(--ciq-accent-red)]" />
                                                             </div>
                                                         )}
                                                         <div>
-                                                            <p className="text-[10px] font-semibold capitalize text-[#fffaf2]">{sentiment.sentiment}</p>
+                                                            <p className="text-[10px] font-semibold capitalize text-[color:var(--ciq-text-strong)]">{sentiment.sentiment}</p>
                                                             <button
                                                                 onClick={() => setIsReasonExpanded(!isReasonExpanded)}
-                                                                className="mt-1 cursor-pointer text-[9px] text-[rgba(255,250,242,0.60)] hover:text-[rgba(255,250,242,0.86)] focus:outline-none"
+                                                                className="mt-1 cursor-pointer text-[9px] text-[color:var(--ciq-text-60)] hover:text-[color:var(--ciq-text-86)] focus:outline-none"
                                                             >
                                                                 {isReasonExpanded ? "Show less" : "Show reason"}
                                                             </button>
@@ -603,8 +623,8 @@ function App() {
                                                     </div>
                                                 </div>
                                                 {sentiment.reason && isReasonExpanded && (
-                                                    <div className="mt-2 rounded-lg bg-white/[0.06] p-2">
-                                                        <p className="text-[10px] leading-relaxed text-[rgba(255,250,242,0.86)]">{sentiment.reason}</p>
+                                                    <div className="mt-2 rounded-lg bg-[color:var(--ciq-tile)] p-2">
+                                                        <p className="text-[10px] leading-relaxed text-[color:var(--ciq-text-86)]">{sentiment.reason}</p>
                                                     </div>
                                                 )}
                                             </div>
@@ -614,8 +634,8 @@ function App() {
                                     {/* Baseline Prompt UI */}
                                     {isRecording && baselineSessionStatus === "idle" && enableBiometrics && (
                                         <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
-                                            <h3 className="text-md mb-2 font-semibold text-white">Baseline Measurement Required</h3>
-                                            <p className="mb-4 text-sm text-[#fffaf2]">
+                                            <h3 className="text-md mb-2 font-semibold text-[color:var(--ciq-text-strong)]">Baseline Measurement Required</h3>
+                                            <p className="mb-4 text-sm text-[color:var(--ciq-text-strong)]">
                                                 To measure biometric changes during conversation, we need to record a baseline measurement first. Please look at
                                                 the camera for 30 seconds while we record your baseline pupil size and blink rate.
                                             </p>
@@ -635,8 +655,8 @@ function App() {
                                     {baselineSessionStatus === "collecting" && (
                                         <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
                                             <div className="mb-3 flex items-center justify-center">
-                                                <Loader2 className="mr-2 h-6 w-6 animate-spin text-blue-400" />
-                                                <span className="text-blue-300">Recording baseline...</span>
+                                                <Loader2 className="mr-2 h-6 w-6 animate-spin text-[color:var(--ciq-accent-blue)]" />
+                                                <span className="text-[color:var(--ciq-accent-blue)]">Recording baseline...</span>
                                             </div>
                                             <div className="h-2 w-full rounded-full bg-[#2a3830]">
                                                 <div
@@ -644,7 +664,7 @@ function App() {
                                                     style={{ width: `${baselineProgress}%` }}
                                                 />
                                             </div>
-                                            <p className="mt-2 text-center text-sm text-[rgba(255,250,242,0.68)]">
+                                            <p className="mt-2 text-center text-sm text-[color:var(--ciq-text-68)]">
                                                 {Math.round((baselineProgress / 100) * 30)} / 30 seconds
                                             </p>
                                         </div>
@@ -654,7 +674,7 @@ function App() {
                                     {baselineSessionStatus === "completed" && baselineData && (
                                         <div className="mb-3 rounded-lg border border-[rgba(64,212,136,0.25)] bg-[rgba(64,212,136,0.06)] p-2">
                                             <div className="flex items-center justify-between">
-                                                <p className="text-xs font-medium text-green-300">Baseline Recorded</p>
+                                                <p className="text-xs font-medium text-[color:var(--ciq-accent-green)]">Baseline Recorded</p>
                                                 <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 px-2 text-[10px]">
                                                     <RotateCcw className="mr-1 h-3 w-3" />
                                                     Rerecord
@@ -662,12 +682,12 @@ function App() {
                                             </div>
                                             <div className="mt-1 flex items-center gap-3 text-[10px]">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="text-[rgba(255,250,242,0.68)]">Pupil:</span>
-                                                    <span className="text-white">{baselineData.pupilSize.toFixed(1)} mm</span>
+                                                    <span className="text-[color:var(--ciq-text-68)]">Pupil:</span>
+                                                    <span className="text-[color:var(--ciq-text-strong)]">{baselineData.pupilSize.toFixed(1)} mm</span>
                                                 </div>
                                                 <div className="flex items-center gap-1">
-                                                    <span className="text-[rgba(255,250,242,0.68)]">Blink:</span>
-                                                    <span className="text-white">{baselineData.blinkRate.toFixed(1)}/min</span>
+                                                    <span className="text-[color:var(--ciq-text-68)]">Blink:</span>
+                                                    <span className="text-[color:var(--ciq-text-strong)]">{baselineData.blinkRate.toFixed(1)}/min</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -675,54 +695,54 @@ function App() {
 
                                     {/* Biometric Metrics */}
                                     {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
-                                        <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-2">
-                                            <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">
+                                        <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-2">
+                                            <h3 className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">
                                                 Biometric Metrics
                                             </h3>
                                             <div className="grid grid-cols-3 gap-1">
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Blink Rate</p>
-                                                    <p className="text-xs font-semibold text-[#fffaf2]">{currentBiometrics.metrics.blinkRate.toFixed(1)}/min</p>
-                                                    <p className="text-[9px] text-[#5ee5a1]">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
+                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-1.5">
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-60)]">Blink Rate</p>
+                                                    <p className="text-xs font-semibold text-[color:var(--ciq-text-strong)]">{currentBiometrics.metrics.blinkRate.toFixed(1)}/min</p>
+                                                    <p className="text-[9px] text-[color:var(--ciq-accent-green)]">Base: {baselineData?.blinkRate.toFixed(1) || "--"}</p>
                                                 </div>
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Eye Openness</p>
-                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-1.5">
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-60)]">Eye Openness</p>
+                                                    <p className="text-xs font-semibold text-[color:var(--ciq-text-strong)]">
                                                         {formatMetric(currentBiometrics.metrics.eyeOpenness)}
                                                     </p>
                                                 </div>
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Smile</p>
-                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-1.5">
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-60)]">Smile</p>
+                                                    <p className="text-xs font-semibold text-[color:var(--ciq-text-strong)]">
                                                         {formatMetric(currentBiometrics.metrics.smileIntensity)}
                                                     </p>
                                                 </div>
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Head Pose</p>
-                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-1.5">
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-60)]">Head Pose</p>
+                                                    <p className="text-xs font-semibold text-[color:var(--ciq-text-strong)]">
                                                         {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
                                                     </p>
                                                 </div>
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Pupil Size</p>
-                                                    <p className="text-xs font-semibold text-[#fffaf2]">
+                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-1.5">
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-60)]">Pupil Size</p>
+                                                    <p className="text-xs font-semibold text-[color:var(--ciq-text-strong)]">
                                                         {currentBiometrics.metrics.pupilSizeMm.toFixed(1)} mm
                                                     </p>
-                                                    <p className="text-[9px] text-[#5ee5a1]">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
+                                                    <p className="text-[9px] text-[color:var(--ciq-accent-green)]">Base: {baselineData?.pupilSize.toFixed(1) || "--"}</p>
                                                 </div>
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Blink Change</p>
+                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-1.5">
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-60)]">Blink Change</p>
                                                     <p
-                                                        className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-[#ff8a8a]" : "text-[#5ee5a1]"}`}
+                                                        className={`text-xs font-semibold ${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-accent-green)]"}`}
                                                     >
                                                         {currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}
                                                         {currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%
                                                     </p>
                                                 </div>
-                                                <div className="rounded-lg bg-white/[0.06] p-1.5">
-                                                    <p className="text-[9px] text-[rgba(255,250,242,0.60)]">Gaze</p>
+                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-1.5">
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-60)]">Gaze</p>
                                                     <GazeIndicator gaze={currentBiometrics.metrics.gaze} />
-                                                    <p className="text-[9px] text-[#fffaf2]">{gazeLabel(currentBiometrics.metrics.gaze)}</p>
+                                                    <p className="text-[9px] text-[color:var(--ciq-text-strong)]">{gazeLabel(currentBiometrics.metrics.gaze)}</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -732,38 +752,38 @@ function App() {
                                     {stressResult && isRecording && (
                                         <div className={`mt-3 rounded-lg border p-2 ${getStressBgColor(stressResult.state)}`}>
                                             <div className="flex items-center justify-between">
-                                                <h4 className="text-xs font-semibold text-[#fffaf2]">Blink Rate Stress</h4>
+                                                <h4 className="text-xs font-semibold text-[color:var(--ciq-text-strong)]">Blink Rate Stress</h4>
                                                 <span className={`text-[10px] font-medium ${getStressColor(stressResult.state)}`}>
                                                     {stressResult.state.toUpperCase()}
                                                 </span>
                                             </div>
                                             <div className="mt-1 flex items-center gap-3 text-[10px]">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="text-[rgba(255,250,242,0.68)]">State:</span>
+                                                    <span className="text-[color:var(--ciq-text-68)]">State:</span>
                                                     <span className={`font-medium ${getStressColor(stressResult.state)}`}>{stressResult.state}</span>
                                                 </div>
                                                 <div className="flex items-center gap-1">
-                                                    <span className="text-[rgba(255,250,242,0.68)]">Change:</span>
+                                                    <span className="text-[color:var(--ciq-text-68)]">Change:</span>
                                                     <span
-                                                        className={`font-medium ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-[#ff8a8a]" : "text-[#5ee5a1]"}`}
+                                                        className={`font-medium ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-accent-green)]"}`}
                                                     >
                                                         {(stressResult.blink_rate_change_percent || 0) >= 0 ? "+" : ""}
                                                         {stressResult.blink_rate_change_percent?.toFixed(1) || "0.0"}%
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-1">
-                                                    <span className="text-[rgba(255,250,242,0.68)]">Conf:</span>
-                                                    <span className="text-white">{(stressResult.confidence * 100).toFixed(0)}%</span>
+                                                    <span className="text-[color:var(--ciq-text-68)]">Conf:</span>
+                                                    <span className="text-[color:var(--ciq-text-strong)]">{(stressResult.confidence * 100).toFixed(0)}%</span>
                                                 </div>
                                                 <div className="flex items-center gap-1">
-                                                    <span className="text-[rgba(255,250,242,0.68)]">Trend:</span>
+                                                    <span className="text-[color:var(--ciq-text-68)]">Trend:</span>
                                                     <span
                                                         className={`font-medium ${
                                                             stressResult.trend === "increasing"
-                                                                ? "text-[#ff8a8a]"
+                                                                ? "text-[color:var(--ciq-accent-red)]"
                                                                 : stressResult.trend === "decreasing"
-                                                                  ? "text-[#5ee5a1]"
-                                                                  : "text-[#fbd585]"
+                                                                  ? "text-[color:var(--ciq-accent-green)]"
+                                                                  : "text-[color:var(--ciq-accent-amber)]"
                                                         }`}
                                                     >
                                                         {stressResult.trend}
@@ -780,18 +800,18 @@ function App() {
                         {/* Final Results Panel - Burnout Assessment (spans 2 columns, row 3) */}
                         <section className="ciq-glass-card col-span-2">
                             <div className="flex h-full flex-col">
-                                <div className="border-b border-white/[0.10] px-5 py-3">
-                                    <h2 className="text-sm font-semibold text-[#fffaf2]">Final Results - Burnout Assessment</h2>
+                                <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
+                                    <h2 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Final Results - Burnout Assessment</h2>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4">
                                     {surveyTotal > 0 ? (
                                         <>
                                             <div className="mb-4">
-                                                <div className="mb-2 flex justify-between text-xs text-slate-400">
+                                                <div className="mb-2 flex justify-between text-xs text-[color:var(--ciq-text-60)]">
                                                     <span>Overall Assessment Progress</span>
                                                     <span>{Math.round((surveyCompleted / surveyTotal) * 100)}%</span>
                                                 </div>
-                                                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                                                <div className="h-2 w-full overflow-hidden rounded-full bg-[color:var(--ciq-track)]">
                                                     <div
                                                         className="h-full rounded-full bg-gradient-to-r from-purple-600 to-pink-500 transition-all duration-500"
                                                         style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
@@ -801,27 +821,27 @@ function App() {
 
                                             {surveyQuestions.length > 0 && (
                                                 <div className="mb-4">
-                                                    <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-[rgba(255,250,242,0.60)]">
+                                                    <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">
                                                         Assessment Summary
                                                     </h3>
                                                     <div className="grid grid-cols-2 gap-3">
-                                                        <div className="rounded-lg bg-slate-800/30 p-3">
-                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Total Questions</p>
-                                                            <p className="text-2xl font-semibold text-[#fffaf2]">{surveyTotal}</p>
+                                                        <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
+                                                            <p className="text-xs text-[color:var(--ciq-text-60)]">Total Questions</p>
+                                                            <p className="text-2xl font-semibold text-[color:var(--ciq-text-strong)]">{surveyTotal}</p>
                                                         </div>
-                                                        <div className="rounded-lg bg-slate-800/30 p-3">
-                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Completed</p>
-                                                            <p className="text-2xl font-semibold text-purple-400">{surveyCompleted}</p>
+                                                        <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
+                                                            <p className="text-xs text-[color:var(--ciq-text-60)]">Completed</p>
+                                                            <p className="text-2xl font-semibold text-[color:var(--ciq-accent-purple)]">{surveyCompleted}</p>
                                                         </div>
-                                                        <div className="rounded-lg bg-slate-800/30 p-3">
-                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Current Score</p>
-                                                            <p className="text-2xl font-semibold text-[#fffaf2]">
+                                                        <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
+                                                            <p className="text-xs text-[color:var(--ciq-text-60)]">Current Score</p>
+                                                            <p className="text-2xl font-semibold text-[color:var(--ciq-text-strong)]">
                                                                 {surveyQuestions[surveyQuestions.length - 1].score}/5
                                                             </p>
                                                         </div>
-                                                        <div className="rounded-lg bg-slate-800/30 p-3">
-                                                            <p className="text-xs text-[rgba(255,250,242,0.60)]">Average Score</p>
-                                                            <p className="text-2xl font-semibold text-[#fffaf2]">
+                                                        <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
+                                                            <p className="text-xs text-[color:var(--ciq-text-60)]">Average Score</p>
+                                                            <p className="text-2xl font-semibold text-[color:var(--ciq-text-strong)]">
                                                                 {surveyQuestions.length > 0
                                                                     ? (surveyQuestions.reduce((sum, q) => sum + q.score, 0) / surveyQuestions.length).toFixed(1)
                                                                     : "0.0"}
@@ -846,16 +866,16 @@ function App() {
                                             )}
 
                                             {!showDetailedReport && (
-                                                <div className="mt-4 text-center text-sm text-[rgba(255,250,242,0.60)]">
+                                                <div className="mt-4 text-center text-sm text-[color:var(--ciq-text-60)]">
                                                     Complete the survey to view detailed burnout assessment results
                                                 </div>
                                             )}
                                         </>
                                     ) : (
                                         <div className="flex h-full flex-col items-center justify-center text-center">
-                                            <ClipboardList className="mb-3 h-12 w-12 text-slate-600" />
-                                            <p className="text-sm text-[rgba(255,250,242,0.60)]">No assessment data</p>
-                                            <p className="text-xs text-slate-600">Begin conversation to start the survey assessment</p>
+                                            <ClipboardList className="mb-3 h-12 w-12 text-[color:var(--ciq-text-40)]" />
+                                            <p className="text-sm text-[color:var(--ciq-text-60)]">No assessment data</p>
+                                            <p className="text-xs text-[color:var(--ciq-text-40)]">Begin conversation to start the survey assessment</p>
                                         </div>
                                     )}
                                 </div>

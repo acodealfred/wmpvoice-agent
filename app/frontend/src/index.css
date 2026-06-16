@@ -105,17 +105,101 @@
     animation: fade-in 0.3s ease-out forwards;
 }
 
-/* ── CIQ glass card — design tokens from cio-voice-agent.vercel.app ── */
+/* ── CIQ theme tokens — light (default) + dark, toggled via [data-theme] ── */
+:root,
+[data-theme="light"] {
+    --ciq-page-from: #eef5fd;
+    --ciq-page-to: #d8e7f8;
+    --ciq-text-strong: #102a46;
+    --ciq-text-86: rgba(16, 42, 70, 0.86);
+    --ciq-text-68: rgba(16, 42, 70, 0.64);
+    --ciq-text-60: rgba(16, 42, 70, 0.56);
+    --ciq-text-46: rgba(16, 42, 70, 0.5);
+    --ciq-text-40: rgba(16, 42, 70, 0.44);
+    --ciq-tile: rgba(86, 132, 200, 0.08);
+    --ciq-tile-strong: rgba(86, 132, 200, 0.13);
+    --ciq-hover: rgba(86, 132, 200, 0.18);
+    --ciq-track: rgba(86, 132, 200, 0.16);
+    --ciq-divider: rgba(70, 110, 170, 0.16);
+    --ciq-border: rgba(70, 110, 170, 0.22);
+    --ciq-header-bg: rgba(255, 255, 255, 0.55);
+    --ciq-accent-green: #15803d;
+    --ciq-accent-red: #dc2626;
+    --ciq-accent-amber: #b45309;
+    --ciq-accent-purple: #6d28d9;
+    --ciq-accent-blue: #2563eb;
+    --ciq-logo-filter: brightness(0) saturate(100%);
+    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
+    --ciq-card: #ffffff;
+    --ciq-card-2: #eef3fa;
+    --ciq-card-3: #dfe8f4;
+    --ciq-text-body: #33485f;
+    --ciq-text-muted: #5f7488;
+    --ciq-text-faint: #8aa0b8;
+    --ciq-line: #d3e0ee;
+    --ciq-glass-border: rgba(255, 255, 255, 0.75);
+    --ciq-glass-grad-1: rgba(255, 255, 255, 0.78);
+    --ciq-glass-grad-2: rgba(223, 237, 252, 0.55);
+    --ciq-glass-base: rgba(214, 232, 250, 0.45);
+    --ciq-glass-shadow: 0 22px 55px rgba(86, 132, 200, 0.16), inset 0 1px 1px rgba(255, 255, 255, 0.92),
+        inset 0 -1px 1px rgba(120, 160, 210, 0.1);
+}
+
+[data-theme="dark"] {
+    --ciq-page-from: #0d1411;
+    --ciq-page-to: #11211b;
+    --ciq-text-strong: #fffaf2;
+    --ciq-text-86: rgba(255, 250, 242, 0.86);
+    --ciq-text-68: rgba(255, 250, 242, 0.68);
+    --ciq-text-60: rgba(255, 250, 242, 0.6);
+    --ciq-text-46: rgba(255, 250, 242, 0.46);
+    --ciq-text-40: rgba(255, 250, 242, 0.4);
+    --ciq-tile: rgba(255, 255, 255, 0.06);
+    --ciq-tile-strong: rgba(255, 255, 255, 0.1);
+    --ciq-hover: rgba(255, 255, 255, 0.14);
+    --ciq-track: #1e293b;
+    --ciq-divider: rgba(255, 255, 255, 0.1);
+    --ciq-border: rgba(255, 255, 255, 0.16);
+    --ciq-header-bg: rgba(18, 25, 23, 0.28);
+    --ciq-accent-green: #5ee5a1;
+    --ciq-accent-red: #ff8a8a;
+    --ciq-accent-amber: #fbd585;
+    --ciq-accent-purple: #e4c3ff;
+    --ciq-accent-blue: #7cb0ff;
+    --ciq-logo-filter: none;
+    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
+    --ciq-card: #101c26;
+    --ciq-card-2: #182634;
+    --ciq-card-3: #243445;
+    --ciq-text-body: #cad7e5;
+    --ciq-text-muted: #93a4b8;
+    --ciq-text-faint: #6b7d92;
+    --ciq-line: #2c3c4e;
+    --ciq-glass-border: rgba(255, 255, 255, 0.16);
+    --ciq-glass-grad-1: rgba(255, 255, 255, 0.14);
+    --ciq-glass-grad-2: rgba(255, 255, 255, 0.05);
+    --ciq-glass-base: rgba(12, 18, 17, 0.5);
+    --ciq-glass-shadow: 0 30px 100px rgba(0, 0, 0, 0.42), inset 0 1px 1px rgba(255, 255, 255, 0.2),
+        inset 0 -1px 1px rgba(255, 255, 255, 0.06);
+}
+
+.ciq-page {
+    background: linear-gradient(135deg, var(--ciq-page-from), var(--ciq-page-to));
+}
+
+/* The logo asset is white; darken it to a silhouette in light mode so it stays visible. */
+.ciq-logo {
+    filter: var(--ciq-logo-filter);
+}
+
+/* ── CIQ glass card — frosted surface driven by theme tokens ── */
 .ciq-glass-card {
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    border: 1px solid var(--ciq-glass-border);
     border-radius: 1.25rem;
     background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
-        rgba(12, 18, 17, 0.50);
-    box-shadow:
-        0 30px 100px rgba(0, 0, 0, 0.42),
-        inset 0 1px 1px rgba(255, 255, 255, 0.20),
-        inset 0 -1px 1px rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(30px) saturate(155%);
+        linear-gradient(135deg, var(--ciq-glass-grad-1), var(--ciq-glass-grad-2)),
+        var(--ciq-glass-base);
+    box-shadow: var(--ciq-glass-shadow);
+    backdrop-filter: blur(26px) saturate(150%);
     overflow: hidden;
 }

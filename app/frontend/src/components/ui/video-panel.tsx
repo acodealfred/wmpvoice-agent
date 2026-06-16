@@ -42,7 +42,7 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoRead
 
                 {!isStreaming && (
                     <div className="absolute inset-0 flex items-center justify-center bg-[#1a2520]">
-                        <VideoOff className="h-12 w-12 text-slate-600" />
+                        <VideoOff className="h-12 w-12 text-slate-400" />
                     </div>
                 )}
 
@@ -52,7 +52,7 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoRead
                             <div className="font-medium">Survey Assessment</div>
                             {surveyTotal && surveyTotal > 0 && surveyQuestions && surveyQuestions.length > 0 ? (
                                 <>
-                                    <div className="text-xs text-slate-400">
+                                    <div className="text-xs text-slate-300">
                                         Progress: {surveyCompleted ?? 0}/{surveyTotal}
                                     </div>
                                     <div className="text-xs">{surveyQuestions[surveyQuestions.length - 1].text}</div>
@@ -75,7 +75,7 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoRead
                                     </div>
                                 </>
                             ) : (
-                                <div className="text-xs text-slate-400">No active survey</div>
+                                <div className="text-xs text-slate-300">No active survey</div>
                             )}
                         </div>
                     </div>

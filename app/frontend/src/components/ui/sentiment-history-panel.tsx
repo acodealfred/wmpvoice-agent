@@ -49,8 +49,8 @@ export function SentimentHistoryPanel({ history, timeFrameSeconds }: SentimentHi
 
     if (history.length === 0) {
         return (
-            <div className="rounded bg-gray-800 px-2 py-1.5">
-                <p className="text-center text-[10px] text-gray-500">No sentiment data</p>
+            <div className="rounded bg-[color:var(--ciq-card-2)] px-2 py-1.5">
+                <p className="text-center text-[10px] text-[color:var(--ciq-text-muted)]">No sentiment data</p>
             </div>
         );
     }
@@ -58,12 +58,12 @@ export function SentimentHistoryPanel({ history, timeFrameSeconds }: SentimentHi
     const latestItem = history[history.length - 1];
 
     return (
-        <div className="rounded bg-gray-800 px-2 py-1.5" title={`Sentiment ${timeFrameLabel}: ${latestItem.voiceSentiment}`}>
+        <div className="rounded bg-[color:var(--ciq-card-2)] px-2 py-1.5" title={`Sentiment ${timeFrameLabel}: ${latestItem.voiceSentiment}`}>
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
-                    <span className="text-[9px] text-gray-500">{latestItem.timeFrameLabel}</span>
+                    <span className="text-[9px] text-[color:var(--ciq-text-muted)]">{latestItem.timeFrameLabel}</span>
                     <span className="text-sm">{getEmotionEmoji(latestItem.faceEmotion)}</span>
-                    <span className="max-w-[4rem] truncate text-[10px] uppercase text-gray-300">{latestItem.faceEmotion || "N/A"}</span>
+                    <span className="max-w-[4rem] truncate text-[10px] uppercase text-[color:var(--ciq-text-faint)]">{latestItem.faceEmotion || "N/A"}</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                     {getSentimentIcon(latestItem.voiceSentiment)}

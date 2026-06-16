@@ -220,18 +220,18 @@ export function AdminPanel() {
         <div className="space-y-6 p-6">
 
             {/* ── Section A: KB Registration ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
                     <ShieldCheck className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-white">Knowledge Base Registration</h2>
+                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Registration</h2>
                 </div>
 
                 <div className="mb-4 flex items-center gap-3">
-                    {regStatus === "loading" && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+                    {regStatus === "loading" && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
                     {regStatus === "registered" && <CheckCircle2 className="h-4 w-4 text-green-400" />}
                     {(regStatus === "unregistered" || regStatus === "error") && <XCircle className="h-4 w-4 text-amber-400" />}
                     {regStatus === "unknown" && <span className="h-4 w-4" />}
-                    <span className={`text-sm ${regStatus === "registered" ? "text-green-300" : regStatus === "error" ? "text-red-300" : "text-slate-300"}`}>
+                    <span className={`text-sm ${regStatus === "registered" ? "text-green-300" : regStatus === "error" ? "text-red-300" : "text-[color:var(--ciq-text-body)]"}`}>
                         {regStatus === "loading" ? "Checking registration…" : regMessage || "—"}
                     </span>
                     <Button
@@ -239,7 +239,7 @@ export function AdminPanel() {
                         size="sm"
                         onClick={checkRegistration}
                         disabled={regStatus === "loading"}
-                        className="ml-auto border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                        className="ml-auto border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                     >
                         <RefreshCw className="mr-1 h-3 w-3" />
                         Refresh
@@ -259,25 +259,25 @@ export function AdminPanel() {
             </div>
 
             {/* ── Section B: Upload Document ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
                     <Upload className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-white">Upload Document</h2>
+                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Upload Document</h2>
                 </div>
 
                 <div className="space-y-3">
                     <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-400">Document Title</label>
+                        <label className="mb-1 block text-xs font-medium text-[color:var(--ciq-text-muted)]">Document Title</label>
                         <input
                             type="text"
                             value={uploadTitle}
                             onChange={e => setUploadTitle(e.target.value)}
                             placeholder="e.g. Company Policy 2025"
-                            className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+                            className="w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder-slate-500 focus:border-purple-500 focus:outline-none"
                         />
                     </div>
                     <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-400">
+                        <label className="mb-1 block text-xs font-medium text-[color:var(--ciq-text-muted)]">
                             File (PDF, DOCX, TXT)
                             <span className="ml-1 text-purple-400">*</span>
                         </label>
@@ -294,10 +294,10 @@ export function AdminPanel() {
                                     setUploadTitle(nameWithoutExt);
                                 }
                             }}
-                            className="w-full text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-purple-600 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-purple-700"
+                            className="w-full text-sm text-[color:var(--ciq-text-body)] file:mr-3 file:rounded file:border-0 file:bg-purple-600 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-purple-700"
                         />
                         {uploadFile && (
-                            <p className="mt-1 text-xs text-slate-400">
+                            <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">
                                 {uploadFile.name} ({(uploadFile.size / 1024).toFixed(1)} KB)
                             </p>
                         )}
@@ -322,12 +322,12 @@ export function AdminPanel() {
             </div>
 
             {/* ── Section C: Document List (live from Mithra) ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
                     <Database className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-white">Knowledge Base Documents</h2>
+                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Documents</h2>
                     {!docsLoading && (
-                        <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                        <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs text-[color:var(--ciq-text-body)]">
                             {documents.length} file{documents.length !== 1 ? "s" : ""}
                         </span>
                     )}
@@ -336,7 +336,7 @@ export function AdminPanel() {
                         size="sm"
                         onClick={fetchDocuments}
                         disabled={docsLoading}
-                        className="ml-auto border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                        className="ml-auto border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                     >
                         {docsLoading
                             ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -353,53 +353,53 @@ export function AdminPanel() {
                 )}
 
                 {docsLoading && documents.length === 0 ? (
-                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <div className="flex items-center gap-2 text-sm text-[color:var(--ciq-text-muted)]">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading documents from Knowledge Base…
                     </div>
                 ) : documents.length === 0 && !docsError ? (
-                    <p className="text-sm text-slate-500">No documents found in the Knowledge Base. Upload a file above to get started.</p>
+                    <p className="text-sm text-[color:var(--ciq-text-muted)]">No documents found in the Knowledge Base. Upload a file above to get started.</p>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full border-collapse text-sm">
                             <thead>
-                                <tr className="bg-slate-800 text-left text-xs text-slate-400">
-                                    <th className="border border-slate-700 px-3 py-2">Title</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden sm:table-cell">Paper ID</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden md:table-cell">Size</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden md:table-cell">State</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden lg:table-cell">Updated</th>
-                                    <th className="border border-slate-700 px-3 py-2 text-center">Delete</th>
+                                <tr className="bg-[color:var(--ciq-card-2)] text-left text-xs text-[color:var(--ciq-text-muted)]">
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2">Title</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden sm:table-cell">Paper ID</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell">Size</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell">State</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden lg:table-cell">Updated</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">Delete</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {documents.map((doc, i) => (
-                                    <tr key={doc.paperId} className={i % 2 === 0 ? "bg-slate-900" : "bg-slate-800/40"}>
-                                        <td className="border border-slate-700 px-3 py-2">
+                                    <tr key={doc.paperId} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2">
                                             <div className="flex items-center gap-2">
                                                 <FileText className="h-3.5 w-3.5 shrink-0 text-purple-400" />
-                                                <span className="font-medium text-white">{doc.title}</span>
+                                                <span className="font-medium text-[color:var(--ciq-text-strong)]">{doc.title}</span>
                                             </div>
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden sm:table-cell">
-                                            <span className="font-mono text-xs text-slate-400">{doc.paperId}</span>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden sm:table-cell">
+                                            <span className="font-mono text-xs text-[color:var(--ciq-text-muted)]">{doc.paperId}</span>
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden md:table-cell text-xs text-slate-400">
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell text-xs text-[color:var(--ciq-text-muted)]">
                                             {doc.sizeSi ?? "—"}
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden md:table-cell">
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell">
                                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                                                 doc.lifeCycleState === "active"
                                                     ? "bg-green-900/50 text-green-300"
-                                                    : "bg-slate-700 text-slate-400"
+                                                    : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
                                             }`}>
                                                 {doc.lifeCycleState ?? "—"}
                                             </span>
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden lg:table-cell text-xs text-slate-400">
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden lg:table-cell text-xs text-[color:var(--ciq-text-muted)]">
                                             {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "—"}
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 text-center">
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
                                             <Button
                                                 variant="destructive"
                                                 size="sm"
@@ -431,13 +431,13 @@ export function AdminPanel() {
             <DeleteByPaperId onDeleted={fetchDocuments} />
 
             {/* ── Section E: User Management ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <Users className="h-5 w-5 text-purple-400" />
-                        <h2 className="text-base font-semibold text-white">User Management</h2>
+                        <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">User Management</h2>
                         {!usersLoading && (
-                            <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
+                            <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-text-body)]">
                                 {users.length}
                             </span>
                         )}
@@ -447,7 +447,7 @@ export function AdminPanel() {
                         size="sm"
                         onClick={fetchUsers}
                         disabled={usersLoading}
-                        className="border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                        className="border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                     >
                         <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${usersLoading ? "animate-spin" : ""}`} />
                         Refresh
@@ -462,17 +462,17 @@ export function AdminPanel() {
                 )}
 
                 {usersLoading && users.length === 0 ? (
-                    <div className="flex items-center justify-center py-8 text-slate-500">
+                    <div className="flex items-center justify-center py-8 text-[color:var(--ciq-text-muted)]">
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Loading users…
                     </div>
                 ) : users.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-slate-500">No users found.</p>
+                    <p className="py-6 text-center text-sm text-[color:var(--ciq-text-muted)]">No users found.</p>
                 ) : (
-                    <div className="overflow-x-auto rounded-lg border border-slate-700">
+                    <div className="overflow-x-auto rounded-lg border border-[color:var(--ciq-line)]">
                         <table className="w-full text-sm">
                             <thead>
-                                <tr className="bg-slate-800 text-xs font-medium uppercase tracking-wide text-slate-400">
+                                <tr className="bg-[color:var(--ciq-card-2)] text-xs font-medium uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
                                     <th className="px-4 py-3 text-left">User</th>
                                     <th className="px-4 py-3 text-center">Sessions</th>
                                     <th className="hidden px-4 py-3 text-left sm:table-cell">Last Session ID</th>
@@ -484,34 +484,34 @@ export function AdminPanel() {
                                 {users.map((u, i) => (
                                     <tr
                                         key={u.user_id}
-                                        className={i % 2 === 0 ? "bg-slate-900" : "bg-slate-800/40"}
+                                        className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}
                                     >
-                                        <td className="px-4 py-3 font-medium text-white">{u.name}</td>
+                                        <td className="px-4 py-3 font-medium text-[color:var(--ciq-text-strong)]">{u.name}</td>
                                         <td className="px-4 py-3 text-center">
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                                                 u.session_count > 0
                                                     ? "bg-purple-900/50 text-purple-300"
-                                                    : "bg-slate-700 text-slate-400"
+                                                    : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
                                             }`}>
                                                 {u.session_count}
                                             </span>
                                         </td>
                                         <td className="hidden px-4 py-3 sm:table-cell">
                                             {u.last_session_id ? (
-                                                <span className="font-mono text-xs text-slate-400">
+                                                <span className="font-mono text-xs text-[color:var(--ciq-text-muted)]">
                                                     {u.last_session_id.slice(0, 8)}…
                                                 </span>
                                             ) : (
-                                                <span className="text-slate-600">—</span>
+                                                <span className="text-[color:var(--ciq-text-body)]">—</span>
                                             )}
                                         </td>
-                                        <td className="hidden px-4 py-3 text-slate-400 md:table-cell">
+                                        <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] md:table-cell">
                                             {u.last_active_at
                                                 ? new Date(u.last_active_at).toLocaleString()
-                                                : <span className="text-slate-600">—</span>
+                                                : <span className="text-[color:var(--ciq-text-body)]">—</span>
                                             }
                                         </td>
-                                        <td className="hidden px-4 py-3 text-slate-400 lg:table-cell">
+                                        <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] lg:table-cell">
                                             {new Date(u.created_at).toLocaleDateString()}
                                         </td>
                                     </tr>
@@ -554,12 +554,12 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
     };
 
     return (
-        <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+        <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
             <div className="mb-4 flex items-center gap-2">
                 <Hash className="h-5 w-5 text-purple-400" />
-                <h2 className="text-base font-semibold text-white">Delete by Paper ID</h2>
+                <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Delete by Paper ID</h2>
             </div>
-            <p className="mb-3 text-xs text-slate-400">
+            <p className="mb-3 text-xs text-[color:var(--ciq-text-muted)]">
                 Use this to delete a document from the Knowledge Base using its Paper ID directly —
                 useful for documents uploaded from another device or before tracking was enabled.
             </p>
@@ -569,7 +569,7 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
                     value={paperId}
                     onChange={e => setPaperId(e.target.value)}
                     placeholder="Paste paper ID…"
-                    className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+                    className="flex-1 rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder-slate-500 focus:border-purple-500 focus:outline-none"
                     onKeyDown={e => e.key === "Enter" && !deleting && paperId.trim() && handleDelete()}
                 />
                 <Button
