@@ -151,6 +151,28 @@ Output JSON format:
             )
         snapshot_summary = "\n".join(snapshot_lines)
 
+        # Aggregate biometric readings to STATE factually in the spoken report
+        # (no interpretation, no link to burnout — just the numbers/values).
+        blink_changes = [s.get("blinkRateChange") or 0 for s in snapshots]
+        avg_blink_change = sum(blink_changes) / len(blink_changes) if blink_changes else 0
+        gaze_counts: dict = {}
+        for s in snapshots:
+            g = s.get("gazePosition") or "Center"
+            gaze_counts[g] = gaze_counts.get(g, 0) + 1
+        dominant_gaze = max(gaze_counts, key=gaze_counts.get) if gaze_counts else "Center"
+        per_q_blink = ", ".join(
+            f"{s.get('questionId','')}={(s.get('blinkRateChange') or 0):+.0f}%" for s in snapshots
+        )
+        per_q_gaze = ", ".join(
+            f"{s.get('questionId','')}={s.get('gazePosition') or 'Center'}" for s in snapshots
+        )
+        biometric_facts = (
+            f"- Average blink-rate change from baseline: {avg_blink_change:+.0f}%\n"
+            f"- Blink-rate change per question: {per_q_blink}\n"
+            f"- Most frequent eye-gaze position: {dominant_gaze}\n"
+            f"- Eye-gaze position per question: {per_q_gaze}"
+        )
+
         # Build consultative prompt that explicitly states score/risk
         consultative_prompt = f"""You are a workplace wellbeing consultant reviewing the burnout assessment results.
 
@@ -161,12 +183,23 @@ FACTUAL SUMMARY (START YOUR RESPONSE BY STATING THIS):
 BEHAVIORAL ANALYSIS (for your reference):
 {analysis_result_str}
 
+BIOMETRIC READINGS (state these as plain facts — do NOT interpret them):
+{biometric_facts}
+
 Please provide a consultative response that:
 1. Begins by clearly stating the total score and burnout risk level.
 2. Highlights key findings from the analysis (correlations, contradictions, patterns).
 3. Explains what the score means in practical terms.
-4. Offers actionable insights and next steps based on the biometric data.
+4. Offers actionable insights and next steps based on the burnout findings.
 5. Maintains a warm, supportive, professional tone.
+6. Ends with a SEPARATE final paragraph that begins with the word "Also" and simply
+   STATES the biometric readings above (blink-rate change and eye-gaze position) as plain facts.
+
+STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
+- Only report the biometric values exactly as given in BIOMETRIC READINGS.
+- Do NOT explain, interpret, or speculate on what the biometrics mean.
+- Do NOT connect the biometrics to burnout, stress, the score, or the user's wellbeing in any way.
+- Keep it to one or two short factual sentences.
 
 Keep your response conversational and audio-friendly (short paragraphs, clear points).
 IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code formatting."""

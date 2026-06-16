@@ -121,7 +121,7 @@ _tool_survey_schema = {
 _tool_query_survey_schema = {
     "type": "function",
     "name": "query_survey_results",
-    "description": "Query the survey results to answer user questions about their burnout assessment. Use this to provide insights about burnout score, contributing domains, stress indicators, and specific question responses.",
+    "description": "Query the survey results to answer user questions about their burnout assessment. Use this to provide insights about burnout score, contributing domains, stress indicators, specific question responses, and biometric readings (blink-rate change, gaze position). The 'summary' query type returns the biometric readings.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -160,8 +160,13 @@ class ToolResult:
         return self.text if isinstance(self.text, str) else json.dumps(self.text)
 
 
-def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
-    """Tool to query survey results and provide insights."""
+async def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
+    """Tool to query survey results and provide insights.
+
+    Must be async: the tool dispatcher awaits every tool target. A plain `def`
+    here returns a ToolResult that `await` cannot handle, raising TypeError and
+    silently dropping the function output (agent stalls on "gathering data…").
+    """
     query_type = args.get("query_type", "summary")
     domain = args.get("domain")
 
@@ -237,6 +242,31 @@ def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:
             "risk_level": (
                 "low" if total_score <= 12 else "moderate" if total_score <= 22 else "high"
             ),
+        }
+
+        # Biometric readings so the agent can report them when asked. State only —
+        # no clinical interpretation or link to burnout.
+        blink_changes = [r.get("blink_rate_change_percent") or 0 for r in results.values()]
+        avg_blink = sum(blink_changes) / len(blink_changes) if blink_changes else 0
+        gaze_counts: dict = {}
+        for r in results.values():
+            g = r.get("gaze_position") or "Center"
+            gaze_counts[g] = gaze_counts.get(g, 0) + 1
+        dominant_gaze = max(gaze_counts, key=gaze_counts.get) if gaze_counts else "Center"
+        response_data["biometrics"] = {
+            "average_blink_rate_change_percent": round(avg_blink, 1),
+            "dominant_gaze_position": dominant_gaze,
+            "per_question": [
+                {
+                    "question_id": qid,
+                    "domain": _get_question_domain(qid, self._survey_config),
+                    "score": r["score"],
+                    "voice_sentiment": r.get("voice_sentiment"),
+                    "blink_rate_change_percent": r.get("blink_rate_change_percent"),
+                    "gaze_position": r.get("gaze_position"),
+                }
+                for qid, r in results.items()
+            ],
         }
 
     # CRITICAL: must be TO_SERVER so the agent receives the data and can answer

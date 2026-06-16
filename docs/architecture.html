@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CIQ — Architecture &amp; Data Flow Overview</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b22; --panel2:#1c2330; --line:#2d3748;
+    --txt:#e6edf3; --muted:#9aa7b4; --accent:#58a6ff; --accent2:#7ee787;
+    --warn:#f0883e; --danger:#f85149; --purple:#bc8cff; --pink:#ff7b9c;
+    --voice:#58a6ff; --chat:#7ee787; --kb:#bc8cff; --aws:#f0883e; --mp:#56d4dd;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--txt);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:0 0 80px;
+  }
+  header{
+    background:linear-gradient(135deg,#1a2740,#161b22);
+    border-bottom:1px solid var(--line);
+    padding:36px 40px 28px;
+  }
+  header h1{margin:0 0 6px; font-size:30px; letter-spacing:-.5px}
+  header p{margin:0; color:var(--muted); max-width:900px}
+  .badge{display:inline-block; font-size:11px; padding:2px 9px; border-radius:20px;
+    background:#21304a; color:var(--accent); border:1px solid #2d4a6b; margin-left:8px; vertical-align:middle}
+  main{max-width:1180px; margin:0 auto; padding:0 28px}
+  section{margin-top:46px}
+  h2{font-size:21px; border-left:4px solid var(--accent); padding-left:12px; margin-bottom:6px}
+  h2 .sub{display:block; font-size:13px; color:var(--muted); font-weight:400; padding-top:3px}
+  h3{font-size:16px; color:var(--accent2); margin:26px 0 10px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; margin-top:16px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
+  @media(max-width:860px){.grid2,.grid3{grid-template-columns:1fr}}
+  code,.mono{font-family:"SF Mono",Consolas,Menlo,monospace; font-size:12.5px}
+  code{background:#21262d; padding:1px 6px; border-radius:5px; color:#ffa657}
+  table{width:100%; border-collapse:collapse; margin-top:12px; font-size:13.5px}
+  th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px}
+  tr:hover td{background:#1a212c}
+  .pill{display:inline-block; font-size:11px; font-weight:600; padding:2px 9px; border-radius:20px; white-space:nowrap}
+  .p-voice{background:rgba(88,166,255,.15); color:var(--voice); border:1px solid rgba(88,166,255,.4)}
+  .p-chat{background:rgba(126,231,135,.13); color:var(--chat); border:1px solid rgba(126,231,135,.4)}
+  .p-kb{background:rgba(188,140,255,.14); color:var(--kb); border:1px solid rgba(188,140,255,.4)}
+  .p-aws{background:rgba(240,136,62,.14); color:var(--aws); border:1px solid rgba(240,136,62,.4)}
+  .p-mp{background:rgba(86,212,221,.13); color:var(--mp); border:1px solid rgba(86,212,221,.4)}
+  .p-rule{background:rgba(154,167,180,.13); color:var(--muted); border:1px solid rgba(154,167,180,.4)}
+  ul{margin:8px 0 0; padding-left:20px}
+  li{margin:4px 0}
+  .muted{color:var(--muted)}
+  .flowwrap{overflow-x:auto; padding:6px 0}
+  .note{border-left:3px solid var(--warn); background:rgba(240,136,62,.08); padding:12px 16px; border-radius:0 8px 8px 0; margin-top:14px; font-size:13.5px}
+  .danger{border-left-color:var(--danger); background:rgba(248,81,73,.08)}
+  .ok{border-left-color:var(--accent2); background:rgba(126,231,135,.07)}
+  .tag{font-size:11px; color:var(--muted); font-family:"SF Mono",monospace}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:14px; font-size:12.5px}
+  .legend span{display:flex; align-items:center; gap:6px}
+  .dot{width:11px; height:11px; border-radius:3px; display:inline-block}
+  /* model cards */
+  .model-card{border:1px solid var(--line); border-radius:var(--radius); padding:18px; background:var(--panel)}
+  .model-card h4{margin:0 0 4px; font-size:15px}
+  .model-card .kind{font-size:11px; font-weight:600; letter-spacing:.4px; text-transform:uppercase}
+  .model-card .row{margin-top:12px}
+  .model-card .row b{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin-bottom:4px}
+  .arrow-h{color:var(--muted); padding:0 4px}
+  .toc{display:flex; flex-wrap:wrap; gap:10px; margin-top:18px}
+  .toc a{color:var(--accent); text-decoration:none; font-size:13px; padding:5px 12px; border:1px solid var(--line); border-radius:20px; background:var(--panel)}
+  .toc a:hover{background:#21304a}
+  .stage-num{display:inline-flex; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#0e1117; font-weight:700; font-size:12px; align-items:center; justify-content:center; margin-right:8px}
+  footer{max-width:1180px; margin:60px auto 0; padding:20px 28px; border-top:1px solid var(--line); color:var(--muted); font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>CIQ — Architecture &amp; Data Flow <span class="badge">voice burnout assessment</span></h1>
+  <p>A voice-driven burnout assessment app. A realtime voice agent administers the BAT survey while the browser
+  captures facial biometrics; a multi-stage LLM pipeline then turns the answers + biometrics into a behavioral
+  analysis and a spoken consultative report. This document maps <strong>every model in the system</strong>,
+  exactly what data each one consumes, what it produces, and what you can ask it.</p>
+</header>
+
+<main>
+  <div class="toc">
+    <a href="#models">① The Models</a>
+    <a href="#flow">② End-to-End Flow</a>
+    <a href="#consume">③ What Each Model Consumes</a>
+    <a href="#biometrics">④ Biometric Pipeline</a>
+    <a href="#ask">⑤ What You Can Ask</a>
+    <a href="#gaps">⑥ Data Gaps</a>
+  </div>
+
+  <!-- ============================================================= -->
+  <section id="models">
+    <h2>① The Models in the System
+      <span class="sub">Five AI/ML components. Only the first is conversational; the rest run on-demand after the survey.</span>
+    </h2>
+
+    <div class="legend">
+      <span><i class="dot" style="background:var(--voice)"></i> Voice / Realtime LLM</span>
+      <span><i class="dot" style="background:var(--chat)"></i> Chat-completion LLM</span>
+      <span><i class="dot" style="background:var(--kb)"></i> RAG / Knowledge Base</span>
+      <span><i class="dot" style="background:var(--aws)"></i> AWS vision model</span>
+      <span><i class="dot" style="background:var(--mp)"></i> Browser ML model</span>
+      <span><i class="dot" style="background:var(--muted)"></i> Rule engine (no AI)</span>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      <div class="model-card" style="border-top:3px solid var(--voice)">
+        <span class="kind" style="color:var(--voice)">Realtime LLM · conversational</span>
+        <h4>1. Voice Agent</h4>
+        <div class="tag">Azure OpenAI GPT-4o Realtime &nbsp;·&nbsp; WebSocket via <code>rtmt.py</code></div>
+        <div class="row"><b>Role</b>Hears the user, speaks back, runs the survey script, scores each answer, fires tools.</div>
+        <div class="row"><b>Consumes</b>Live mic audio · system instructions (persona + survey script + stress/state context) · tool results.</div>
+        <div class="row"><b>Produces</b>Spoken audio · tool calls (<code>record_survey_response</code>, <code>report_sentiment</code>, <code>query_survey_results</code>).</div>
+      </div>
+
+      <div class="model-card" style="border-top:3px solid var(--chat)">
+        <span class="kind" style="color:var(--chat)">Chat LLM · stage 1</span>
+        <h4>2. Behavioral Analysis Engine</h4>
+        <div class="tag">Azure OpenAI Chat (<code>AZURE_OPENAI_CHAT_DEPLOYMENT</code>, default gpt-4o) · <code>analyze_with_prompt()</code></div>
+        <div class="row"><b>Role</b>Correlates survey scores against biometric signals using fixed research rules. Outputs strict JSON.</div>
+        <div class="row"><b>Consumes</b>Per-question snapshots (score, domain, voice sentiment, blink-rate change, gaze) + blink-rate research rules.</div>
+        <div class="row"><b>Produces</b>JSON: <code>correlations</code>, <code>contradictions</code>, <code>patterns</code>, <code>summary</code>.</div>
+      </div>
+
+      <div class="model-card" style="border-top:3px solid var(--chat)">
+        <span class="kind" style="color:var(--chat)">Chat LLM · stage 2</span>
+        <h4>3. Consultative Responder</h4>
+        <div class="tag">Same Azure OpenAI Chat deployment · second <code>analyze_with_prompt()</code> call</div>
+        <div class="row"><b>Role</b>Turns the analysis JSON + score into a warm, audio-friendly spoken summary for the user.</div>
+        <div class="row"><b>Consumes</b>Stage-1 JSON · total score · risk level · domain totals · per-question snapshot lines.</div>
+        <div class="row"><b>Produces</b>Plain-text consultative response (spoken to user + stored as Q&amp;A context).</div>
+      </div>
+
+      <div class="model-card" style="border-top:3px solid var(--kb)">
+        <span class="kind" style="color:var(--kb)">RAG + Report LLM · optional</span>
+        <h4>4. Mithra KB + Report Writer</h4>
+        <div class="tag">Mithra RAG API + <code>REPORT_OPENAI_DEPLOYMENT</code> · <code>_call_mithra_kb_chat()</code> / <code>_call_report_llm()</code></div>
+        <div class="row"><b>Role</b>Evidence-based "SSOT" report grounded in uploaded burnout documents, with citations.</div>
+        <div class="row"><b>Consumes</b>A templated query built from <em>score, risk level, top contributing domains</em> — <strong>not</strong> raw biometrics.</div>
+        <div class="row"><b>Produces</b>Report text (General Case / Root Cause / Recommendation) + document citations.</div>
+      </div>
+
+      <div class="model-card" style="border-top:3px solid var(--aws)">
+        <span class="kind" style="color:var(--aws)">Vision model</span>
+        <h4>5. AWS Rekognition</h4>
+        <div class="tag"><code>POST /analyze</code> → <code>detect_faces</code></div>
+        <div class="row"><b>Role</b>Detect dominant facial emotion from JPEG frames every 3 s.</div>
+        <div class="row"><b>Consumes</b>Base64 JPEG webcam frame.</div>
+        <div class="row"><b>Produces</b>Dominant emotion + confidence. <span class="muted">(Stored in history, see Data Gaps.)</span></div>
+      </div>
+
+      <div class="model-card" style="border-top:3px solid var(--mp)">
+        <span class="kind" style="color:var(--mp)">Browser ML + rule engine</span>
+        <h4>6. MediaPipe + BiometricInterpreter</h4>
+        <div class="tag"><code>useBiometrics.ts</code> (in-browser) → <code>POST /analyze-stress</code> → <code>biometric_interpreter.py</code></div>
+        <div class="row"><b>Role</b>FaceLandmarker computes blink rate / gaze / pupil in-browser; backend rule engine maps blink-rate change → stress state.</div>
+        <div class="row"><b>Consumes</b>Webcam video frames (browser) · blink rate + baseline (backend).</div>
+        <div class="row"><b>Produces</b>Blink-rate change %, gaze position, pupil size · stress state (<code>stressed/relaxed/normal</code>).</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section id="flow">
+    <h2>② End-to-End Flow
+      <span class="sub">Two phases: a live voice survey, then an on-demand report pipeline.</span>
+    </h2>
+
+    <div class="flowwrap">
+    <svg viewBox="0 0 1120 640" width="100%" style="min-width:900px; font-family:inherit">
+      <defs>
+        <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#6b7785"/>
+        </marker>
+        <style>
+          .box{rx:9; stroke-width:1.5}
+          .lbl{fill:#e6edf3; font-size:13px; font-weight:600}
+          .sub2{fill:#9aa7b4; font-size:11px}
+          .edge{stroke:#6b7785; stroke-width:1.6; fill:none; marker-end:url(#arr)}
+          .edgelbl{fill:#9aa7b4; font-size:10.5px}
+          .phase{fill:#9aa7b4; font-size:12px; font-weight:700; letter-spacing:1px}
+        </style>
+      </defs>
+
+      <!-- PHASE 1 -->
+      <text x="20" y="26" class="phase">PHASE 1 — LIVE VOICE SURVEY</text>
+      <line x1="20" y1="34" x2="1100" y2="34" stroke="#2d3748"/>
+
+      <!-- Browser -->
+      <rect x="20" y="60" width="180" height="86" class="box" fill="#161b22" stroke="#3b4658"/>
+      <text x="34" y="86" class="lbl">🎤 Browser</text>
+      <text x="34" y="106" class="sub2">mic → useAudioRecorder</text>
+      <text x="34" y="122" class="sub2">webcam → MediaPipe</text>
+      <text x="34" y="138" class="sub2">+ Rekognition frames</text>
+
+      <!-- RTMT -->
+      <rect x="300" y="56" width="200" height="94" class="box" fill="#161b22" stroke="#58a6ff"/>
+      <text x="314" y="82" class="lbl" fill="#58a6ff">RTMiddleTier</text>
+      <text x="314" y="102" class="sub2">rtmt.py · WS proxy</text>
+      <text x="314" y="118" class="sub2">intercepts tool calls</text>
+      <text x="314" y="134" class="sub2">holds session state</text>
+
+      <!-- Realtime model -->
+      <rect x="600" y="56" width="210" height="94" class="box" fill="#13233f" stroke="#58a6ff"/>
+      <text x="614" y="82" class="lbl" fill="#58a6ff">① GPT-4o Realtime</text>
+      <text x="614" y="102" class="sub2">voice agent</text>
+      <text x="614" y="118" class="sub2">scores answers</text>
+      <text x="614" y="134" class="sub2">calls survey tools</text>
+
+      <!-- session store -->
+      <rect x="880" y="56" width="210" height="94" class="box" fill="#161b22" stroke="#7ee787"/>
+      <text x="894" y="82" class="lbl" fill="#7ee787">SessionState</text>
+      <text x="894" y="102" class="sub2">survey_results{ }</text>
+      <text x="894" y="118" class="sub2">blink/gaze history</text>
+      <text x="894" y="134" class="sub2">conversation_state</text>
+
+      <path class="edge" d="M200,103 L298,103"/>
+      <text x="218" y="96" class="edgelbl">audio /realtime</text>
+      <path class="edge" d="M500,90 L598,90"/>
+      <path class="edge" d="M598,118 L502,118"/>
+      <text x="512" y="136" class="edgelbl">tool calls</text>
+      <path class="edge" d="M500,128 L500,150 L878,150 L878,120" />
+      <text x="640" y="166" class="edgelbl">record_survey_response → stores score + biometrics snapshot</text>
+
+      <!-- biometrics side-channel -->
+      <rect x="20" y="190" width="180" height="70" class="box" fill="#0f1f24" stroke="#56d4dd"/>
+      <text x="34" y="214" class="lbl" fill="#56d4dd">REST side-channel</text>
+      <text x="34" y="234" class="sub2">/biometrics /analyze</text>
+      <text x="34" y="250" class="sub2">/analyze-stress</text>
+      <path class="edge" d="M200,222 L300,222 L300,152"/>
+      <text x="210" y="214" class="edgelbl">push blink/gaze/emotion</text>
+
+      <!-- PHASE 2 -->
+      <text x="20" y="320" class="phase">PHASE 2 — REPORT PIPELINE  (POST /analyze-report, after last answer)</text>
+      <line x1="20" y1="328" x2="1100" y2="328" stroke="#2d3748"/>
+
+      <rect x="20" y="356" width="200" height="78" class="box" fill="#161b22" stroke="#7ee787"/>
+      <text x="34" y="382" class="lbl" fill="#7ee787">Snapshots</text>
+      <text x="34" y="402" class="sub2">score, domain, sentiment,</text>
+      <text x="34" y="418" class="sub2">blinkRateChange, gaze</text>
+
+      <rect x="300" y="350" width="210" height="90" class="box" fill="#13261a" stroke="#7ee787"/>
+      <text x="314" y="376" class="lbl" fill="#7ee787">② Behavioral Analysis</text>
+      <text x="314" y="396" class="sub2">GPT-4o Chat</text>
+      <text x="314" y="412" class="sub2">+ blink research rules</text>
+      <text x="314" y="428" class="sub2">→ strict JSON</text>
+
+      <rect x="590" y="350" width="210" height="90" class="box" fill="#13261a" stroke="#7ee787"/>
+      <text x="604" y="376" class="lbl" fill="#7ee787">③ Consultative Resp.</text>
+      <text x="604" y="396" class="sub2">GPT-4o Chat</text>
+      <text x="604" y="412" class="sub2">score + risk + analysis</text>
+      <text x="604" y="428" class="sub2">→ spoken summary</text>
+
+      <rect x="880" y="350" width="210" height="90" class="box" fill="#1d1430" stroke="#bc8cff"/>
+      <text x="894" y="376" class="lbl" fill="#bc8cff">④ Mithra KB + LLM</text>
+      <text x="894" y="396" class="sub2">RAG over docs</text>
+      <text x="894" y="412" class="sub2">score+domains query</text>
+      <text x="894" y="428" class="sub2">→ report + citations</text>
+
+      <path class="edge" d="M220,395 L298,395"/>
+      <path class="edge" d="M510,395 L588,395"/>
+      <text x="520" y="388" class="edgelbl">JSON</text>
+      <path class="edge" d="M800,395 L878,395"/>
+      <text x="812" y="388" class="edgelbl">score/domains</text>
+
+      <!-- outputs -->
+      <rect x="300" y="478" width="500" height="64" class="box" fill="#161b22" stroke="#3b4658"/>
+      <text x="320" y="504" class="lbl">Frontend report UI + spoken response + DB persistence</text>
+      <text x="320" y="524" class="sub2">detailed-report.tsx · conversation_state = "report_delivered" → agent answers follow-ups</text>
+      <path class="edge" d="M405,440 L405,476"/>
+      <path class="edge" d="M695,440 L695,476"/>
+      <path class="edge" d="M985,440 L985,560 L800,560" />
+
+      <!-- back to agent for QA -->
+      <rect x="300" y="576" width="500" height="48" class="box" fill="#13233f" stroke="#58a6ff"/>
+      <text x="320" y="605" class="lbl" fill="#58a6ff">① Voice agent re-enters Q&amp;A mode  →  query_survey_results tool</text>
+      <path class="edge" d="M550,542 L550,574"/>
+    </svg>
+    </div>
+
+    <div class="note ok">
+      <strong>Key insight:</strong> the realtime voice agent (model ①) <em>never sees the full report</em>. It only receives
+      per-question tool acknowledgements during the survey, and later a compact <code>report_context</code> string for Q&amp;A.
+      All heavy analysis happens in models ②–④ via separate HTTP calls after the survey ends.
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section id="consume">
+    <h2>③ What Each Model Consumes &amp; Produces
+      <span class="sub">The exact inputs/outputs, with source references.</span>
+    </h2>
+    <table>
+      <thead><tr><th>Model</th><th>Input data</th><th>Output</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="pill p-voice">① Voice Agent</span></td>
+          <td>Live mic audio; system instructions built per-turn = persona + survey script (questions from the active survey JSON) + meta-intent + stress-state + conversation-state + reconnect context; tool results returned to it.</td>
+          <td>Spoken audio; tool calls. During survey it gets only an empty/ack output for <code>record_survey_response</code> (TO_CLIENT).</td>
+          <td><code>rtmt.py</code> <span class="tag">_get_survey_instructions, _process_message_to_server</span></td>
+        </tr>
+        <tr>
+          <td><span class="pill p-chat">② Behavioral Analysis</span></td>
+          <td>Per-question <code>input_data</code>: <code>question, domain, score, voice_sentiment, blink_rate_change, br_stress (derived), gaze_position</code> + a fixed blink-rate research-rules block. Strictly grounded — no outside knowledge.</td>
+          <td>JSON: <code>correlations[], contradictions[], patterns[], summary</code> each with rule + dataPoint + confidence.</td>
+          <td><code>app.py</code> <span class="tag">analyze_report → analyze_with_prompt</span></td>
+        </tr>
+        <tr>
+          <td><span class="pill p-chat">③ Consultative Resp.</span></td>
+          <td>total score / max; risk interpretation; the stage-2 analysis string; domain totals; per-question snapshot lines (score, domain, voice_sentiment, blink_change, gaze).</td>
+          <td>Warm plain-text spoken summary; also stored in <code>report_context</code> for follow-up Q&amp;A.</td>
+          <td><code>app.py</code> <span class="tag">consultative_prompt</span></td>
+        </tr>
+        <tr>
+          <td><span class="pill p-kb">④ Mithra KB + Report</span></td>
+          <td>A templated natural-language query built only from <em>total score, risk interpretation, top-2/3 contributing domains</em>. Report LLM then consumes the KB answer + citations.</td>
+          <td>Evidence-based report (General Case / Root Cause / Recommendation) + citations. Optional — skipped if tokens unset.</td>
+          <td><code>app.py</code> <span class="tag">_call_mithra_kb_chat, _call_report_llm</span></td>
+        </tr>
+        <tr>
+          <td><span class="pill p-aws">⑤ Rekognition</span></td>
+          <td>Base64 JPEG webcam frame every 3 s.</td>
+          <td>Dominant emotion + confidence → stored in <code>face_emotion_history</code>.</td>
+          <td><code>app.py</code> <span class="tag">analyze_face</span> · <code>useVideoCapture.ts</code></td>
+        </tr>
+        <tr>
+          <td><span class="pill p-mp">⑥ MediaPipe</span></td>
+          <td>Webcam video frames (~30 fps in browser).</td>
+          <td>Blink rate, blink-rate change %, gaze (x,y), pupil size, head pose, eye openness, smile.</td>
+          <td><code>useBiometrics.ts</code></td>
+        </tr>
+        <tr>
+          <td><span class="pill p-rule">⑥ BiometricInterpreter</span></td>
+          <td>Blink rate + baseline blink rate (<code>POST /analyze-stress</code>).</td>
+          <td>Stress state <code>stressed/relaxed/normal</code> + confidence + trend → drives agent tone.</td>
+          <td><code>biometric_interpreter.py</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============================================================= -->
+  <section id="biometrics">
+    <h2>④ The Biometric Pipeline
+      <span class="sub">Where every biometric value originates, and how it reaches a model.</span>
+    </h2>
+    <div class="grid2">
+      <div class="card">
+        <h3 style="margin-top:0">Capture (browser)</h3>
+        <ul>
+          <li><strong>Blink rate</strong> — MediaPipe eye-openness (EAR &lt; 0.1 = blink), 30 s rolling window, EMA-smoothed. Baseline captured in a 30 s calibration session stored in <code>localStorage</code>.</li>
+          <li><strong>Blink-rate change %</strong> — deviation of current blink rate from the personal baseline.</li>
+          <li><strong>Gaze (x,y)</strong> — left-iris position vs. an adaptive baseline, amplified to a 0–1 signal.</li>
+          <li><strong>Pupil size, head pose, smile</strong> — computed but used only for the live video panel.</li>
+          <li><strong>Face emotion</strong> — separate loop sends JPEG to AWS Rekognition every 3 s.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Transport &amp; capture-at-answer</h3>
+        <ul>
+          <li><code>POST /biometrics</code> continuously updates <code>SessionState</code>: sentiment, blink-rate change, face emotion, gaze, and appends to rolling history buffers.</li>
+          <li><code>POST /analyze-stress</code> → rule engine → <code>POST /update-stress</code> adapts agent tone in real time.</li>
+          <li>When the agent fires <code>record_survey_response</code>, <code>_survey_tool()</code> takes a <strong>snapshot</strong>: it uses the <em>average</em> blink-rate change from history + current gaze + voice sentiment + response latency, and stores it under that <code>question_id</code>.</li>
+          <li>Those snapshots are what later feed models ②–④.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note">
+      <strong>Two different blink numbers:</strong> the live stress engine uses a personal-baseline % change with a ±30% threshold;
+      the report's <code>br_stress</code> label is recomputed in <code>analyze_report</code> with the same ±30 cutoff
+      (<code>&gt;30 = High</code>, <code>&lt;-30 = Low</code>). Gaze and emotion are stored raw — no rule engine.
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section id="ask">
+    <h2>⑤ What You Can Ask Each Model
+      <span class="sub">Practical capability map.</span>
+    </h2>
+    <div class="grid2">
+      <div class="card">
+        <h3 style="margin-top:0"><span class="pill p-voice">① Voice Agent</span> — during &amp; after survey</h3>
+        <p class="muted" style="margin:4px 0 8px">Conversational. After the report it enters <code>report_delivered → qa_mode</code> and can answer follow-ups using <code>query_survey_results</code>.</p>
+        <ul>
+          <li>"What's my burnout score / risk level?"</li>
+          <li>"Which areas contributed most?" <span class="tag">→ contributing_domains</span></li>
+          <li>"Which questions showed high stress?" <span class="tag">→ stress_questions</span></li>
+          <li>"Give me a summary." <span class="tag">→ summary</span></li>
+          <li>"What does the app do / is this medical advice?" <span class="tag">→ meta-intent</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0"><span class="pill p-chat">②③ Analysis &amp; Consultant</span> — one-shot</h3>
+        <p class="muted" style="margin:4px 0 8px">Not interactive — invoked by <code>/analyze-report</code>. You shape them via the data you send.</p>
+        <ul>
+          <li>"Correlate scores with blink-rate signals." (②)</li>
+          <li>"Flag contradictions: high score but relaxed signal." (②)</li>
+          <li>"Explain the score and give next steps, spoken." (③)</li>
+          <li>Bounded to provided rules + data — returns <code>insufficient_evidence</code> rather than guessing.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0"><span class="pill p-kb">④ Mithra KB</span> — evidence report</h3>
+        <ul>
+          <li>"Root cause &amp; recommendations for {risk} driven by {top domains}."</li>
+          <li>Custom <code>query_override</code> from the test generator.</li>
+          <li>Answers grounded in uploaded burnout documents, with citations.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0"><span class="pill p-aws">⑤</span> <span class="pill p-mp">⑥</span> Vision / Biometrics</h3>
+        <ul>
+          <li>Not queryable in language — they emit signals, not answers.</li>
+          <li>Rekognition: "what emotion is on this frame?"</li>
+          <li>Interpreter: "is this blink rate stressed/relaxed/normal?"</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section id="gaps">
+    <h2>⑥ Known Data Gaps
+      <span class="sub">Data that is captured but never reaches a model — worth knowing before you trust an answer.</span>
+    </h2>
+    <div class="note danger">
+      <strong>Gaze position is invisible to the conversational agent.</strong> It <em>is</em> sent to the behavioral-analysis
+      model (②), but: (a) <code>query_survey_results</code> never returns gaze in any of its 5 query types, so the voice agent
+      cannot answer gaze questions; and (b) the analysis prompt's research rules only describe <em>blink rate</em>, so model ②
+      is grounded to ignore gaze and return <code>insufficient_evidence</code>. <span class="tag">rtmt.py _query_survey_tool · app.py research_rules</span>
+    </div>
+    <div class="note danger">
+      <strong>Face emotion (Rekognition) is dropped before report generation.</strong> It is stored in
+      <code>face_emotion_history</code> and a <code>_get_dominant_emotion()</code> helper exists, but it is never written into the
+      per-question snapshot and never appears in <code>input_data</code> or any report prompt.
+    </div>
+    <div class="note">
+      <strong>Response latency &amp; verbatim answer text</strong> are stored in <code>survey_results</code> and sent to the
+      frontend snapshot, but are excluded from the model-facing <code>input_data</code> and consultative prompt.
+    </div>
+    <div class="note ok">
+      <strong>To make a biometric usable by a model</strong> you generally need two changes: (1) expose it through
+      <code>query_survey_results</code> for the voice agent, and (2) add a matching research rule + include it in
+      <code>input_data</code> for the analysis model.
+    </div>
+  </section>
+</main>
+
+<footer>
+  Generated from source: <code>app/backend/rtmt.py</code>, <code>app/backend/app.py</code>,
+  <code>biometric_interpreter.py</code>, <code>survey_loader.py</code>, <code>surveys/*.json</code>,
+  <code>useBiometrics.ts</code>, <code>useVideoCapture.ts</code>. Self-contained — open directly in any browser.
+</footer>
+</body>
+</html>

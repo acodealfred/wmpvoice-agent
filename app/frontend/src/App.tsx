@@ -34,6 +34,9 @@ function App() {
     const [surveyOptions, setSurveyOptions] = useState<SurveyOption[]>([]);
     const [biometricSnapshots, setBiometricSnapshots] = useState<BiometricSnapshot[]>([]);
     const [showDetailedReport, setShowDetailedReport] = useState(false);
+    // True once a survey has been fully answered. Gates the "start fresh" reset so a
+    // new assessment only begins after completion — an in-progress survey resumes instead.
+    const [assessmentComplete, setAssessmentComplete] = useState(false);
     const [enableSentiment, setEnableSentiment] = useState(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [surveyTypeConfig, setSurveyTypeConfig] = useState<SurveyTypeConfig | null>(null);
@@ -154,6 +157,7 @@ function App() {
             setSurveyTotal(message.total);
             if (message.completed === message.total) {
                 setEnableBiometrics(false);
+                setAssessmentComplete(true);
                 setTimeout(() => setShowDetailedReport(true), 2000);
             }
         }
@@ -255,8 +259,34 @@ function App() {
     const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
 
+    // Clear all per-assessment UI state so a new run starts from a clean slate.
+    // Crucially re-enables biometrics, which is switched off when a survey completes.
+    const resetAssessmentState = useCallback(() => {
+        setBiometricSnapshots([]);
+        setSurveyQuestions([]);
+        setSurveyCompleted(0);
+        setSurveyTotal(0);
+        setSurveyOptions([]);
+        setShowDetailedReport(false);
+        setSentiment(null);
+        setStressResult(null);
+        setEnableBiometrics(true);
+    }, []);
+
     const onToggleListening = async () => {
         if (!isRecording) {
+            // Only begin a brand-new assessment when the previous survey actually
+            // COMPLETED. Minting a fresh session_id then gives the backend a pristine
+            // SessionState (conversation_state="active", no prior survey_results, reset
+            // reconnect counter), so the agent starts a NEW survey instead of resuming a
+            // delivered report. If a survey is still in progress (e.g. the user toggled
+            // the mic off mid-way), we keep the same session_id so it resumes.
+            if (assessmentComplete) {
+                resetAssessmentState();
+                setSessionId(crypto.randomUUID());
+                setAssessmentComplete(false);
+            }
+
             startSession();
             await startAudioRecording();
             resetAudioPlayer();
