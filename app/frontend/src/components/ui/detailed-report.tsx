@@ -1,6 +1,23 @@
 import { useState, useEffect } from "react";
 import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisInsight } from "@/types";
-import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles } from "lucide-react";
+import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
+import {
+    ResponsiveContainer,
+    RadialBarChart,
+    RadialBar,
+    PolarAngleAxis,
+    RadarChart,
+    Radar,
+    PolarGrid,
+    PolarRadiusAxis,
+    BarChart,
+    Bar,
+    Cell,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip
+} from "recharts";
 
 interface DetailedReportProps {
     snapshots: BiometricSnapshot[];
@@ -11,21 +28,44 @@ interface DetailedReportProps {
     onReportDelivered?: () => void;
 }
 
+// ── Theme tokens resolved to concrete colors for Recharts (which needs real
+// color strings, not CSS var() references). Re-reads when the theme flips. ──
+type Tokens = ReturnType<typeof readTokens>;
+function readTokens() {
+    const s = getComputedStyle(document.documentElement);
+    const g = (n: string) => s.getPropertyValue(n).trim() || "#888";
+    return {
+        green: g("--ciq-accent-green"),
+        amber: g("--ciq-accent-amber"),
+        red: g("--ciq-accent-red"),
+        blue: g("--ciq-accent-blue"),
+        purple: g("--ciq-accent-purple"),
+        line: g("--ciq-line"),
+        muted: g("--ciq-text-muted"),
+        strong: g("--ciq-text-strong"),
+        card: g("--ciq-card"),
+        card2: g("--ciq-card-2")
+    };
+}
+function useThemeTokens(): Tokens {
+    const [tok, setTok] = useState<Tokens>(readTokens);
+    useEffect(() => {
+        const obs = new MutationObserver(() => setTok(readTokens()));
+        obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
+        return () => obs.disconnect();
+    }, []);
+    return tok;
+}
+
 export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onReportDelivered }: DetailedReportProps) {
+    const tok = useThemeTokens();
+
     const [ssotLoading, setSsotLoading] = useState(false);
     const [ssotReport, setSsotReport] = useState<SSoTReport | null>(null);
     const [ssotError, setSsotError] = useState<string | null>(null);
     const [ssotQuery, setSsotQuery] = useState<string | null>(null);
 
     const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
-
-    const getSentimentColor = (sentiment: string): string => {
-        switch (sentiment) {
-            case "positive": return "text-green-700";
-            case "negative": return "text-red-700";
-            default: return "text-yellow-700";
-        }
-    };
 
     const handleGenerateAIReport = async () => {
         setSsotLoading(true);
@@ -72,8 +112,6 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
     };
 
     // ── Data-driven technical report (POST /analyze-report) ───────────────
-    // Fires once when the report opens; populates risk, behavioral analysis and
-    // the consultative summary from the backend (single source of truth).
     useEffect(() => {
         if (snapshots.length === 0) return;
         let cancelled = false;
@@ -105,13 +143,35 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
     const displayMax = analyzeData?.maxScore ?? snapshots.length * 5;
     const riskLevel = analyzeData?.riskLevel ?? (displayScore <= 12 ? "Low" : displayScore <= 22 ? "Moderate" : "High");
     const riskText = analyzeData?.interpretation ?? `${riskLevel} burnout risk`;
-    const riskColor = riskLevel === "Low" ? "text-green-600" : riskLevel === "Moderate" ? "text-yellow-600" : "text-red-600";
+    const riskHex = riskLevel === "Low" ? tok.green : riskLevel === "Moderate" ? tok.amber : tok.red;
+    const scorePct = displayMax > 0 ? Math.round((displayScore / displayMax) * 100) : 0;
+
+    // Per-question score → color band (higher item score = worse).
+    const scoreHex = (score: number) => (score <= 1 ? tok.green : score <= 3 ? tok.amber : tok.red);
+
+    // Average score per domain for the radar / domain bars.
+    const domainMap = new Map<string, { sum: number; n: number }>();
+    snapshots.forEach(s => {
+        const d = domainMap.get(s.domain) ?? { sum: 0, n: 0 };
+        d.sum += s.score;
+        d.n += 1;
+        domainMap.set(s.domain, d);
+    });
+    const domainData = Array.from(domainMap.entries()).map(([domain, v]) => ({
+        domain,
+        score: Number((v.sum / v.n).toFixed(2))
+    }));
+    const useRadar = domainData.length >= 3;
+
+    // KPI tiles.
+    const peakBlink = snapshots.reduce((m, s) => (Math.abs(s.blinkRateChange) > Math.abs(m) ? s.blinkRateChange : m), 0);
+    const peakPupil = snapshots.reduce((m, s) => Math.max(m, s.pupilMmChange ?? 0), 0);
+    const latencies = snapshots.map(s => s.responseLatencyMs).filter((x): x is number => x != null);
+    const avgLatency = latencies.length ? (latencies.reduce((a, b) => a + b, 0) / latencies.length / 1000).toFixed(1) : null;
 
     const confidenceColor = (c: string) =>
         c === "high" ? "bg-green-100 text-green-700" : c === "medium" ? "bg-yellow-100 text-yellow-700" : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-body)]";
 
-    // Blink-rate change → Low/Medium/High category (CIQ Signal-Thresholds bands).
-    // Magnitude sets the level; the arrow keeps direction (↑ above / ↓ below baseline).
     const blinkBand = (changePct: number): { label: string; color: string } => {
         const mag = Math.abs(changePct);
         if (mag <= 15) return { label: "Normal", color: "bg-green-100 text-green-700" };
@@ -120,13 +180,21 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
         return { label: `High ${arrow}`, color: "bg-red-100 text-red-700" };
     };
 
-    // Pupil-dilation change (mm vs baseline) → category (CIQ Signal-Thresholds bands).
-    const pupilBand = (mmChange?: number): { label: string; color: string } => {
+    const pupilBand = (mmChange?: number | null): { label: string; color: string } => {
         if (mmChange == null) return { label: "—", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
         if (mmChange <= 0.1) return { label: "Low", color: "bg-green-100 text-green-700" };
         if (mmChange <= 0.3) return { label: "Medium", color: "bg-yellow-100 text-yellow-700" };
         return { label: "High", color: "bg-red-100 text-red-700" };
     };
+
+    const tooltipStyle = {
+        background: tok.card,
+        border: `1px solid ${tok.line}`,
+        borderRadius: 12,
+        color: tok.strong,
+        fontSize: 12,
+        boxShadow: "0 8px 30px rgba(0,0,0,0.18)"
+    } as const;
 
     const renderInsightGroup = (title: string, items?: AnalysisInsight[]) => {
         if (!items || items.length === 0) return null;
@@ -170,93 +238,140 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
         : 0;
     const hasConsultative = !!analyzeData?.agentResponse?.trim();
 
-    return (
-        <div className="w-full max-w-4xl rounded-lg bg-[color:var(--ciq-card)] p-6 shadow-lg">
+    const cardClass = "rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4";
 
-            {/* ── Section 1: Technical Report ─────────────────────────── */}
-            <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-[color:var(--ciq-text-strong)]">
-                    Burnout Assessment Results — Technical Report
-                </h2>
+    return (
+        <div className="w-full max-w-5xl rounded-2xl bg-[color:var(--ciq-card)] p-6 shadow-lg">
+            {/* ── Header ── */}
+            <div className="mb-5 flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-bold text-[color:var(--ciq-text-strong)]">Burnout Assessment</h2>
+                    <p className="text-sm text-[color:var(--ciq-text-muted)]">Behavioral &amp; physiological insight dashboard</p>
+                </div>
                 {onClose && (
-                    <button onClick={onClose} className="rounded-full p-2 hover:bg-[color:var(--ciq-card-2)]" aria-label="Close report">
+                    <button onClick={onClose} className="rounded-full p-2 text-[color:var(--ciq-text-muted)] hover:bg-[color:var(--ciq-card-2)]" aria-label="Close report">
                         ✕
                     </button>
                 )}
             </div>
 
-            {/* Score summary — data-driven from the active survey's thresholds/interpretation */}
-            <div className="mb-6 rounded-lg bg-purple-50 p-4">
-                <div className="text-center">
-                    <span className="text-lg font-medium text-[color:var(--ciq-text-body)]">Total Burnout Score</span>
-                    <div className="mt-2 text-4xl font-bold text-purple-600">
-                        {displayScore} / {displayMax}
+            {/* ── Combined Overall Burnout: risk gauge + enlarged domain radar ── */}
+            <div className={`mb-4 ${cardClass}`}>
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
+                    <Gauge className="h-5 w-5" /> Overall Burnout
+                </div>
+                <div className="grid items-center gap-4 md:grid-cols-5">
+                    {/* Risk gauge */}
+                    <div className="md:col-span-2">
+                        <div className="relative">
+                            <ResponsiveContainer width="100%" height={240}>
+                                <RadialBarChart
+                                    innerRadius="68%"
+                                    outerRadius="100%"
+                                    data={[{ value: scorePct, fill: riskHex }]}
+                                    startAngle={180}
+                                    endAngle={0}
+                                >
+                                    <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                                    <RadialBar background={{ fill: tok.card }} dataKey="value" cornerRadius={14} angleAxisId={0} />
+                                </RadialBarChart>
+                            </ResponsiveContainer>
+                            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end pb-7">
+                                <div className="text-5xl font-extrabold text-[color:var(--ciq-text-strong)]">
+                                    {displayScore}
+                                    <span className="text-2xl font-semibold text-[color:var(--ciq-text-muted)]">/{displayMax}</span>
+                                </div>
+                                <div className="mt-1.5 rounded-full px-4 py-1 text-base font-bold" style={{ color: riskHex, background: `${riskHex}22` }}>
+                                    {riskLevel} risk
+                                </div>
+                            </div>
+                        </div>
+                        <p className="mt-2 text-center text-sm text-[color:var(--ciq-text-muted)]">{riskText}</p>
                     </div>
-                    <div className={`mt-2 text-sm font-medium ${riskColor}`}>{riskText}</div>
+
+                    {/* Enlarged domain profile (radar, or bars when <3 domains) */}
+                    <div className="md:col-span-3">
+                        <p className="mb-1 text-center text-sm font-medium text-[color:var(--ciq-text-body)]">Domain Profile · avg score</p>
+                        <ResponsiveContainer width="100%" height={360}>
+                            {useRadar ? (
+                                <RadarChart data={domainData} outerRadius="78%">
+                                    <PolarGrid stroke={tok.line} />
+                                    <PolarAngleAxis dataKey="domain" tick={{ fill: tok.strong, fontSize: 14 }} />
+                                    <PolarRadiusAxis domain={[0, 5]} tick={{ fill: tok.muted, fontSize: 12 }} axisLine={false} />
+                                    <Radar dataKey="score" stroke={tok.purple} fill={tok.purple} fillOpacity={0.35} strokeWidth={2} />
+                                    <Tooltip contentStyle={tooltipStyle} />
+                                </RadarChart>
+                            ) : (
+                                <BarChart data={domainData} layout="vertical" margin={{ left: 10, right: 16 }}>
+                                    <CartesianGrid stroke={tok.line} horizontal={false} />
+                                    <XAxis type="number" domain={[0, 5]} tick={{ fill: tok.muted, fontSize: 13 }} />
+                                    <YAxis type="category" dataKey="domain" width={150} tick={{ fill: tok.strong, fontSize: 13 }} />
+                                    <Tooltip contentStyle={tooltipStyle} cursor={{ fill: `${tok.muted}18` }} />
+                                    <Bar dataKey="score" radius={[0, 6, 6, 0]}>
+                                        {domainData.map((d, i) => (
+                                            <Cell key={i} fill={scoreHex(d.score)} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            )}
+                        </ResponsiveContainer>
+                    </div>
                 </div>
             </div>
 
-            {/* Biometric snapshot table */}
-            <div className="mb-6 overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
-                    <thead>
-                        <tr className="bg-[color:var(--ciq-card-2)]">
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-left font-semibold text-[color:var(--ciq-text-strong)]">Question</th>
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-left font-semibold text-[color:var(--ciq-text-strong)]">Domain</th>
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">Score</th>
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">Voice Sentiment</th>
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">Blink Rate</th>
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">Pupil Dilation</th>
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">Gaze Position</th>
-                            <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">Response Latency</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {snapshots.map((snapshot, index) => (
-                            <tr key={snapshot.questionId} className={index % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
-                                <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{snapshot.questionId}</td>
-                                <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{snapshot.domain}</td>
-                                <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium text-[color:var(--ciq-text-strong)]">{snapshot.score}/5</td>
-                                <td className={`border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium capitalize ${getSentimentColor(snapshot.voiceSentiment)}`}>
-                                    {snapshot.voiceSentiment}
-                                </td>
-                                <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
-                                    {(() => {
-                                        const b = blinkBand(snapshot.blinkRateChange);
-                                        return (
-                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>
-                                                {b.label}
-                                            </span>
-                                        );
-                                    })()}
-                                </td>
-                                <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
-                                    {(() => {
-                                        const b = pupilBand(snapshot.pupilMmChange);
-                                        return (
-                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>
-                                                {b.label}
-                                            </span>
-                                        );
-                                    })()}
-                                </td>
-                                <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">{snapshot.gazePosition}</td>
-                                <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
-                                    {snapshot.responseLatencyMs != null ? `${(snapshot.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+            {/* ── KPI tiles ── */}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <KpiTile icon={<Eye className="h-4 w-4" />} label="Peak blink Δ" value={`${peakBlink > 0 ? "+" : ""}${peakBlink.toFixed(0)}%`} />
+                <KpiTile icon={<Eye className="h-4 w-4" />} label="Peak pupil Δ" value={`${peakPupil.toFixed(2)} mm`} />
+                <KpiTile icon={<Timer className="h-4 w-4" />} label="Avg latency" value={avgLatency != null ? `${avgLatency}s` : "—"} />
+            </div>
+
+            {/* ── Full data table (everything, sentiment excluded) ── */}
+            <div className="mb-6">
+                <p className="mb-3 text-sm font-semibold text-[color:var(--ciq-text-body)]">Detailed data table</p>
+                <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                            <thead>
+                                <tr className="bg-[color:var(--ciq-card-2)]">
+                                    {["Question", "Domain", "Score", "Blink Rate", "Pupil Dilation", "Gaze Position", "Response Latency"].map(h => (
+                                        <th key={h} className="border border-[color:var(--ciq-line)] px-3 py-2 text-left font-semibold text-[color:var(--ciq-text-strong)]">
+                                            {h}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {snapshots.map((s, index) => {
+                                    const b = blinkBand(s.blinkRateChange);
+                                    const p = pupilBand(s.pupilMmChange);
+                                    return (
+                                        <tr key={s.questionId} className={index % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
+                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.questionId}</td>
+                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.domain}</td>
+                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium text-[color:var(--ciq-text-strong)]">{s.score}/5</td>
+                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
+                                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>{b.label}</span>
+                                            </td>
+                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
+                                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${p.color}`}>{p.label}</span>
+                                            </td>
+                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">{s.gazePosition}</td>
+                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
+                                                {s.responseLatencyMs != null ? `${(s.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
             </div>
 
             <p className="mb-6 text-xs text-[color:var(--ciq-text-faint)]">
                 Note: This is a demonstration only. Results should be validated by a healthcare professional.
             </p>
 
-            {/* ── Behavioral Analysis — rendered ONLY when the model produced real
-                 content. If /analyze-report fails or returns nothing usable, the whole
-                 section is omitted, as if the feature isn't there. ─── */}
+            {/* ── Behavioral Analysis ── */}
             {analyzeData && (insightCount > 0 || hasConsultative) && (
                 <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">
                     <h3 className="mb-3 text-lg font-semibold text-[color:var(--ciq-text-strong)]">Behavioral Analysis</h3>
@@ -267,19 +382,15 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
 
                         {hasConsultative && (
                             <div className="rounded-lg bg-[color:var(--ciq-card-2)] p-4">
-                                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
-                                    Consultative Summary
-                                </p>
-                                <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-body)]">
-                                    {analyzeData.agentResponse}
-                                </p>
+                                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Consultative Summary</p>
+                                <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-body)]">{analyzeData.agentResponse}</p>
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* ── Generate AI Report button ─────────────────────────── */}
+            {/* ── Generate AI Report button ── */}
             <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">
                 <button
                     onClick={handleGenerateAIReport}
@@ -305,13 +416,10 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                 )}
             </div>
 
-            {/* ── Section 2: AI Consultative Report (SSOT) ─────────── */}
-            {/* Query sent to Mithra — shown as soon as it comes back from the server */}
+            {/* ── AI Consultative Report (SSOT) ── */}
             {ssotQuery && (
                 <div className="mb-4 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
-                        Query sent to Knowledge Base
-                    </p>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Query sent to Knowledge Base</p>
                     <p className="text-sm italic leading-relaxed text-[color:var(--ciq-text-body)]">{ssotQuery}</p>
                 </div>
             )}
@@ -324,33 +432,27 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
             )}
 
             {ssotReport && (
-                <div className="rounded-xl border border-blue-700 bg-[color:var(--ciq-card)] p-5">
+                <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-5">
                     <div className="mb-3 flex items-center gap-2">
-                        <BookOpen className="h-5 w-5 text-blue-400" />
+                        <BookOpen className="h-5 w-5 text-[color:var(--ciq-accent-blue)]" />
                         <h3 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">AI Consultative Report</h3>
-                        <span className="ml-auto rounded-full bg-blue-900/50 px-2 py-0.5 text-xs font-medium text-blue-300">
+                        <span className="ml-auto rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-accent-blue)]">
                             SSOT · Evidence-based
                         </span>
                     </div>
 
-                    <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">
-                        {ssotReport.answer}
-                    </p>
+                    <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">{ssotReport.answer}</p>
 
                     {ssotReport.citations.length > 0 && (
                         <div className="mt-4 border-t border-[color:var(--ciq-line)] pt-3">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
-                                Citations
-                            </p>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Citations</p>
                             <ul className="space-y-1.5">
                                 {ssotReport.citations.map((c, i) => (
                                     <li key={i} className="flex items-start gap-2 text-xs text-[color:var(--ciq-text-body)]">
-                                        <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" />
+                                        <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-[color:var(--ciq-accent-blue)]" />
                                         <span>
-                                            <span className="font-medium text-blue-300">{c.paperTitle}</span>
-                                            {c.paperPage > 0 && (
-                                                <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>
-                                            )}
+                                            <span className="font-medium text-[color:var(--ciq-accent-blue)]">{c.paperTitle}</span>
+                                            {c.paperPage > 0 && <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>}
                                         </span>
                                     </li>
                                 ))}
@@ -359,6 +461,18 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                     )}
                 </div>
             )}
+        </div>
+    );
+}
+
+function KpiTile({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+    return (
+        <div className="rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-3">
+            <div className="flex items-center gap-1.5 text-[color:var(--ciq-text-muted)]">
+                {icon}
+                <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
+            </div>
+            <p className="mt-1 text-xl font-bold text-[color:var(--ciq-text-strong)]">{value}</p>
         </div>
     );
 }

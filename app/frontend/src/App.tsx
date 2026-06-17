@@ -1,11 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { LoginScreen } from "@/components/ui/login-screen";
 import { VideoPanel } from "@/components/ui/video-panel";
 import { GazeIndicator, gazeLabel } from "@/components/ui/gaze-indicator";
-import { DetailedReport } from "@/components/ui/detailed-report";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+// Lazy-loaded so Recharts (heavy) is code-split out of the initial bundle and
+// only fetched when a completed survey opens the report.
+const DetailedReport = lazy(() => import("@/components/ui/detailed-report").then(m => ({ default: m.DetailedReport })));
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { UserHistory } from "@/components/ui/user-history";
@@ -854,14 +857,24 @@ function App() {
 
                                             {showDetailedReport && biometricSnapshots.length > 0 && (
                                                 <div className="mt-4">
-                                                    <DetailedReport
-                                                        snapshots={biometricSnapshots}
-                                                        totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
-                                                        sessionId={sessionId}
-                                                        onClose={() => setShowDetailedReport(false)}
-                                                        onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
-                                                        onReportDelivered={refreshSession}
-                                                    />
+                                                    <ErrorBoundary label="report">
+                                                        <Suspense
+                                                            fallback={
+                                                                <div className="flex items-center justify-center gap-2 py-10 text-sm text-[color:var(--ciq-text-60)]">
+                                                                    <Loader2 className="h-4 w-4 animate-spin" /> Building your report…
+                                                                </div>
+                                                            }
+                                                        >
+                                                            <DetailedReport
+                                                                snapshots={biometricSnapshots}
+                                                                totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
+                                                                sessionId={sessionId}
+                                                                onClose={() => setShowDetailedReport(false)}
+                                                                onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
+                                                                onReportDelivered={refreshSession}
+                                                            />
+                                                        </Suspense>
+                                                    </ErrorBoundary>
                                                 </div>
                                             )}
 
