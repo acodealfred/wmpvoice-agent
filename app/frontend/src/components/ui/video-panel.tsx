@@ -36,8 +36,8 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoRead
 
     return (
         <div className="flex h-full flex-col">
-            <div className="relative flex-1 overflow-hidden rounded-lg bg-[#0d1a14]">
-                <video ref={videoRef} className="h-full w-full object-contain" muted playsInline />
+            <div className="relative flex-1 min-h-0 overflow-hidden rounded-lg bg-[#0d1a14]">
+                <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
                 <canvas ref={canvasRef} className="hidden" />
 
                 {!isStreaming && (

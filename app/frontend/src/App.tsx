@@ -402,7 +402,7 @@ function App() {
     }
 
     return (
-        <div className="flex min-h-screen flex-col ciq-page text-[color:var(--ciq-text-strong)]">
+        <div className="flex h-screen overflow-hidden flex-col ciq-page text-[color:var(--ciq-text-strong)]">
             {/* ── Floating pill header ── */}
             <div className="sticky top-0 z-40 px-5 pb-2 pt-4">
                 <div className="flex items-center justify-between rounded-[40px] border border-[color:var(--ciq-border)] bg-[color:var(--ciq-header-bg)] px-6 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] saturate-150 backdrop-blur-[34px]">
@@ -515,10 +515,10 @@ function App() {
 
             {/* ── Assessment Panel ── */}
             {activeTab === "assessment" && (
-                <main className="flex flex-1 overflow-hidden p-4">
-                    <div className="grid h-full w-full grid-cols-2 grid-rows-3 gap-4">
+                <main className="flex-1 overflow-y-auto p-4">
+                    <div className="grid w-full grid-cols-2 gap-4">
                         {/* Camera Feed Panel - Top Left */}
-                        <section className="ciq-glass-card">
+                        <section className="ciq-glass-card h-[800px]">
                             <div className="flex h-full flex-col">
                                 <div className="border-[color:var(--ciq-divider)] border-b px-5 py-3">
                                     <div className="flex items-center gap-2">
@@ -529,7 +529,7 @@ function App() {
                                         </span>
                                     </div>
                                 </div>
-                                <div className="flex-1 p-4">
+                                <div className="flex-1 min-h-0 p-4">
                                     <VideoPanel
                                         isRecording={isRecording}
                                         surveyQuestions={surveyQuestions}
@@ -819,7 +819,7 @@ function App() {
                         </section>
 
                         {/* Final Results Panel - Burnout Assessment (spans 2 columns, row 3) */}
-                        <section className="ciq-glass-card col-span-2">
+                        <section className="ciq-glass-card col-span-2 min-h-[420px]">
                             <div className="flex h-full flex-col">
                                 <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
                                     <h2 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Final Results - Burnout Assessment</h2>
