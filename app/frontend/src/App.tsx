@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -45,9 +45,16 @@ function App() {
     const [surveyOptions, setSurveyOptions] = useState<SurveyOption[]>([]);
     const [biometricSnapshots, setBiometricSnapshots] = useState<BiometricSnapshot[]>([]);
     const [showDetailedReport, setShowDetailedReport] = useState(false);
+    // True from survey completion until the report has finished post-processing
+    // (POST /analyze-report) — drives the in-panel "Generating your report…" loader.
+    const [reportLoading, setReportLoading] = useState(false);
     // True once a survey has been fully answered. Gates the "start fresh" reset so a
     // new assessment only begins after completion — an in-progress survey resumes instead.
     const [assessmentComplete, setAssessmentComplete] = useState(false);
+    // Set when the report has been saved; consumed on the next response.done to force a
+    // clean reconnect so the agent answers follow-ups strictly from the saved report
+    // (wipes Azure's survey conversation memory) without cutting off its spoken result.
+    const pendingGuardrailResetRef = useRef(false);
     const [enableSentiment, setEnableSentiment] = useState(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [surveyTypeConfig, setSurveyTypeConfig] = useState<SurveyTypeConfig | null>(null);
@@ -149,12 +156,21 @@ function App() {
 
     // Baseline is loaded from localStorage by useBiometrics hook itself
 
-    const { startSession, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
+    const { startSession, reconnect, addUserAudio, inputAudioBufferClear } = useRealTime({
         sessionId,
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
         onWebSocketClose: () => console.log("WebSocket connection closed"),
         onWebSocketError: event => console.error("WebSocket error:", event),
         onReceivedError: message => console.error("error", message),
+        onReceivedResponseDone: () => {
+            // The report was just saved — perform the strict report-only hard reset now
+            // that the agent has finished its current turn (so we don't cut off speech).
+            if (pendingGuardrailResetRef.current) {
+                pendingGuardrailResetRef.current = false;
+                console.log("[App] Report saved — reconnecting for strict report-only Q&A");
+                reconnect();
+            }
+        },
         onReceivedResponseAudioDelta: message => {
             isRecording && playAudio(message.delta);
         },
@@ -188,7 +204,11 @@ function App() {
             if (message.completed === message.total) {
                 setEnableBiometrics(false);
                 setAssessmentComplete(true);
-                setTimeout(() => setShowDetailedReport(true), 2000);
+                // Show the in-panel loader and mount DetailedReport immediately so it fires
+                // POST /analyze-report (which post-processes + persists). The loader is cleared
+                // and the full report revealed once that resolves (handleReportReady).
+                setReportLoading(true);
+                setShowDetailedReport(true);
             }
         }
     });
@@ -296,6 +316,7 @@ function App() {
         setSurveyTotal(0);
         setSurveyOptions([]);
         setShowDetailedReport(false);
+        setReportLoading(false);
         setSentiment(null);
         setStressResult(null);
         setEnableBiometrics(true);
@@ -303,29 +324,12 @@ function App() {
         setSurveyRunId(crypto.randomUUID());
     }, []);
 
+    // Primary toggle: start / stop / resume. It never resets — a stopped survey
+    // (mid-way) is left untouched so pressing it again resumes, and after completion
+    // it simply reconnects the user for report Q&A. Starting a brand-new assessment
+    // is the dedicated "Start New Survey" button's job (onStartNewSurvey).
     const onToggleListening = async () => {
         if (!isRecording) {
-            // Only begin a brand-new assessment when the previous survey actually
-            // COMPLETED. We fully reset the SAME backend session (clears survey_results,
-            // conversation_state and the reconnect counter) and await it before
-            // reconnecting the agent. Resetting server-side on the same session_id is
-            // deterministic — unlike swapping the id and racing a WebSocket reconnect.
-            // A survey still in progress (mic toggled off mid-way) is left untouched so
-            // it resumes.
-            if (assessmentComplete) {
-                try {
-                    await apiFetch("/clear-conversation", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ session_id: sessionId })
-                    });
-                } catch (err) {
-                    console.error("Failed to reset session for new assessment:", err);
-                }
-                resetAssessmentState();
-                setAssessmentComplete(false);
-            }
-
             startSession();
             await startAudioRecording();
             resetAudioPlayer();
@@ -339,6 +343,47 @@ function App() {
             setIsRecording(false);
         }
     };
+
+    // Dedicated "Start New Survey": discards the current assessment and starts a fresh
+    // conversation. Fully resets the SAME backend session (clears survey_results,
+    // conversation_state and the reconnect counter), wipes the UI, then forces a clean
+    // realtime reconnect so the agent has no memory of the previous survey.
+    const onStartNewSurvey = async () => {
+        if (!window.confirm("This discards the current assessment and starts a fresh survey. Continue?")) {
+            return;
+        }
+        if (isRecording) {
+            await stopAudioRecording();
+            stopAudioPlayer();
+            inputAudioBufferClear();
+        }
+        pendingGuardrailResetRef.current = false;
+        try {
+            await apiFetch("/clear-conversation", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sessionId })
+            });
+        } catch (err) {
+            console.error("Failed to reset session for new survey:", err);
+        }
+        resetAssessmentState();
+        setAssessmentComplete(false);
+
+        reconnect();
+        startSession();
+        await startAudioRecording();
+        resetAudioPlayer();
+        setIsRecording(true);
+    };
+
+    // Called by DetailedReport once POST /analyze-report has resolved (report
+    // post-processed + persisted to DB). Clears the loader and arms the strict
+    // report-only hard reset, performed on the next response.done.
+    const handleReportReady = useCallback(() => {
+        setReportLoading(false);
+        pendingGuardrailResetRef.current = true;
+    }, []);
 
     const handleStartBaselineSession = useCallback(() => {
         startBaselineSession();
@@ -388,6 +433,12 @@ function App() {
     };
 
     const { t } = useTranslation();
+
+    // A survey that was started and stopped before completion — the primary button
+    // becomes "Continue Conversation" to resume it.
+    const surveyInProgress = surveyCompleted > 0 && !assessmentComplete;
+    // There is an assessment worth discarding/resetting.
+    const hasAssessment = surveyCompleted > 0 || assessmentComplete;
 
     if (authState === "checking") {
         return (
@@ -582,6 +633,11 @@ function App() {
                                                     <MicOff className="h-4 w-4" />
                                                     {t("app.stopConversation")}
                                                 </>
+                                            ) : surveyInProgress ? (
+                                                <>
+                                                    <Mic className="h-4 w-4" />
+                                                    {t("app.continueConversation") || "Continue Conversation"}
+                                                </>
                                             ) : (
                                                 <>
                                                     <Mic className="h-4 w-4" />
@@ -589,6 +645,17 @@ function App() {
                                                 </>
                                             )}
                                         </Button>
+                                        {/* Dedicated reset — only shown once there is an assessment to discard. */}
+                                        {hasAssessment && (
+                                            <Button
+                                                onClick={onStartNewSurvey}
+                                                variant="outline"
+                                                className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl text-sm font-semibold"
+                                            >
+                                                <RotateCcw className="h-4 w-4" />
+                                                {t("app.startNewSurvey") || "Start New Survey"}
+                                            </Button>
+                                        )}
                                         {/* Always reserve this row's height so toggling the
                                             badge never reflows the flex-1 video above it. */}
                                         {isRecording ? (
@@ -874,7 +941,16 @@ function App() {
                                             )}
 
                                             {showDetailedReport && biometricSnapshots.length > 0 && (
-                                                <div className="mt-4">
+                                                <div className="relative mt-4">
+                                                    {/* DetailedReport renders underneath while post-processing so Recharts
+                                                        sizes correctly; the overlay covers it until /analyze-report resolves. */}
+                                                    {reportLoading && (
+                                                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-[color:var(--ciq-card)]/90 backdrop-blur-sm">
+                                                            <Loader2 className="h-8 w-8 animate-spin text-[color:var(--ciq-accent-purple)]" />
+                                                            <p className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Generating your report…</p>
+                                                            <p className="text-xs text-[color:var(--ciq-text-60)]">Analyzing your responses and biometrics</p>
+                                                        </div>
+                                                    )}
                                                     <ErrorBoundary label="report">
                                                         <Suspense
                                                             fallback={
@@ -890,7 +966,7 @@ function App() {
                                                                 surveyType={surveyTypeConfig?.activeSurveyType}
                                                                 onClose={() => setShowDetailedReport(false)}
                                                                 onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
-                                                                onReportDelivered={refreshSession}
+                                                                onReportDelivered={handleReportReady}
                                                             />
                                                         </Suspense>
                                                     </ErrorBoundary>

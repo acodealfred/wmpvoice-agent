@@ -4,7 +4,9 @@
         "footer": "Creado con Azure AI Search + Azure OpenAI",
         "stopRecording": "Detener grabación",
         "startRecording": "Comenzar grabación",
-        "stopConversation": "Detener conversación"
+        "stopConversation": "Detener conversación",
+        "continueConversation": "Continuar conversación",
+        "startNewSurvey": "Iniciar nueva evaluación"
     },
     "status": {
         "notRecordingMessage": "Pregunta cualquier cosa sobre los beneficios de los empleados de Contoso",

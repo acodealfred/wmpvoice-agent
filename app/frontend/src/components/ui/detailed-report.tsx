@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisInsight } from "@/types";
+import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import {
@@ -69,6 +69,59 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
     const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
+
+    // On-demand AI generations (the two slow LLM calls, now triggered by buttons).
+    const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+    const [analysisLoading, setAnalysisLoading] = useState(false);
+    const [analysisError, setAnalysisError] = useState<string | null>(null);
+    const [consultText, setConsultText] = useState<string | null>(null);
+    const [consultLoading, setConsultLoading] = useState(false);
+    const [consultError, setConsultError] = useState<string | null>(null);
+
+    const handleGenerateAnalysis = async () => {
+        setAnalysisLoading(true);
+        setAnalysisError(null);
+        try {
+            const res = await apiFetch("/report/behavioral-analysis", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "" })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setAnalysisError(data.error ?? `Request failed (HTTP ${res.status})`);
+                return;
+            }
+            setAnalysisResult(data.analysis ?? null);
+        } catch (err) {
+            setAnalysisError(err instanceof Error ? err.message : "Unknown error");
+        } finally {
+            setAnalysisLoading(false);
+        }
+    };
+
+    const handleGenerateConsultative = async () => {
+        setConsultLoading(true);
+        setConsultError(null);
+        try {
+            const res = await apiFetch("/report/consultative-summary", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                // Pass any already-generated analysis so the summary can reference it.
+                body: JSON.stringify({ snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "", analysis: analysisResult ?? undefined })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setConsultError(data.error ?? `Request failed (HTTP ${res.status})`);
+                return;
+            }
+            setConsultText(data.agentResponse ?? "");
+        } catch (err) {
+            setConsultError(err instanceof Error ? err.message : "Unknown error");
+        } finally {
+            setConsultLoading(false);
+        }
+    };
 
     const handleGenerateAIReport = async () => {
         setSsotLoading(true);
@@ -260,12 +313,12 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         );
     };
 
-    const insightCount = analyzeData
-        ? (analyzeData.analysis?.correlations?.length ?? 0) +
-          (analyzeData.analysis?.contradictions?.length ?? 0) +
-          (analyzeData.analysis?.patterns?.length ?? 0)
+    const insightCount = analysisResult
+        ? (analysisResult.correlations?.length ?? 0) +
+          (analysisResult.contradictions?.length ?? 0) +
+          (analysisResult.patterns?.length ?? 0)
         : 0;
-    const hasConsultative = !!analyzeData?.agentResponse?.trim();
+    const hasConsultative = !!consultText?.trim();
 
     const cardClass = "rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4";
 
@@ -417,24 +470,60 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                 Note: This is a demonstration only. Results should be validated by a healthcare professional.
             </p>
 
-            {/* ── Behavioral Analysis ── */}
-            {analyzeData && (insightCount > 0 || hasConsultative) && (
-                <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">
-                    <h3 className="mb-3 text-lg font-semibold text-[color:var(--ciq-text-strong)]">Behavioral Analysis</h3>
-                    <div className="space-y-4">
-                        {renderInsightGroup("Correlations", analyzeData.analysis?.correlations)}
-                        {renderInsightGroup("Contradictions", analyzeData.analysis?.contradictions)}
-                        {renderInsightGroup("Patterns", analyzeData.analysis?.patterns)}
+            {/* ── On-demand AI insights ── */}
+            {/* The two slow LLM generations are produced only when the user asks, so the
+                report above appears instantly. Each button calls its own endpoint. */}
+            <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">
+                <h3 className="mb-1 text-lg font-semibold text-[color:var(--ciq-text-strong)]">AI Insights</h3>
+                <p className="mb-3 text-xs text-[color:var(--ciq-text-faint)]">Optional — generate these on demand (each takes a few seconds).</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <button
+                        onClick={handleGenerateAnalysis}
+                        disabled={analysisLoading || snapshots.length === 0}
+                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {analysisLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />}
+                        {analysisLoading ? "Analyzing…" : "Behavioral Analysis"}
+                    </button>
+                    <button
+                        onClick={handleGenerateConsultative}
+                        disabled={consultLoading || snapshots.length === 0}
+                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {consultLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        {consultLoading ? "Summarizing…" : "Consultative Summary"}
+                    </button>
+                </div>
+
+                {analysisError && (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{analysisError}</span>
+                    </div>
+                )}
+                {consultError && (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{consultError}</span>
+                    </div>
+                )}
+
+                {(insightCount > 0 || hasConsultative) && (
+                    <div className="mt-4 space-y-4">
+                        {insightCount > 0 && <h4 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Behavioral Analysis</h4>}
+                        {renderInsightGroup("Correlations", analysisResult?.correlations)}
+                        {renderInsightGroup("Contradictions", analysisResult?.contradictions)}
+                        {renderInsightGroup("Patterns", analysisResult?.patterns)}
 
                         {hasConsultative && (
                             <div className="rounded-lg bg-[color:var(--ciq-card-2)] p-4">
                                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Consultative Summary</p>
-                                <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-body)]">{analyzeData.agentResponse}</p>
+                                <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-body)]">{consultText}</p>
                             </div>
                         )}
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
             {/* ── Generate AI Report button ── */}
             <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">

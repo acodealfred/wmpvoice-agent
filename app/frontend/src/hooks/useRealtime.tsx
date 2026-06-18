@@ -86,7 +86,7 @@ export default function useRealTime({
         return command;
     };
 
-    const { sendJsonMessage } = useWebSocket(wsEndpoint, {
+    const { sendJsonMessage, getWebSocket } = useWebSocket(wsEndpoint, {
         onOpen: () => {
             console.log("[Realtime] WebSocket connected");
             if (hasConnectedRef.current) {
@@ -107,6 +107,17 @@ export default function useRealTime({
     const startSession = () => {
         hasConnectedRef.current = true;
         sendJsonMessage(buildSessionUpdateCommand());
+    };
+
+    // Force a clean reconnect: close the live socket so react-use-websocket reopens
+    // it (shouldReconnect is always true). The backend opens a brand-new Azure realtime
+    // WS per connection, so this wipes Azure's prior conversation memory; persisted
+    // context (survey results / report) is re-injected via the session.created →
+    // session.update restore path. Used for the new-survey reset and the post-report
+    // "answer strictly from the saved report" hard reset.
+    const reconnect = () => {
+        const socket = getWebSocket();
+        socket?.close();
     };
 
     const refreshSession = () => {
@@ -198,5 +209,5 @@ export default function useRealTime({
         }
     };
 
-    return { startSession, refreshSession, addUserAudio, inputAudioBufferClear };
+    return { startSession, refreshSession, reconnect, addUserAudio, inputAudioBufferClear };
 }

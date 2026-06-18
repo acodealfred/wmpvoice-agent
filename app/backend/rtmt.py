@@ -890,14 +890,29 @@ voice sentiment, and facial emotion.
 - You have just finished delivering a comprehensive burnout assessment report with analysis.
 - The user may have follow-up questions about the results.
 - STAY IN THIS MODE until explicitly told otherwise or until a new assessment begins.
-- Be prepared to explain:
+
+STRICT REPORT-ONLY GROUNDING (follow exactly):
+- Answer ONLY from the REPORT CONTEXT below and the data returned by the
+  query_survey_results tool. This saved report is your single source of truth.
+- DO NOT rely on anything said earlier in the conversation, on remembered chit-chat,
+  or on general/training knowledge about burnout.
+- If a question cannot be answered from the saved report, say plainly that you can
+  only discuss the completed assessment report, and offer to go over the results.
+- DO NOT restart, re-read, or re-run the survey, and DO NOT ask the user to take it
+  again unless they explicitly request it.
+- INDIVIDUAL QUESTION SCORES: when the user asks about a single question's score (e.g.
+  job satisfaction, personal accomplishment), give their ACTUAL answer (1–5) from the
+  report's QUESTION DETAILS. The query_survey_results totals/domain figures are
+  burnout-direction (positive items reversed) and are ONLY for overall risk and
+  domain-contribution context — never quote them as an individual question's score.
+
+- Be prepared to explain (using only the report):
   * What the correlations/contradictions mean
   * Actionable recommendations based on the burnout findings
   * Any aspect of the burnout assessment results
   * The biometric readings that were recorded (see the BIOMETRIC GUARDRAIL above
     if present — when active, only describe them, do not interpret or advise)
 - Maintain the consultative, supportive tone from the report delivery.
-- DO NOT restart the assessment or ask if they want to take it again unless asked.
 - Answer questions directly and informatively while staying conversational.
 """
             if sess.report_context:
@@ -909,7 +924,16 @@ voice sentiment, and facial emotion.
         elif sess.conversation_state == "qa_mode":
             instructions = """CONVERSATION STATE: Q&A MODE
 - You are answering user questions about their burnout assessment results.
-- Reference the specific data from their survey and biometric analysis.
+
+STRICT REPORT-ONLY GROUNDING (follow exactly):
+- Answer ONLY from the CURRENT REPORT CONTEXT below and the data returned by the
+  query_survey_results tool. This saved report is your single source of truth.
+- DO NOT rely on anything said earlier in the conversation, on remembered chit-chat,
+  or on general/training knowledge about burnout.
+- If a question cannot be answered from the saved report, say plainly that you can
+  only discuss the completed assessment report.
+- DO NOT restart, re-read, or re-run the survey.
+
 - Be precise, helpful, and supportive.
 - If the question is unrelated to their results, gently steer back to their wellbeing.
 - Continue in this mode until the conversation ends or a new assessment starts.
@@ -1458,7 +1482,16 @@ TOOL RULES (silent, never tell the user):
                         After each user message, determine if the sentiment is "positive", "neutral", or "negative".
                         IMPORTANT: You must call the 'report_sentiment' tool with the sentiment analysis results after each user message.
                         Do NOT speak or mention the sentiment analysis results out loud. The sentiment is for display purposes only."""
-                        if self.enable_survey_mode:
+                        # Inject the survey script ONLY while actively running a survey.
+                        # Once a report has been delivered/saved, the session moves to
+                        # report_delivered/qa_mode and must NOT see the survey steps again —
+                        # otherwise the agent drifts back to re-running or re-reading the
+                        # survey instead of answering strictly from the saved report.
+                        try:
+                            _conv_state = self._sess.conversation_state
+                        except Exception:
+                            _conv_state = "active"  # context var not set in this path
+                        if self.enable_survey_mode and _conv_state == "active":
                             extra_instructions += "\n\n" + self._get_survey_instructions()
 
                         state_instructions = self._get_conversation_state_instructions()

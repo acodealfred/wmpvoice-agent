@@ -4,7 +4,9 @@
         "footer": "Azure AI Search + Azure OpenAI で構築",
         "stopRecording": "録音を停止",
         "startRecording": "録音を開始",
-        "stopConversation": "会話を停止"
+        "stopConversation": "会話を停止",
+        "continueConversation": "会話を続ける",
+        "startNewSurvey": "新しい評価を開始"
     },
     "status": {
         "notRecordingMessage": "Contoso 従業員の福利厚生について質問してください",

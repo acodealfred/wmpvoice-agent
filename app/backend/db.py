@@ -148,6 +148,40 @@ async def save_survey_record_snapshot(
         await db.commit()
 
 
+async def merge_survey_record_json(
+    survey_run_id: str,
+    *,
+    technical_report_patch: dict | None = None,
+    prompt_info_patch: dict | None = None,
+) -> None:
+    """Read-modify-write merge of keys into the technical_report / prompt_info JSON columns.
+
+    Used by the on-demand AI endpoints (/report/behavioral-analysis, /report/consultative-summary)
+    so each can enrich one part of an existing row (analysis / agentResponse) without
+    clobbering the deterministic figures or the other endpoint's output.
+    """
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT technical_report, prompt_info FROM survey_records WHERE survey_run_id = ?",
+            (survey_run_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return
+        technical = json.loads(row["technical_report"] or "{}")
+        prompt = json.loads(row["prompt_info"] or "{}")
+        if technical_report_patch:
+            technical.update(technical_report_patch)
+        if prompt_info_patch:
+            prompt.update(prompt_info_patch)
+        await db.execute(
+            "UPDATE survey_records SET technical_report = ?, prompt_info = ?, updated_at = ? "
+            "WHERE survey_run_id = ?",
+            (json.dumps(technical), json.dumps(prompt), datetime.utcnow().isoformat(), survey_run_id),
+        )
+        await db.commit()
+
+
 async def update_survey_record_ssot(survey_run_id: str, ssot_result: dict) -> None:
     """Merge SSoT outcome (success or failure) into the prompt_info JSON column."""
     async with _open_db() as db:

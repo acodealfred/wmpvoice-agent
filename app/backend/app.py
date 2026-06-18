@@ -18,6 +18,7 @@ from db import (
     save_survey_record_results,
     save_survey_record_snapshot,
     update_survey_record_ssot,
+    merge_survey_record_json,
     get_user_survey_records,
 )
 from db_init import init_db
@@ -72,27 +73,11 @@ def _pupil_band(mm_change) -> str:
     return "High"
 
 
-async def analyze_report(request):
-    """Analyze the detailed burnout report using behavioral analysis engine"""
-    try:
-        data = await request.json()
-        session_id = data.get("session_id", "")
-        survey_run_id = data.get("survey_run_id", "")
-        survey_type = data.get("survey_type", "")
-        snapshots = data.get("snapshots", [])
-
-        if not snapshots:
-            return web.json_response({"error": "No snapshot data provided"}, status=400)
-
-        rtmt = request.app.get("rtmt")
-        if not rtmt:
-            return web.json_response({"error": "Analysis service not available"}, status=503)
-        from survey_loader import effective_score
-        survey_config = rtmt._survey_config
-
-        # Ground truth for analysis — biometric behavioral rules, expressed as the
-        # categorical (Low/Medium/High) bands from the CIQ Signal-Thresholds reference.
-        research_rules = """
+# ── Report prompt/context builders (shared by the deterministic report and the two
+# on-demand AI endpoints below) ───────────────────────────────────────────────
+# Ground truth for analysis — biometric behavioral rules, expressed as the
+# categorical (Low/Medium/High) bands from the CIQ Signal-Thresholds reference.
+_RESEARCH_RULES = """
 Blink-rate category (relative to the person's own calibrated baseline):
 - "Normal": blink rate within ±15% of baseline.
 - "Elevated": a sustained 15–40% change from baseline.
@@ -109,25 +94,32 @@ Pupil-dilation category (change in mm vs the person's baseline):
 Caveat: pupil size is dominated by the light reflex; webcam estimates are coarse.
 
 Do NOT infer stress from any single signal — none of these has a validated stress threshold.
-The "burnout_score" per question is already burnout-direction (positive items reverse-scored).
 """
 
-        # Build input data from snapshots — biometrics are provided as CATEGORIES (not raw
-        # numbers) and the score is burnout-direction (reverse items already flipped).
-        input_data = []
-        for s in snapshots:
-            input_data.append({
-                "question": s.get("questionId", ""),
-                "domain": s.get("domain", ""),
-                "burnout_score": effective_score(survey_config, s.get("questionId", ""), s.get("score", 0)),
-                "voice_sentiment": s.get("voiceSentiment", "neutral"),
-                "blink_rate_category": _blink_band(s.get("blinkRateChange")),
-                "pupil_dilation_category": _pupil_band(s.get("pupilMmChange")),
-                "gaze_position": s.get("gazePosition", "Center"),
-            })
 
-        # System prompt for the analysis engine
-        system_prompt = f"""You are a behavioral analysis engine.
+def _build_analysis_prompt(survey_config: dict, snapshots: list) -> str:
+    """System prompt for the behavioral-analysis engine (used by /report/behavioral-analysis).
+
+    Each question carries BOTH user_answer (the actual 1–5 answer — the only number ever
+    shown back to the user) and burnout_contribution (internal, reverse-aware) for reasoning.
+    """
+    from survey_loader import effective_score, is_reverse_item
+    input_data = []
+    for s in snapshots:
+        qid = s.get("questionId", "")
+        input_data.append({
+            "question": qid,
+            "domain": s.get("domain", ""),
+            "user_answer": s.get("score", 0),
+            "positive_item": is_reverse_item(survey_config, qid),
+            "burnout_contribution": effective_score(survey_config, qid, s.get("score", 0)),
+            "voice_sentiment": s.get("voiceSentiment", "neutral"),
+            "blink_rate_category": _blink_band(s.get("blinkRateChange")),
+            "pupil_dilation_category": _pupil_band(s.get("pupilMmChange")),
+            "gaze_position": s.get("gazePosition", "Center"),
+        })
+
+    return f"""You are a behavioral analysis engine.
 
 You MUST follow these rules strictly:
 
@@ -137,10 +129,18 @@ GROUNDING RULES:
 - If a conclusion cannot be derived from the rules, return "insufficient_evidence"
 
 RESEARCH RULES:
-{research_rules}
+{_RESEARCH_RULES}
 
 INPUT DATA:
 {input_data}
+
+SCORE REPORTING (STRICT):
+- "user_answer" is the user's actual 1–5 answer to that question. When you refer to a
+  question's score in any insight, you MUST cite "user_answer" — never any other number.
+- "burnout_contribution" is an INTERNAL burnout-direction value (for "positive_item": true
+  questions it is reversed, so a high "user_answer" yields a low "burnout_contribution").
+  Use it ONLY to reason about burnout level. NEVER present "burnout_contribution" as the
+  user's score, and never tell the user a question's score that differs from "user_answer".
 
 EVIDENCE REQUIREMENT:
 - Every insight MUST include: the exact rule used, the exact data point used
@@ -151,9 +151,11 @@ OUTPUT RULES:
 - No additional commentary
 
 ANALYSIS RULES:
-- Identify correlations between score and biometric change
-- Highlight contradictions (e.g., high score + stress signal)
-- Detect repeated patterns across questions
+- Reason about burnout level using "burnout_contribution" (higher = more burnout).
+- Identify correlations between burnout_contribution and biometric change.
+- Highlight contradictions (e.g., high burnout_contribution + relaxed biometric signal).
+- Detect repeated patterns across questions.
+- When you state a question's score back, cite "user_answer" (see SCORE REPORTING).
 - Be conservative: prefer "insufficient_evidence" over guessing
 
 CONFIDENCE:
@@ -170,114 +172,62 @@ Output JSON format:
 }}
 """
 
-        # ── Deterministic scoring (no LLM) — computed up-front via the shared source
-        # of truth so /analyze-report, /ssot-report and the agent never diverge, and so
-        # the survey is persisted to history BEFORE any LLM call (record guaranteed even
-        # if behavioral analysis / the consultative response below fails). ──
-        from survey_loader import compute_survey_summary, serialize_survey_results
-        summary = compute_survey_summary(survey_config, snapshots)
-        total_score = summary["totalScore"]
-        max_score = summary["maxScore"]
-        risk_level = summary["riskLevel"]
-        interpretation = summary["interpretation"]
-        domain_totals = summary["domainTotals"]
-        domain_summary = "\n".join(f"- {dom}: {score} points" for dom, score in domain_totals.items())
-        survey_results_snapshot = serialize_survey_results(snapshots)
 
-        # Early persistence: write survey results + deterministic report NOW so the
-        # history row is guaranteed even if the LLM calls below fail. COALESCE-based, so
-        # the later full save (which adds the behavioral analysis) enriches the same row.
-        if request.get("auth_session") and survey_run_id:
-            try:
-                await ensure_survey_record(
-                    survey_run_id, request["auth_session"]["user_id"],
-                    request["session_token"], session_id, survey_type,
-                )
-                await save_survey_record_snapshot(
-                    survey_run_id,
-                    survey_results_snapshot,
-                    {
-                        "analysis": {},
-                        "totalScore": total_score,
-                        "riskLevel": risk_level,
-                        "interpretation": interpretation,
-                        "domainTotals": domain_totals,
-                    },
-                )
-                logger.info("[APP] Survey pre-persisted to DB for run %s", survey_run_id[:8])
-            except Exception as db_err:
-                logger.error("[APP] Early survey persist failed: %s", db_err)
-
-        # Call LLM for behavioral analysis
-        analysis_result_str = await rtmt.analyze_with_prompt(system_prompt)
-
-        # Parse analysis result
-        try:
-            analysis_data = json.loads(analysis_result_str)
-        except json.JSONDecodeError:
-            analysis_data = {"raw": analysis_result_str}
-
-        # (total_score, risk_level, interpretation, domain_totals and domain_summary
-        # are computed up-front above, before the LLM calls, so the survey is persisted
-        # regardless of LLM outcome.)
-
-        # Snapshot lines — biometrics stated as categories, not raw numbers.
-        snapshot_lines = []
-        for s in snapshots:
-            snapshot_lines.append(
-                f"Q{s.get('questionId','')}: score={s.get('score',0)}, domain={s.get('domain','')}, "
-                f"voice_sentiment={s.get('voiceSentiment','')}, blink_rate={_blink_band(s.get('blinkRateChange'))}, "
-                f"pupil_dilation={_pupil_band(s.get('pupilMmChange'))}, gaze_position={s.get('gazePosition','')}"
-            )
-        snapshot_summary = "\n".join(snapshot_lines)
-
-        # Aggregate biometric readings to STATE factually in the spoken report
-        # (no interpretation, no link to burnout — just the categories/values).
-        blink_changes = [s.get("blinkRateChange") or 0 for s in snapshots]
-        avg_blink_change = sum(blink_changes) / len(blink_changes) if blink_changes else 0
-        overall_blink_category = _blink_band(avg_blink_change)
-        pupil_changes = [s.get("pupilMmChange") or 0 for s in snapshots]
-        avg_pupil_change = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
-        overall_pupil_category = _pupil_band(avg_pupil_change)
-        gaze_counts: dict = {}
-        for s in snapshots:
-            g = s.get("gazePosition") or "Center"
-            gaze_counts[g] = gaze_counts.get(g, 0) + 1
-        dominant_gaze = max(gaze_counts, key=gaze_counts.get) if gaze_counts else "Center"
-        per_q_blink = ", ".join(
-            f"{s.get('questionId','')}={_blink_band(s.get('blinkRateChange'))}" for s in snapshots
+def _build_snapshot_summary(snapshots: list) -> str:
+    """Per-question lines (raw score + biometric categories) for the report context."""
+    lines = []
+    for s in snapshots:
+        lines.append(
+            f"Q{s.get('questionId','')}: score={s.get('score',0)}, domain={s.get('domain','')}, "
+            f"voice_sentiment={s.get('voiceSentiment','')}, blink_rate={_blink_band(s.get('blinkRateChange'))}, "
+            f"pupil_dilation={_pupil_band(s.get('pupilMmChange'))}, gaze_position={s.get('gazePosition','')}"
         )
-        per_q_pupil = ", ".join(
-            f"{s.get('questionId','')}={_pupil_band(s.get('pupilMmChange'))}" for s in snapshots
-        )
-        per_q_gaze = ", ".join(
-            f"{s.get('questionId','')}={s.get('gazePosition') or 'Center'}" for s in snapshots
-        )
-        biometric_facts = (
-            f"- Overall blink-rate category: {overall_blink_category}\n"
-            f"- Blink-rate category per question: {per_q_blink}\n"
-            f"- Overall pupil-dilation category: {overall_pupil_category}\n"
-            f"- Pupil-dilation category per question: {per_q_pupil}\n"
-            f"- Most frequent eye-gaze position: {dominant_gaze}\n"
-            f"- Eye-gaze position per question: {per_q_gaze}"
-        )
+    return "\n".join(lines)
 
-        # Build consultative prompt that explicitly states score/risk
-        consultative_prompt = f"""You are a workplace wellbeing consultant reviewing the burnout assessment results.
+
+def _build_biometric_facts(snapshots: list) -> str:
+    """Aggregate biometric readings stated factually (no interpretation)."""
+    blink_changes = [s.get("blinkRateChange") or 0 for s in snapshots]
+    avg_blink_change = sum(blink_changes) / len(blink_changes) if blink_changes else 0
+    pupil_changes = [s.get("pupilMmChange") or 0 for s in snapshots]
+    avg_pupil_change = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
+    gaze_counts: dict = {}
+    for s in snapshots:
+        g = s.get("gazePosition") or "Center"
+        gaze_counts[g] = gaze_counts.get(g, 0) + 1
+    dominant_gaze = max(gaze_counts, key=gaze_counts.get) if gaze_counts else "Center"
+    per_q_blink = ", ".join(f"{s.get('questionId','')}={_blink_band(s.get('blinkRateChange'))}" for s in snapshots)
+    per_q_pupil = ", ".join(f"{s.get('questionId','')}={_pupil_band(s.get('pupilMmChange'))}" for s in snapshots)
+    per_q_gaze = ", ".join(f"{s.get('questionId','')}={s.get('gazePosition') or 'Center'}" for s in snapshots)
+    return (
+        f"- Overall blink-rate category: {_blink_band(avg_blink_change)}\n"
+        f"- Blink-rate category per question: {per_q_blink}\n"
+        f"- Overall pupil-dilation category: {_pupil_band(avg_pupil_change)}\n"
+        f"- Pupil-dilation category per question: {per_q_pupil}\n"
+        f"- Most frequent eye-gaze position: {dominant_gaze}\n"
+        f"- Eye-gaze position per question: {per_q_gaze}"
+    )
+
+
+def _build_consultative_prompt(total_score, max_score, interpretation, biometric_facts, analysis_result_str=""):
+    """Consultative spoken-summary prompt. The behavioral analysis is optional — when it
+    has not been generated, the summary is built from the deterministic score/risk + biometrics."""
+    analysis_block = (
+        f"BEHAVIORAL ANALYSIS (for your reference):\n{analysis_result_str}\n\n"
+        if analysis_result_str else ""
+    )
+    return f"""You are a workplace wellbeing consultant reviewing the burnout assessment results.
 
 FACTUAL SUMMARY (START YOUR RESPONSE BY STATING THIS):
 - Total Burnout Score: {total_score} out of {max_score}
 - Burnout Risk Level: {interpretation}
 
-BEHAVIORAL ANALYSIS (for your reference):
-{analysis_result_str}
-
-BIOMETRIC READINGS (state these as plain facts — do NOT interpret them):
+{analysis_block}BIOMETRIC READINGS (state these as plain facts — do NOT interpret them):
 {biometric_facts}
 
 Please provide a consultative response that:
 1. Begins by clearly stating the total score and burnout risk level.
-2. Highlights key findings from the analysis (correlations, contradictions, patterns).
+2. Highlights key findings (correlations, contradictions, patterns) if a behavioral analysis is provided.
 3. Explains what the score means in practical terms.
 4. Offers actionable insights and next steps based on the burnout findings.
 5. Maintains a warm, supportive, professional tone.
@@ -291,91 +241,127 @@ STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
 - Do NOT connect the biometrics to burnout, stress, the score, or the user's wellbeing in any way.
 - Keep it to one or two short factual sentences.
 
+SCORE RULE:
+- The Total Burnout Score above already accounts for reverse-scored positive items.
+- If you mention any individual question's score, use the user's actual answer (1–5).
+  Do NOT invert or recompute it for positively-worded items (e.g. Job Satisfaction,
+  Personal Accomplishment) — a high satisfaction answer stays high when stated to the user.
+
 Keep your response conversational and audio-friendly (short paragraphs, clear points).
 IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code formatting."""
 
-        response_text = await rtmt.analyze_with_prompt(consultative_prompt)
 
-        # If the chat-completions deployment is unavailable, analyze_with_prompt returns
-        # an {"error": ...} JSON string. Blank both outputs so the report simply omits the
-        # analysis section (as if the feature isn't there) instead of surfacing a raw error.
-        # The deterministic score/risk computed above are unaffected.
-        try:
-            _parsed = json.loads(response_text)
-            if isinstance(_parsed, dict) and "error" in _parsed:
-                response_text = ""
-        except Exception:
-            pass
-        if isinstance(analysis_data, dict) and "error" in analysis_data:
-            analysis_data = {}
-
-        # The Mithra/KB evidence report is generated separately by the UI's
-        # "Generate AI Report" button (POST /ssot-report), so /analyze-report no
-        # longer makes a redundant KB call here — keeping it fast and focused on
-        # the data-driven risk + behavioral analysis + consultative summary.
-
-        # Build comprehensive report context for follow-up Q&A
-        analysis_block = json.dumps(analysis_data, indent=2) if isinstance(analysis_data, dict) else str(analysis_data)
-        report_context_full = f"""=== BURNOUT ASSESSMENT REPORT (COMPLETE) ===
-TOTAL SCORE: {total_score}/{max_score}
-RISK LEVEL: {risk_level} ({interpretation})
+def _build_report_context(summary, snapshots, response_text="", analysis_data=None):
+    """Full report context injected for the agent's follow-up Q&A. The consultative
+    response and behavioral analysis are optional (filled in only once generated)."""
+    domain_summary = "\n".join(f"- {dom}: {score} points" for dom, score in summary["domainTotals"].items())
+    analysis_block = (
+        json.dumps(analysis_data, indent=2) if isinstance(analysis_data, dict) and analysis_data else "(not generated yet)"
+    )
+    return f"""=== BURNOUT ASSESSMENT REPORT (COMPLETE) ===
+TOTAL SCORE: {summary['totalScore']}/{summary['maxScore']}
+RISK LEVEL: {summary['riskLevel']} ({summary['interpretation']})
 
 === DOMAIN TOTALS ===
 {domain_summary}
 
 === QUESTION DETAILS ===
-{snapshot_summary}
+(The "score" for each question below is the user's ACTUAL answer, 1–5. When the user
+asks about a specific question's score, ALWAYS use this number. Positively-worded items
+such as Job Satisfaction and Personal Accomplishment are reverse-scored ONLY inside the
+total burnout score above — never invert an individual question's score when answering.)
+{_build_snapshot_summary(snapshots)}
 
 === AGENT CONSULTATIVE RESPONSE (spoken to user) ===
-{response_text}
+{response_text or "(not generated yet)"}
 
 === BEHAVIORAL ANALYSIS (JSON) ===
 {analysis_block}
 === END REPORT ===
 """
-        if session_id:
-            rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context_full)
-        logger.info("[APP] ★ Report delivered, state=report_delivered with full context including burnout state")
 
-        # Persist results to DB if the request is from an authenticated user.
-        # Reuses the canonical survey_results_snapshot built up-front; the full save
-        # adds the behavioral analysis on top of the deterministic figures.
+
+def _strip_llm_error(text: str) -> str:
+    """analyze_with_prompt returns an {"error": ...} JSON string when the chat deployment
+    is unavailable. Treat that as 'no output' so the UI surfaces a clean error instead."""
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict) and "error" in parsed:
+            return ""
+    except Exception:
+        pass
+    return text
+
+
+async def analyze_report(request):
+    """Build the DETERMINISTIC burnout report (no LLM) and persist it.
+
+    The two AI text generations (behavioral analysis + consultative summary) are NOT run
+    here — they are slow and now produced on demand via /report/behavioral-analysis and
+    /report/consultative-summary. This keeps the report (score, risk, charts, table,
+    biometrics) appearing near-instantly after a survey completes.
+    """
+    try:
+        data = await request.json()
+        session_id = data.get("session_id", "")
+        survey_run_id = data.get("survey_run_id", "")
+        survey_type = data.get("survey_type", "")
+        snapshots = data.get("snapshots", [])
+
+        if not snapshots:
+            return web.json_response({"error": "No snapshot data provided"}, status=400)
+
+        rtmt = request.app.get("rtmt")
+        if not rtmt:
+            return web.json_response({"error": "Analysis service not available"}, status=503)
+        survey_config = rtmt._survey_config
+
+        # ── Deterministic scoring (no LLM) via the shared source of truth. ──
+        from survey_loader import compute_survey_summary, serialize_survey_results
+        summary = compute_survey_summary(survey_config, snapshots)
+        total_score = summary["totalScore"]
+        max_score = summary["maxScore"]
+        risk_level = summary["riskLevel"]
+        interpretation = summary["interpretation"]
+        domain_totals = summary["domainTotals"]
+        survey_results_snapshot = serialize_survey_results(snapshots)
+
+        # Persist the deterministic report immediately so the history row is guaranteed.
+        # The on-demand AI endpoints later enrich the same row (analysis / agentResponse).
         if request.get("auth_session") and survey_run_id:
-            technical_report_data = {
-                "analysis": analysis_data,
-                "totalScore": total_score,
-                "riskLevel": risk_level,
-                "interpretation": interpretation,
-                "domainTotals": domain_totals,
-            }
-            prompt_info_data = {
-                "snapshotCount": len(snapshots),
-                "promptPreview": consultative_prompt[:300],
-                "agentResponse": response_text,
-            }
             try:
                 await ensure_survey_record(
-                    survey_run_id,
-                    request["auth_session"]["user_id"],
-                    request["session_token"],
-                    session_id,
-                    survey_type,
+                    survey_run_id, request["auth_session"]["user_id"],
+                    request["session_token"], session_id, survey_type,
                 )
                 await save_survey_record_results(
                     survey_run_id,
                     survey_results_snapshot,
-                    technical_report_data,
-                    prompt_info_data,
+                    {
+                        "analysis": {},
+                        "totalScore": total_score,
+                        "riskLevel": risk_level,
+                        "interpretation": interpretation,
+                        "domainTotals": domain_totals,
+                    },
+                    {"snapshotCount": len(snapshots), "agentResponse": ""},
                 )
-                logger.info("[APP] Report persisted to DB for survey run %s", survey_run_id[:8])
+                logger.info("[APP] Deterministic report persisted to DB for run %s", survey_run_id[:8])
             except Exception as db_err:
-                logger.error("[APP] Failed to persist report to DB: %s", db_err)
+                logger.error("[APP] Report persist failed: %s", db_err)
+
+        # Seed the agent's follow-up Q&A context with the deterministic report (no narrative
+        # yet). The strict report-only guardrail can answer score/risk/domain/biometric
+        # questions from this immediately; the consultative endpoint enriches it later.
+        if session_id:
+            rtmt.set_conversation_state_for_session(
+                session_id, "report_delivered", _build_report_context(summary, snapshots)
+            )
+        logger.info("[APP] ★ Deterministic report ready, state=report_delivered")
 
         return web.json_response({
-            "analysis": analysis_data,
-            "agentResponse": response_text,
-            # Data-driven values computed from the active survey's thresholds/interpretation
-            # (single source of truth for the report UI — replaces the old hardcoded bands).
+            "analysis": {},
+            "agentResponse": "",
             "totalScore": total_score,
             "maxScore": max_score,
             "riskLevel": risk_level,
@@ -385,6 +371,107 @@ RISK LEVEL: {risk_level} ({interpretation})
 
     except Exception as e:
         logger.error(f"Report analysis error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def report_behavioral_analysis(request):
+    """POST /report/behavioral-analysis — run the behavioral-analysis LLM on demand."""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id", "")
+        survey_run_id = data.get("survey_run_id", "")
+        snapshots = data.get("snapshots", [])
+        if not snapshots:
+            return web.json_response({"error": "No snapshot data provided"}, status=400)
+
+        rtmt = request.app.get("rtmt")
+        if not rtmt:
+            return web.json_response({"error": "Analysis service not available"}, status=503)
+        survey_config = rtmt._survey_config
+
+        analysis_result_str = await rtmt.analyze_with_prompt(_build_analysis_prompt(survey_config, snapshots))
+        analysis_result_str = _strip_llm_error(analysis_result_str)
+        if not analysis_result_str:
+            return web.json_response({"error": "Behavioral analysis is unavailable right now."}, status=503)
+        try:
+            analysis_data = json.loads(analysis_result_str)
+        except json.JSONDecodeError:
+            analysis_data = {"raw": analysis_result_str}
+
+        # Persist analysis into the existing history row + refresh the agent's context.
+        from survey_loader import compute_survey_summary
+        summary = compute_survey_summary(survey_config, snapshots)
+        if request.get("auth_session") and survey_run_id:
+            try:
+                await merge_survey_record_json(
+                    survey_run_id, technical_report_patch={"analysis": analysis_data}
+                )
+            except Exception as db_err:
+                logger.error("[APP] Failed to persist behavioral analysis: %s", db_err)
+        if session_id:
+            rtmt.set_conversation_state_for_session(
+                session_id, "report_delivered",
+                _build_report_context(summary, snapshots, analysis_data=analysis_data),
+            )
+
+        return web.json_response({"analysis": analysis_data})
+    except Exception as e:
+        logger.error(f"Behavioral analysis error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def report_consultative_summary(request):
+    """POST /report/consultative-summary — run the consultative-summary LLM on demand.
+
+    Accepts an optional `analysis` (the already-generated behavioral analysis) so the
+    summary can reference it; works fine without it (deterministic score/risk + biometrics).
+    """
+    try:
+        data = await request.json()
+        session_id = data.get("session_id", "")
+        survey_run_id = data.get("survey_run_id", "")
+        snapshots = data.get("snapshots", [])
+        analysis_data = data.get("analysis") or None
+        if not snapshots:
+            return web.json_response({"error": "No snapshot data provided"}, status=400)
+
+        rtmt = request.app.get("rtmt")
+        if not rtmt:
+            return web.json_response({"error": "Analysis service not available"}, status=503)
+        survey_config = rtmt._survey_config
+
+        from survey_loader import compute_survey_summary
+        summary = compute_survey_summary(survey_config, snapshots)
+        biometric_facts = _build_biometric_facts(snapshots)
+        analysis_str = json.dumps(analysis_data) if isinstance(analysis_data, dict) else ""
+
+        response_text = await rtmt.analyze_with_prompt(
+            _build_consultative_prompt(
+                summary["totalScore"], summary["maxScore"], summary["interpretation"],
+                biometric_facts, analysis_str,
+            )
+        )
+        response_text = _strip_llm_error(response_text)
+        if not response_text:
+            return web.json_response({"error": "Consultative summary is unavailable right now."}, status=503)
+
+        # Persist the spoken summary + enrich the agent's context so it can reference it.
+        if request.get("auth_session") and survey_run_id:
+            try:
+                await merge_survey_record_json(
+                    survey_run_id, prompt_info_patch={"agentResponse": response_text}
+                )
+            except Exception as db_err:
+                logger.error("[APP] Failed to persist consultative summary: %s", db_err)
+        if session_id:
+            rtmt.set_conversation_state_for_session(
+                session_id, "report_delivered",
+                _build_report_context(summary, snapshots, response_text=response_text, analysis_data=analysis_data),
+            )
+
+        return web.json_response({"agentResponse": response_text})
+    except Exception as e:
+        logger.error(f"Consultative summary error: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
 
@@ -1378,6 +1465,8 @@ async def create_app():
     app.router.add_get("/me", me)
     app.router.add_post("/biometrics", lambda request: update_biometrics(request, rtmt))
     app.router.add_post("/analyze-report", analyze_report)
+    app.router.add_post("/report/behavioral-analysis", report_behavioral_analysis)
+    app.router.add_post("/report/consultative-summary", report_consultative_summary)
     app.router.add_post("/analyze", lambda request: analyze_face(request, rtmt))
     app.router.add_post("/analyze-stress", analyze_stress)
     app.router.add_get("/config", get_config)
