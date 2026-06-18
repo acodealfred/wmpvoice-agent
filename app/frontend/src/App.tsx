@@ -13,6 +13,7 @@ import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { UserHistory } from "@/components/ui/user-history";
 import { Button } from "@/components/ui/button";
+import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
 
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
@@ -88,6 +89,18 @@ function App() {
             .catch(() => setAuthState("unauthenticated"));
     }, []);
 
+    // When any authenticated call returns 401 (e.g. the container was redeployed
+    // and the ephemeral session store was wiped), drop back to the login screen
+    // instead of leaving the UI looking signed-in with a dead "Session expired".
+    useEffect(() => {
+        setAuthExpiredHandler(() => {
+            setShowDetailedReport(false);
+            setIsRecording(false);
+            setAuthState("unauthenticated");
+        });
+        return () => setAuthExpiredHandler(null);
+    }, []);
+
     const handleLogin = useCallback((user: AuthUser) => {
         setCurrentUser(user);
         setSessionId(user.session_id);
@@ -104,7 +117,7 @@ function App() {
 
     useEffect(() => {
         if (authState !== "authenticated") return;
-        fetch("/config", { credentials: "same-origin" })
+        apiFetch("/config")
             .then(res => res.json())
             .then(data => {
                 setEnableSentiment(data.enableSentimentAnalysis);
@@ -120,10 +133,9 @@ function App() {
 
     const handleSurveyTypeChange = useCallback(async (type: string) => {
         try {
-            const res = await fetch("/survey-type", {
+            const res = await apiFetch("/survey-type", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                credentials: "same-origin",
                 body: JSON.stringify({ surveyType: type }),
             });
             if (res.ok) {
@@ -194,10 +206,9 @@ function App() {
             const pupilMmChange = basePupil > 0 && pupilMm > 0 ? pupilMm - basePupil : 0;
 
             try {
-                await fetch("/biometrics", {
+                await apiFetch("/biometrics", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    credentials: "same-origin",
                     body: JSON.stringify({
                         session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
@@ -227,10 +238,9 @@ function App() {
             const baselineBlinkRate = baselineData?.blinkRate;
 
             try {
-                const response = await fetch("/analyze-stress", {
+                const response = await apiFetch("/analyze-stress", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    credentials: "same-origin",
                     body: JSON.stringify({
                         blink_rate: blinkRate,
                         baseline_blink_rate: baselineBlinkRate
@@ -304,10 +314,9 @@ function App() {
             // it resumes.
             if (assessmentComplete) {
                 try {
-                    await fetch("/clear-conversation", {
+                    await apiFetch("/clear-conversation", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        credentials: "same-origin",
                         body: JSON.stringify({ session_id: sessionId })
                     });
                 } catch (err) {

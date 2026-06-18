@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { apiFetch } from "@/lib/api";
 
 export interface EmotionResult {
     emotion: string;
@@ -70,7 +71,7 @@ export function useVideoCapture({ onEmotionDetected, analyzeInterval = 3000 }: U
         if (!imageData) return;
 
         try {
-            const response = await fetch("/analyze", {
+            const response = await apiFetch("/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ image: imageData })

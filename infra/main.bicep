@@ -193,6 +193,12 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
     targetPort: 8000
     containerCpuCoreCount: '1.0'
     containerMemory: '2Gi'
+    // Pin to a single replica. Auth sessions and survey state live in a local
+    // SQLite file + in-memory RTMiddleTier state, both per-process. With >1
+    // replica, a login written on one replica is invisible to another, causing
+    // intermittent "Session expired" 401s. One replica keeps all state coherent.
+    containerMinReplicas: 1
+    containerMaxReplicas: 1
     secrets: union(
       !empty(awsSecretAccessKey)  ? { 'aws-secret-key': awsSecretAccessKey }           : {},
       !empty(mithraAppToken)      ? { 'mithra-app-token': mithraAppToken }              : {},
@@ -251,7 +257,7 @@ var openAiDeployments = [
     model: {
       format: 'OpenAI'
       name: 'gpt-4o'
-      version: '2024-08-06'
+      version: '2024-11-20'
     }
     sku: {
       name: 'GlobalStandard'

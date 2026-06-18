@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisInsight } from "@/types";
+import { apiFetch } from "@/lib/api";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import {
     ResponsiveContainer,
@@ -80,10 +81,9 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
         console.log("→ POST /ssot-report", payload);
 
         try {
-            const response = await fetch("/ssot-report", {
+            const response = await apiFetch("/ssot-report", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                credentials: "same-origin",
                 body: JSON.stringify(payload)
             });
 
@@ -119,10 +119,9 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch("/analyze-report", {
+                const res = await apiFetch("/analyze-report", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    credentials: "same-origin",
                     body: JSON.stringify({ snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "" })
                 });
                 if (!res.ok || cancelled) return;

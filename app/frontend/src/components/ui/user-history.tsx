@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen, ClipboardList, ExternalLink, RefreshCw } from "lucide-react";
 import { SurveyRecord } from "@/types";
+import { apiFetch } from "@/lib/api";
 
 function riskColor(risk: string) {
     if (risk === "Low") return "bg-green-100 text-green-800";
@@ -240,7 +241,7 @@ export function UserHistory() {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch("/api/history", { credentials: "same-origin" });
+            const res = await apiFetch("/api/history");
             if (!res.ok) {
                 const msg = res.status === 401
                     ? "Your session could not be verified. Try refreshing, or sign out and sign in again."

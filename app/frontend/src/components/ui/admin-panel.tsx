@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument, AdminUser } from "@/types";
+import { apiFetch } from "@/lib/api";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -15,7 +16,7 @@ export function AdminPanel() {
         setRegStatus("loading");
         setRegMessage("");
         try {
-            const resp = await fetch("/admin/kb/settings", { credentials: "same-origin" });
+            const resp = await apiFetch("/admin/kb/settings", { credentials: "same-origin" });
             if (resp.ok) {
                 const data = await resp.json();
                 if (typeof data.minCitationsCount === "number") {
@@ -54,7 +55,7 @@ export function AdminPanel() {
         setRegistering(true);
         setRegMessage("");
         try {
-            const resp = await fetch("/admin/kb/settings", {
+            const resp = await apiFetch("/admin/kb/settings", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
@@ -91,7 +92,7 @@ export function AdminPanel() {
         setDocsLoading(true);
         setDocsError(null);
         try {
-            const resp = await fetch("/admin/kb/papers/search", {
+            const resp = await apiFetch("/admin/kb/papers/search", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
@@ -136,7 +137,7 @@ export function AdminPanel() {
         setUsersLoading(true);
         setUsersError(null);
         try {
-            const resp = await fetch("/admin/users", { credentials: "same-origin" });
+            const resp = await apiFetch("/admin/users", { credentials: "same-origin" });
             if (resp.ok) {
                 const data = await resp.json();
                 setUsers(data.users);
@@ -173,7 +174,7 @@ export function AdminPanel() {
             form.append("title", effectiveTitle);
             form.append("file", uploadFile);
 
-            const resp = await fetch("/admin/kb/upload", { method: "POST", credentials: "same-origin", body: form });
+            const resp = await apiFetch("/admin/kb/upload", { method: "POST", credentials: "same-origin", body: form });
             const data = await resp.json();
 
             if (resp.ok) {
@@ -200,7 +201,7 @@ export function AdminPanel() {
         setDeletingId(doc.paperId);
         setDeleteMsg(null);
         try {
-            const resp = await fetch(`/admin/kb/documents/${doc.paperId}`, { method: "DELETE", credentials: "same-origin" });
+            const resp = await apiFetch(`/admin/kb/documents/${doc.paperId}`, { method: "DELETE", credentials: "same-origin" });
             if (resp.status === 204 || resp.ok) {
                 setDeleteMsg({ paperId: doc.paperId, text: `"${doc.title}" deleted.`, ok: true });
                 await fetchDocuments(); // refresh from server
@@ -537,7 +538,7 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
         setDeleting(true);
         setMsg(null);
         try {
-            const resp = await fetch(`/admin/kb/documents/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
+            const resp = await apiFetch(`/admin/kb/documents/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
             if (resp.status === 204 || resp.ok) {
                 setMsg({ text: `Document ${id} deleted successfully.`, ok: true });
                 setPaperId("");
