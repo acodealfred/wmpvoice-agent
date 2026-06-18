@@ -685,6 +685,7 @@ async def get_config(request):
             "surveyTypeOverridden": rtmt.survey_type_overridden if rtmt else False,
             "activeSurveyType": rtmt.active_survey_type if rtmt else "TEST",
             "availableSurveyTypes": ["TEST", "BATFULL", "CBTFULL"],
+            "biometricGuardrailEnabled": rtmt.biometric_guardrail_enabled if rtmt else True,
         }
     )
 
@@ -700,6 +701,24 @@ async def set_survey_type(request):
     survey_type = data.get("surveyType", "TEST").upper()
     rtmt.set_survey_type(survey_type)
     return web.json_response({"activeSurveyType": rtmt.active_survey_type})
+
+
+async def set_biometric_guardrail(request):
+    """Toggle the biometric descriptive-only guardrail at runtime (from the Admin tab).
+
+    POC NOTE: this is gated only by auth_middleware (any logged-in user), NOT by an
+    admin role — the app has no role tier yet, so the Admin tab is not a hardened
+    authorization boundary. Acceptable here because all accounts are trusted operators.
+    Takes effect on the next conversation turn / new session (instructions are injected
+    per session.update), like the survey-type change.
+    """
+    rtmt = request.app.get("rtmt")
+    if not rtmt:
+        return web.json_response({"error": "Service not available"}, status=503)
+    data = await request.json()
+    enabled = bool(data.get("enabled", True))
+    rtmt.set_biometric_guardrail(enabled)
+    return web.json_response({"biometricGuardrailEnabled": rtmt.biometric_guardrail_enabled})
 
 
 async def get_version(request):
@@ -1393,6 +1412,13 @@ async def create_app():
             Keep responses short since the user is listening to audio.
         """.strip()
 
+    # Biometric guardrail: descriptive-only mode for biometric signals. Default
+    # baseline from env; can be toggled at runtime from the Admin tab.
+    rtmt.biometric_guardrail_enabled = (
+        os.environ.get("ENABLE_BIOMETRIC_GUARDRAIL", "true").lower() == "true"
+    )
+    logger.info("Biometric guardrail default: %s", rtmt.biometric_guardrail_enabled)
+
     # Store rtmt in app for access by request handlers
     app["rtmt"] = rtmt
 
@@ -1405,6 +1431,7 @@ async def create_app():
     app.router.add_post("/analyze-stress", analyze_stress)
     app.router.add_get("/config", get_config)
     app.router.add_post("/survey-type", set_survey_type)
+    app.router.add_post("/admin/biometric-guardrail", set_biometric_guardrail)
     app.router.add_post("/clear-conversation", lambda request: clear_conversation_state(request, rtmt))
     app.router.add_post("/update-stress", lambda request: update_stress_state(request, rtmt))
     app.router.add_get("/session", lambda request: get_session(request, rtmt))

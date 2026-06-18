@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument, AdminUser } from "@/types";
 import { apiFetch } from "@/lib/api";
@@ -153,6 +153,42 @@ export function AdminPanel() {
 
     useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
+    // ── Biometric guardrail toggle ───────────────────────────────────
+    const [guardrailEnabled, setGuardrailEnabled] = useState<boolean | null>(null);
+    const [guardrailSaving, setGuardrailSaving] = useState(false);
+    const [guardrailError, setGuardrailError] = useState<string | null>(null);
+
+    useEffect(() => {
+        apiFetch("/config")
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(data => setGuardrailEnabled(data.biometricGuardrailEnabled ?? true))
+            .catch(() => setGuardrailEnabled(null));
+    }, []);
+
+    const toggleGuardrail = useCallback(async () => {
+        if (guardrailEnabled === null) return;
+        const prev = guardrailEnabled;
+        const next = !guardrailEnabled;
+        setGuardrailError(null);
+        setGuardrailEnabled(next);   // optimistic — instant visual feedback
+        setGuardrailSaving(true);
+        try {
+            const resp = await apiFetch("/admin/biometric-guardrail", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: next }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            setGuardrailEnabled(data.biometricGuardrailEnabled);
+        } catch (err) {
+            setGuardrailEnabled(prev);   // revert on failure
+            setGuardrailError(err instanceof Error ? `Couldn't update (${err.message})` : "Couldn't update");
+        } finally {
+            setGuardrailSaving(false);
+        }
+    }, [guardrailEnabled]);
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -219,6 +255,51 @@ export function AdminPanel() {
     // ── Render ─────────────────────────────────────────────────────────
     return (
         <div className="space-y-6 p-6">
+
+            {/* ── Section: Biometric Guardrail ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <Eye className="h-5 w-5 text-purple-400" />
+                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometric Guardrail</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    When ON, the agent may only <strong>describe</strong> biometric readings and declines any
+                    interpretive, causal, predictive, or prescriptive question about them. Burnout score
+                    explanations and recommendations are unaffected. Applies to new conversation turns.
+                </p>
+                <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
+                        {guardrailEnabled === null
+                            ? "Loading…"
+                            : guardrailEnabled ? "Guardrail is ON (descriptive-only)" : "Guardrail is OFF"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        {guardrailSaving && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={guardrailEnabled === true}
+                            disabled={guardrailEnabled === null || guardrailSaving}
+                            onClick={toggleGuardrail}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                guardrailEnabled ? "bg-green-500" : "bg-[color:var(--ciq-card-3)]"
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    guardrailEnabled ? "translate-x-6" : "translate-x-1"
+                                }`}
+                            />
+                        </button>
+                    </div>
+                </div>
+                {guardrailError && (
+                    <p className="mt-2 text-xs text-red-500">{guardrailError}</p>
+                )}
+                <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
+                    Takes effect on new conversations — toggle, then Stop and Start the conversation to apply.
+                </p>
+            </div>
 
             {/* ── Section A: KB Registration ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">

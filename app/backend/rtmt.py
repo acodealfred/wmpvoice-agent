@@ -470,6 +470,10 @@ class RTMiddleTier:
     _survey_config: dict = {}
     active_survey_type: str = "TEST"
     survey_type_overridden: bool = False
+    # When True, the agent may only DESCRIBE biometric readings and must decline any
+    # interpretive/causal/predictive/prescriptive question about them. Toggled at
+    # runtime from the Admin tab; default baseline comes from ENABLE_BIOMETRIC_GUARDRAIL.
+    biometric_guardrail_enabled: bool = True
     _MAX_HISTORY_SIZE = 50
 
     def __init__(
@@ -556,6 +560,10 @@ class RTMiddleTier:
         self._survey_config = config
         self.active_survey_type = survey_type
         logger.info("[RTMT] Survey type set to %s", survey_type)
+
+    def set_biometric_guardrail(self, enabled: bool) -> None:
+        self.biometric_guardrail_enabled = bool(enabled)
+        logger.info("[RTMT] Biometric guardrail %s", "ENABLED" if enabled else "DISABLED")
 
     def set_stress_state_for_session(self, session_id: str, state: str) -> None:
         valid_states = ["stressed", "relaxed", "normal"]
@@ -841,6 +849,33 @@ BEHAVIORAL GUIDELINES:
 - Use biometrics info only as conversational context, not for diagnosis
 """
 
+    def _get_biometric_guardrail_instructions(self) -> str:
+        """Descriptive-only guardrail for biometric signals (toggled from the Admin tab).
+
+        When enabled, the agent may STATE recorded biometric readings but must decline
+        any interpretive, causal, mechanistic, predictive, or prescriptive question
+        about them. This does NOT restrict discussion of the burnout score or
+        wellbeing recommendations.
+        """
+        if not self.biometric_guardrail_enabled:
+            return ""
+        return """BIOMETRIC GUARDRAIL (STRICT — follow exactly):
+The biometric signals are: blink-rate change, pupil dilation, eye-gaze position,
+voice sentiment, and facial emotion.
+- ALLOWED: factually STATE or DESCRIBE the biometric readings that were recorded
+  (e.g. "your blink rate was elevated on two questions and your gaze was mostly
+  centered"). Plain summaries of the recorded categories/values are fine.
+- NOT ALLOWED for biometrics: interpreting what a reading MEANS, explaining WHY a
+  reading occurred, describing HOW a biometric works or behaves in any state, or
+  PREDICTING or RECOMMENDING anything based on a biometric.
+- If the user asks anything interpretive, causal, mechanistic, predictive, or
+  prescriptive about the biometrics, DO NOT answer it. Decline gracefully with
+  exactly this sentence: "Currently not enough verified data to answer your request."
+  You may then offer to simply state the recorded readings instead.
+- This guardrail applies ONLY to the biometric signals above. You may still fully
+  explain the burnout score, what it means, and wellbeing recommendations as usual.
+"""
+
     def _get_stress_instructions(self) -> str:
         """Generate instructions based on user's stress state."""
         stress = self._sess.stress_state
@@ -875,9 +910,10 @@ BEHAVIORAL GUIDELINES:
 - STAY IN THIS MODE until explicitly told otherwise or until a new assessment begins.
 - Be prepared to explain:
   * What the correlations/contradictions mean
-  * How to interpret the biometric data
-  * Actionable recommendations based on the findings
+  * Actionable recommendations based on the burnout findings
   * Any aspect of the burnout assessment results
+  * The biometric readings that were recorded (see the BIOMETRIC GUARDRAIL above
+    if present — when active, only describe them, do not interpret or advise)
 - Maintain the consultative, supportive tone from the report delivery.
 - DO NOT restart the assessment or ask if they want to take it again unless asked.
 - Answer questions directly and informatively while staying conversational.
@@ -1431,6 +1467,10 @@ TOOL RULES (silent, never tell the user):
                         extra_instructions = ""
                         if self.enable_meta_intent:
                             extra_instructions += self._get_meta_intent_instructions()
+
+                        guardrail_instructions = self._get_biometric_guardrail_instructions()
+                        if guardrail_instructions:
+                            extra_instructions += "\n\n" + guardrail_instructions
                         if self.enable_sentiment_analysis:
                             extra_instructions += """ Additionally, you must analyze the sentiment of the user's input.
                         After each user message, determine if the sentiment is "positive", "neutral", or "negative".

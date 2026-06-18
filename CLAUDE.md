@@ -59,6 +59,10 @@ AZURE_OPENAI_REALTIME_VOICE_CHOICE=alloy  # alloy | echo | shimmer
 ```
 ENABLE_SENTIMENT_ANALYSIS=true   # enables voice sentiment tool in RTMiddleTier
 ENABLE_SURVEY_MODE=true          # switches to burnout-specialist persona + survey tools
+ENABLE_BIOMETRIC_GUARDRAIL=true  # default for the descriptive-only biometric guardrail
+                                 # (agent declines interpret/predict/prescribe on biometrics).
+                                 # Runtime-togglable from the Admin tab via POST /admin/biometric-guardrail.
+                                 # NOTE: that endpoint is auth-gated only (no admin role) — not a hardened boundary.
 ```
 
 **AWS Rekognition (face emotion analysis):**
