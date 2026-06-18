@@ -69,6 +69,7 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
     const [ssotQuery, setSsotQuery] = useState<string | null>(null);
 
     const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     const handleGenerateAIReport = async () => {
         setSsotLoading(true);
@@ -90,6 +91,10 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
             const data = await response.json();
             console.log(`← HTTP ${response.status}`, data);
             console.groupEnd();
+
+            // Reaching the backend means the survey row was persisted (the record is
+            // saved up-front, before the KB call), so clear any auto-save warning.
+            setSaveError(null);
 
             if (!response.ok) {
                 setSsotError(data.error ?? `Request failed (HTTP ${response.status})`);
@@ -114,23 +119,43 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
     };
 
     // ── Data-driven technical report (POST /analyze-report) ───────────────
+    // This call is also what persists the survey to history (backend writes the
+    // survey_records row up-front). To make sure no survey is silently lost, we
+    // retry a few times on transient failure and surface an error if it never
+    // succeeds, so the user can fall back to the "Generate AI Report" button.
     useEffect(() => {
         if (snapshots.length === 0) return;
         let cancelled = false;
+        const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
         (async () => {
-            try {
-                const res = await apiFetch("/analyze-report", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "" })
-                });
-                if (!res.ok || cancelled) return;
-                const data = (await res.json()) as AnalyzeReportResponse;
-                if (cancelled) return;
-                setAnalyzeData(data);
-                onReportDelivered?.();
-            } catch {
-                // Analysis is optional — on any failure the section is simply omitted.
+            const MAX_ATTEMPTS = 3;
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
+                try {
+                    const res = await apiFetch("/analyze-report", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "" })
+                    });
+                    if (cancelled) return;
+                    // 401 is handled globally by apiFetch (redirect to login) — don't retry.
+                    if (res.status === 401) return;
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = (await res.json()) as AnalyzeReportResponse;
+                    if (cancelled) return;
+                    setAnalyzeData(data);
+                    setSaveError(null);
+                    onReportDelivered?.();
+                    return;
+                } catch (err) {
+                    if (cancelled) return;
+                    console.warn(`[AnalyzeReport] attempt ${attempt}/${MAX_ATTEMPTS} failed`, err);
+                    if (attempt < MAX_ATTEMPTS) {
+                        await sleep(attempt * 1000); // 1s, 2s backoff
+                    } else {
+                        setSaveError("We couldn't save this result automatically. Press \"Generate AI Report\" below to retry and save it to your history.");
+                    }
+                }
             }
         })();
         return () => {
@@ -255,6 +280,14 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
                     </button>
                 )}
             </div>
+
+            {/* Auto-save warning — shown when /analyze-report failed to persist after retries. */}
+            {saveError && (
+                <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{saveError}</span>
+                </div>
+            )}
 
             {/* ── Combined Overall Burnout: risk gauge + enlarged domain radar ── */}
             <div className={`mb-4 ${cardClass}`}>

@@ -170,17 +170,9 @@ Output JSON format:
 }}
 """
 
-        # Call LLM for behavioral analysis
-        analysis_result_str = await rtmt.analyze_with_prompt(system_prompt)
-
-        # Parse analysis result
-        try:
-            analysis_data = json.loads(analysis_result_str)
-        except json.JSONDecodeError:
-            analysis_data = {"raw": analysis_result_str}
-
-        # Compute totals and risk — reverse-aware: positive items (e.g. Personal
-        # Accomplishment, Job Satisfaction) are flipped so the total reflects burnout.
+        # ── Deterministic scoring (no LLM) — computed up-front so the survey can be
+        # persisted to history BEFORE any LLM call. This guarantees the record exists
+        # even if behavioral analysis or the consultative response below fails. ──
         total_score = sum(
             effective_score(survey_config, s.get("questionId", ""), s.get("score", 0)) for s in snapshots
         )
@@ -197,7 +189,6 @@ Output JSON format:
             risk_level = "High"
             interpretation = interp_map.get("high", "High burnout risk")
 
-        # Domain totals (reverse-aware)
         domain_totals = {}
         for s in snapshots:
             dom = s.get('domain', 'Unknown')
@@ -206,6 +197,53 @@ Output JSON format:
             )
         domain_lines = [f"- {dom}: {score} points" for dom, score in domain_totals.items()]
         domain_summary = "\n".join(domain_lines)
+
+        # Early persistence: write survey results + deterministic report NOW so the
+        # history row is guaranteed even if the LLM calls below fail. COALESCE-based, so
+        # the later full save (which adds the behavioral analysis) enriches the same row.
+        if request.get("auth_session") and survey_run_id:
+            try:
+                await ensure_survey_record(
+                    survey_run_id, request["auth_session"]["user_id"],
+                    request["session_token"], session_id, survey_type,
+                )
+                await save_survey_record_snapshot(
+                    survey_run_id,
+                    {
+                        s.get("questionId", ""): {
+                            "score": s.get("score"),
+                            "domain": s.get("domain"),
+                            "voiceSentiment": s.get("voiceSentiment"),
+                            "blinkRateChange": s.get("blinkRateChange"),
+                            "gazePosition": s.get("gazePosition"),
+                            "responseLatencyMs": s.get("responseLatencyMs"),
+                        }
+                        for s in snapshots
+                    },
+                    {
+                        "analysis": {},
+                        "totalScore": total_score,
+                        "riskLevel": risk_level,
+                        "interpretation": interpretation,
+                        "domainTotals": domain_totals,
+                    },
+                )
+                logger.info("[APP] Survey pre-persisted to DB for run %s", survey_run_id[:8])
+            except Exception as db_err:
+                logger.error("[APP] Early survey persist failed: %s", db_err)
+
+        # Call LLM for behavioral analysis
+        analysis_result_str = await rtmt.analyze_with_prompt(system_prompt)
+
+        # Parse analysis result
+        try:
+            analysis_data = json.loads(analysis_result_str)
+        except json.JSONDecodeError:
+            analysis_data = {"raw": analysis_result_str}
+
+        # (total_score, risk_level, interpretation, domain_totals and domain_summary
+        # are computed up-front above, before the LLM calls, so the survey is persisted
+        # regardless of LLM outcome.)
 
         # Snapshot lines — biometrics stated as categories, not raw numbers.
         snapshot_lines = []
