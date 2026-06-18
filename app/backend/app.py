@@ -170,33 +170,19 @@ Output JSON format:
 }}
 """
 
-        # ── Deterministic scoring (no LLM) — computed up-front so the survey can be
-        # persisted to history BEFORE any LLM call. This guarantees the record exists
-        # even if behavioral analysis or the consultative response below fails. ──
-        total_score = sum(
-            effective_score(survey_config, s.get("questionId", ""), s.get("score", 0)) for s in snapshots
-        )
-        max_score = len(snapshots) * 5
-        thresholds = survey_config.get("thresholds", {"low_max": 12, "moderate_max": 22})
-        interp_map = survey_config.get("interpretation", {})
-        if total_score <= thresholds["low_max"]:
-            risk_level = "Low"
-            interpretation = interp_map.get("low", "Low burnout risk")
-        elif total_score <= thresholds["moderate_max"]:
-            risk_level = "Moderate"
-            interpretation = interp_map.get("moderate", "Moderate burnout risk")
-        else:
-            risk_level = "High"
-            interpretation = interp_map.get("high", "High burnout risk")
-
-        domain_totals = {}
-        for s in snapshots:
-            dom = s.get('domain', 'Unknown')
-            domain_totals[dom] = domain_totals.get(dom, 0) + effective_score(
-                survey_config, s.get("questionId", ""), s.get("score", 0)
-            )
-        domain_lines = [f"- {dom}: {score} points" for dom, score in domain_totals.items()]
-        domain_summary = "\n".join(domain_lines)
+        # ── Deterministic scoring (no LLM) — computed up-front via the shared source
+        # of truth so /analyze-report, /ssot-report and the agent never diverge, and so
+        # the survey is persisted to history BEFORE any LLM call (record guaranteed even
+        # if behavioral analysis / the consultative response below fails). ──
+        from survey_loader import compute_survey_summary, serialize_survey_results
+        summary = compute_survey_summary(survey_config, snapshots)
+        total_score = summary["totalScore"]
+        max_score = summary["maxScore"]
+        risk_level = summary["riskLevel"]
+        interpretation = summary["interpretation"]
+        domain_totals = summary["domainTotals"]
+        domain_summary = "\n".join(f"- {dom}: {score} points" for dom, score in domain_totals.items())
+        survey_results_snapshot = serialize_survey_results(snapshots)
 
         # Early persistence: write survey results + deterministic report NOW so the
         # history row is guaranteed even if the LLM calls below fail. COALESCE-based, so
@@ -209,17 +195,7 @@ Output JSON format:
                 )
                 await save_survey_record_snapshot(
                     survey_run_id,
-                    {
-                        s.get("questionId", ""): {
-                            "score": s.get("score"),
-                            "domain": s.get("domain"),
-                            "voiceSentiment": s.get("voiceSentiment"),
-                            "blinkRateChange": s.get("blinkRateChange"),
-                            "gazePosition": s.get("gazePosition"),
-                            "responseLatencyMs": s.get("responseLatencyMs"),
-                        }
-                        for s in snapshots
-                    },
+                    survey_results_snapshot,
                     {
                         "analysis": {},
                         "totalScore": total_score,
@@ -361,19 +337,10 @@ RISK LEVEL: {risk_level} ({interpretation})
             rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context_full)
         logger.info("[APP] ★ Report delivered, state=report_delivered with full context including burnout state")
 
-        # Persist results to DB if the request is from an authenticated user
+        # Persist results to DB if the request is from an authenticated user.
+        # Reuses the canonical survey_results_snapshot built up-front; the full save
+        # adds the behavioral analysis on top of the deterministic figures.
         if request.get("auth_session") and survey_run_id:
-            survey_results_snapshot = {
-                s.get("questionId", ""): {
-                    "score": s.get("score"),
-                    "domain": s.get("domain"),
-                    "voiceSentiment": s.get("voiceSentiment"),
-                    "blinkRateChange": s.get("blinkRateChange"),
-                    "gazePosition": s.get("gazePosition"),
-                    "responseLatencyMs": s.get("responseLatencyMs"),
-                }
-                for s in snapshots
-            }
             technical_report_data = {
                 "analysis": analysis_data,
                 "totalScore": total_score,
@@ -484,42 +451,26 @@ async def generate_ssot_report(request):
         if not snapshots and not query_override:
             return web.json_response({"error": "Provide either snapshots or a query_override"}, status=400)
 
-        total_score = sum(s.get("score", 0) for s in snapshots)
-
-        if total_score <= 12:
-            interpretation = "Low burnout risk"
-        elif total_score <= 22:
-            interpretation = "Moderate burnout risk"
-        else:
-            interpretation = "High burnout risk"
-
-        domain_totals: dict = {}
-        for s in snapshots:
-            dom = s.get("domain", "Unknown")
-            domain_totals[dom] = domain_totals.get(dom, 0) + s.get("score", 0)
-
-        sorted_domains = sorted(domain_totals.items(), key=lambda x: x[1], reverse=True)
+        # Canonical, reverse-aware scoring — same source of truth as /analyze-report
+        # and the agent's query_survey_results tool (no raw sums or hardcoded thresholds).
+        from survey_loader import compute_survey_summary, serialize_survey_results
+        rtmt = request.app.get("rtmt")
+        survey_config = rtmt._survey_config if rtmt else {}
+        summary = compute_survey_summary(survey_config, snapshots) if snapshots else {
+            "totalScore": 0, "riskLevel": "Low", "interpretation": "Low burnout risk", "domainTotals": {}
+        }
+        risk_phrase = f"{summary['riskLevel']} burnout risk"
+        sorted_domains = sorted(summary["domainTotals"].items(), key=lambda x: x[1], reverse=True)
 
         # Persist survey snapshots so they appear in the user's History tab.
         # Uses COALESCE so it never overwrites data saved by /analyze-report.
         if request.get("auth_session") and snapshots and survey_run_id:
-            survey_results_snapshot = {
-                s.get("questionId", s.get("domain", str(i))): {
-                    "score": s.get("score", 0),
-                    "domain": s.get("domain", ""),
-                    "voiceSentiment": s.get("voiceSentiment", "neutral"),
-                    "blinkRateChange": s.get("blinkRateChange", 0),
-                    "gazePosition": s.get("gazePosition", "Center"),
-                    "responseLatencyMs": s.get("responseLatencyMs"),
-                }
-                for i, s in enumerate(snapshots)
-            }
-            risk_level = "Low" if total_score <= 12 else "Moderate" if total_score <= 22 else "High"
+            survey_results_snapshot = serialize_survey_results(snapshots)
             technical_snapshot = {
-                "totalScore": total_score,
-                "riskLevel": risk_level,
-                "interpretation": interpretation,
-                "domainTotals": domain_totals,
+                "totalScore": summary["totalScore"],
+                "riskLevel": summary["riskLevel"],
+                "interpretation": summary["interpretation"],
+                "domainTotals": summary["domainTotals"],
                 "analysis": {},
             }
             try:
@@ -547,7 +498,7 @@ async def generate_ssot_report(request):
             top2_domains = " and ".join(name for name, _ in sorted_domains[:2])
             mithra_query = (
                 f"What are the root cause and recommendation for a person suffering with "
-                f"{interpretation} caused by {top2_domains}."
+                f"{risk_phrase} caused by {top2_domains}."
             )
             logger.info("[APP] /ssot-report query (generated): %s", mithra_query[:200])
 

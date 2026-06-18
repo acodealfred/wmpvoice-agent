@@ -161,27 +161,9 @@ class ToolResult:
         return self.text if isinstance(self.text, str) else json.dumps(self.text)
 
 
-def _blink_band(change_pct) -> str:
-    """Blink-rate change (% vs baseline) → category (CIQ Signal-Thresholds bands)."""
-    if change_pct is None:
-        return "Unknown"
-    mag = abs(change_pct)
-    if mag <= 15:
-        return "Normal"
-    level = "Elevated" if mag <= 40 else "High"
-    direction = "above baseline" if change_pct > 0 else "below baseline"
-    return f"{level} ({direction})"
-
-
-def _pupil_band(mm_change) -> str:
-    """Pupil-dilation change (mm vs baseline) → category (CIQ Signal-Thresholds bands)."""
-    if mm_change is None:
-        return "Unknown"
-    if mm_change <= 0.1:
-        return "Low"
-    if mm_change <= 0.3:
-        return "Medium"
-    return "High"
+# Biometric-band categorisation lives in survey_loader (single source of truth) so the
+# agent and the report endpoints can never categorise the same reading differently.
+from survey_loader import blink_band as _blink_band, pupil_band as _pupil_band
 
 
 async def _query_survey_tool(self: "RTMiddleTier", args: Any) -> ToolResult:

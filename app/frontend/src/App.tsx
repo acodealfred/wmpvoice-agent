@@ -589,11 +589,15 @@ function App() {
                                                 </>
                                             )}
                                         </Button>
-                                        {isRecording && (
+                                        {/* Always reserve this row's height so toggling the
+                                            badge never reflows the flex-1 video above it. */}
+                                        {isRecording ? (
                                             <div className="flex h-10 items-center justify-center gap-2 rounded-xl border border-[rgba(25,122,75,0.40)] bg-[rgba(25,122,75,0.20)] text-sm font-medium text-[color:var(--ciq-accent-green)]">
                                                 <Mic className="h-4 w-4 animate-pulse" />
                                                 Conversation Active
                                             </div>
+                                        ) : (
+                                            <div className="h-10" aria-hidden="true" />
                                         )}
                                     </div>
                                 </div>
@@ -881,7 +885,6 @@ function App() {
                                                         >
                                                             <DetailedReport
                                                                 snapshots={biometricSnapshots}
-                                                                totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
                                                                 sessionId={sessionId}
                                                                 surveyRunId={surveyRunId}
                                                                 surveyType={surveyTypeConfig?.activeSurveyType}

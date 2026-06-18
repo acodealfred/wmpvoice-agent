@@ -22,7 +22,6 @@ import {
 
 interface DetailedReportProps {
     snapshots: BiometricSnapshot[];
-    totalScore: number;
     sessionId?: string;
     surveyRunId?: string;
     surveyType?: string;
@@ -60,7 +59,7 @@ function useThemeTokens(): Tokens {
     return tok;
 }
 
-export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, surveyType, onClose, onReportDelivered }: DetailedReportProps) {
+export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onClose, onReportDelivered }: DetailedReportProps) {
     const tok = useThemeTokens();
 
     const [ssotLoading, setSsotLoading] = useState(false);
@@ -164,13 +163,17 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [snapshots, sessionId]);
 
-    // Prefer the backend's data-driven values; fall back to props until they load.
-    const displayScore = analyzeData?.totalScore ?? totalScore;
+    // The headline score/risk MUST come from the backend (reverse-aware, config
+    // thresholds). The local `totalScore` prop is a raw sum and would be wrong for
+    // surveys with reverse-scored items, so we show "Calculating…" until /analyze-report
+    // returns rather than flashing an incorrect number that then changes.
+    const scoreReady = analyzeData !== null;
+    const displayScore = analyzeData?.totalScore ?? 0;
     const displayMax = analyzeData?.maxScore ?? snapshots.length * 5;
-    const riskLevel = analyzeData?.riskLevel ?? (displayScore <= 12 ? "Low" : displayScore <= 22 ? "Moderate" : "High");
-    const riskText = analyzeData?.interpretation ?? `${riskLevel} burnout risk`;
+    const riskLevel = analyzeData?.riskLevel ?? "Low";
+    const riskText = scoreReady ? (analyzeData?.interpretation ?? `${riskLevel} burnout risk`) : "Calculating your score…";
     const riskHex = riskLevel === "Low" ? tok.green : riskLevel === "Moderate" ? tok.amber : tok.red;
-    const scorePct = displayMax > 0 ? Math.round((displayScore / displayMax) * 100) : 0;
+    const scorePct = scoreReady && displayMax > 0 ? Math.round((displayScore / displayMax) * 100) : 0;
 
     // Per-question score → color band (higher item score = worse).
     const scoreHex = (score: number) => (score <= 1 ? tok.green : score <= 3 ? tok.amber : tok.red);
@@ -311,13 +314,22 @@ export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, 
                                 </RadialBarChart>
                             </ResponsiveContainer>
                             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end pb-7">
-                                <div className="text-5xl font-extrabold text-[color:var(--ciq-text-strong)]">
-                                    {displayScore}
-                                    <span className="text-2xl font-semibold text-[color:var(--ciq-text-muted)]">/{displayMax}</span>
-                                </div>
-                                <div className="mt-1.5 rounded-full px-4 py-1 text-base font-bold" style={{ color: riskHex, background: `${riskHex}22` }}>
-                                    {riskLevel} risk
-                                </div>
+                                {scoreReady ? (
+                                    <>
+                                        <div className="text-5xl font-extrabold text-[color:var(--ciq-text-strong)]">
+                                            {displayScore}
+                                            <span className="text-2xl font-semibold text-[color:var(--ciq-text-muted)]">/{displayMax}</span>
+                                        </div>
+                                        <div className="mt-1.5 rounded-full px-4 py-1 text-base font-bold" style={{ color: riskHex, background: `${riskHex}22` }}>
+                                            {riskLevel} risk
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex items-center gap-2 text-[color:var(--ciq-text-muted)]">
+                                        <Loader2 className="h-5 w-5 animate-spin" />
+                                        <span className="text-sm font-medium">Calculating…</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <p className="mt-2 text-center text-sm text-[color:var(--ciq-text-muted)]">{riskText}</p>
