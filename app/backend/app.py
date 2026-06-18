@@ -13,7 +13,13 @@ from dotenv import load_dotenv
 
 from auth import auth_middleware, login, logout, me
 from biometric_interpreter import analyze_stress
-from db import save_session_results, save_survey_snapshot, update_session_ssot_report, get_user_sessions
+from db import (
+    ensure_survey_record,
+    save_survey_record_results,
+    save_survey_record_snapshot,
+    update_survey_record_ssot,
+    get_user_survey_records,
+)
 from db_init import init_db
 from rtmt import RTMiddleTier
 
@@ -71,6 +77,8 @@ async def analyze_report(request):
     try:
         data = await request.json()
         session_id = data.get("session_id", "")
+        survey_run_id = data.get("survey_run_id", "")
+        survey_type = data.get("survey_type", "")
         snapshots = data.get("snapshots", [])
 
         if not snapshots:
@@ -316,7 +324,7 @@ RISK LEVEL: {risk_level} ({interpretation})
         logger.info("[APP] ★ Report delivered, state=report_delivered with full context including burnout state")
 
         # Persist results to DB if the request is from an authenticated user
-        if request.get("auth_session"):
+        if request.get("auth_session") and survey_run_id:
             survey_results_snapshot = {
                 s.get("questionId", ""): {
                     "score": s.get("score"),
@@ -341,13 +349,20 @@ RISK LEVEL: {risk_level} ({interpretation})
                 "agentResponse": response_text,
             }
             try:
-                await save_session_results(
+                await ensure_survey_record(
+                    survey_run_id,
+                    request["auth_session"]["user_id"],
                     request["session_token"],
+                    session_id,
+                    survey_type,
+                )
+                await save_survey_record_results(
+                    survey_run_id,
                     survey_results_snapshot,
                     technical_report_data,
                     prompt_info_data,
                 )
-                logger.info("[APP] Report persisted to DB for session %s", request["session_token"][:8])
+                logger.info("[APP] Report persisted to DB for survey run %s", survey_run_id[:8])
             except Exception as db_err:
                 logger.error("[APP] Failed to persist report to DB: %s", db_err)
 
@@ -403,17 +418,17 @@ async def admin_list_users(request: web.Request) -> web.Response:
 
 
 async def user_sessions_history(request: web.Request) -> web.Response:
-    """GET /api/history — return the logged-in user's completed survey sessions."""
+    """GET /api/history — return the logged-in user's completed survey runs."""
     user_id = request["auth_session"]["user_id"]
-    sessions = await get_user_sessions(user_id)
-    for s in sessions:
+    records = await get_user_survey_records(user_id)
+    for r in records:
         for col in ("survey_results", "technical_report", "prompt_info"):
-            if s.get(col):
+            if r.get(col):
                 try:
-                    s[col] = json.loads(s[col])
+                    r[col] = json.loads(r[col])
                 except Exception:
                     pass
-    return web.json_response({"sessions": sessions})
+    return web.json_response({"records": records})
 
 
 # ── SSOT report ─────────────────────────────────────────────────────────────
@@ -424,6 +439,8 @@ async def generate_ssot_report(request):
         data = await request.json()
         snapshots = data.get("snapshots", [])
         session_id = data.get("session_id", "")
+        survey_run_id = data.get("survey_run_id", "")
+        survey_type = data.get("survey_type", "")
 
         query_override = data.get("query_override", "").strip()
         if not snapshots and not query_override:
@@ -447,7 +464,7 @@ async def generate_ssot_report(request):
 
         # Persist survey snapshots so they appear in the user's History tab.
         # Uses COALESCE so it never overwrites data saved by /analyze-report.
-        if request.get("auth_session") and snapshots:
+        if request.get("auth_session") and snapshots and survey_run_id:
             survey_results_snapshot = {
                 s.get("questionId", s.get("domain", str(i))): {
                     "score": s.get("score", 0),
@@ -468,8 +485,15 @@ async def generate_ssot_report(request):
                 "analysis": {},
             }
             try:
-                await save_survey_snapshot(
+                await ensure_survey_record(
+                    survey_run_id,
+                    request["auth_session"]["user_id"],
                     request["session_token"],
+                    session_id,
+                    survey_type,
+                )
+                await save_survey_record_snapshot(
+                    survey_run_id,
                     survey_results_snapshot,
                     technical_snapshot,
                 )
@@ -493,10 +517,10 @@ async def generate_ssot_report(request):
         mithra_raw = await _call_mithra_kb_chat(mithra_query)
         if not mithra_raw:
             # Persist failure so history tab can show "KB unavailable" message
-            if request.get("auth_session"):
+            if request.get("auth_session") and survey_run_id:
                 try:
-                    await update_session_ssot_report(
-                        request["session_token"],
+                    await update_survey_record_ssot(
+                        survey_run_id,
                         {"error": "Knowledge Base unreachable — ensure documents are uploaded and MITHRA_APP_TOKEN is set."},
                     )
                 except Exception:
@@ -522,9 +546,9 @@ async def generate_ssot_report(request):
                     llm_used, len(ssot_report["answer"]), len(ssot_report["citations"]))
 
         # Persist SSoT result to DB for history view
-        if request.get("auth_session"):
+        if request.get("auth_session") and survey_run_id:
             try:
-                await update_session_ssot_report(request["session_token"], ssot_report)
+                await update_survey_record_ssot(survey_run_id, ssot_report)
             except Exception as db_err:
                 logger.error("[APP] Failed to persist SSoT report: %s", db_err)
 

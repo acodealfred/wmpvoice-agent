@@ -63,56 +63,122 @@ async def update_session_activity(session_token: str) -> None:
         await db.commit()
 
 
-async def save_session_results(
-    session_token: str,
+async def ensure_survey_record(
+    survey_run_id: str,
+    user_id: str,
+    session_token: str | None,
+    session_id: str | None,
+    survey_type: str | None,
+) -> None:
+    """Create the survey_records row if it does not exist yet.
+
+    Any of the three persistence writes (results / snapshot / SSoT) may be the
+    first to fire for a given run, so each calls this first. INSERT OR IGNORE
+    keeps it idempotent — a second caller never clobbers existing data, and a
+    non-null survey_type on a later call backfills an earlier null.
+    """
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT OR IGNORE INTO survey_records
+               (survey_run_id, user_id, session_token, session_id, survey_type,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (survey_run_id, user_id, session_token, session_id, survey_type, now, now),
+        )
+        if survey_type:
+            await db.execute(
+                "UPDATE survey_records SET survey_type = COALESCE(survey_type, ?) "
+                "WHERE survey_run_id = ?",
+                (survey_type, survey_run_id),
+            )
+        await db.commit()
+
+
+async def save_survey_record_results(
+    survey_run_id: str,
     survey_results: dict,
     technical_report: dict,
     prompt_info: dict,
 ) -> None:
+    """Full write of one survey run's data (from /analyze-report)."""
     async with _open_db() as db:
         await db.execute(
-            """UPDATE user_sessions
+            """UPDATE survey_records
                SET survey_results = ?, technical_report = ?, prompt_info = ?,
-                   last_active_at = ?
-               WHERE session_token = ?""",
+                   updated_at = ?
+               WHERE survey_run_id = ?""",
             (
                 json.dumps(survey_results),
                 json.dumps(technical_report),
                 json.dumps(prompt_info),
                 datetime.utcnow().isoformat(),
-                session_token,
+                survey_run_id,
             ),
         )
         await db.commit()
 
 
-async def save_survey_snapshot(
-    session_token: str,
+async def save_survey_record_snapshot(
+    survey_run_id: str,
     survey_results: dict,
     technical_report: dict,
 ) -> None:
-    """Save survey results and basic technical report only if not already set.
+    """Save survey results and a basic technical report only if not already set.
 
-    Called from /ssot-report so that survey sessions are always recorded in
-    history even when /analyze-report is never called from the frontend.
-    Does NOT touch prompt_info so a later update_session_ssot_report call
-    can safely merge into it.
+    Called from /ssot-report so a run is recorded in history even when
+    /analyze-report is never called. COALESCE means it never overwrites data
+    saved by save_survey_record_results, and it leaves prompt_info untouched so
+    a later update_survey_record_ssot can safely merge into it.
     """
     async with _open_db() as db:
         await db.execute(
-            """UPDATE user_sessions
+            """UPDATE survey_records
                SET survey_results  = COALESCE(survey_results, ?),
                    technical_report = COALESCE(technical_report, ?),
-                   last_active_at   = ?
-               WHERE session_token = ?""",
+                   updated_at       = ?
+               WHERE survey_run_id = ?""",
             (
                 json.dumps(survey_results),
                 json.dumps(technical_report),
                 datetime.utcnow().isoformat(),
-                session_token,
+                survey_run_id,
             ),
         )
         await db.commit()
+
+
+async def update_survey_record_ssot(survey_run_id: str, ssot_result: dict) -> None:
+    """Merge SSoT outcome (success or failure) into the prompt_info JSON column."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT prompt_info FROM survey_records WHERE survey_run_id = ?", (survey_run_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return
+        existing = json.loads(row["prompt_info"] or "{}")
+        existing["ssotReport"] = ssot_result
+        await db.execute(
+            "UPDATE survey_records SET prompt_info = ?, updated_at = ? WHERE survey_run_id = ?",
+            (json.dumps(existing), datetime.utcnow().isoformat(), survey_run_id),
+        )
+        await db.commit()
+
+
+async def get_user_survey_records(user_id: str) -> list[dict]:
+    """Return a user's survey runs that have recorded data, most recent first."""
+    async with _open_db() as db:
+        async with db.execute("""
+            SELECT survey_run_id, session_id, survey_type, created_at, updated_at,
+                   survey_results, technical_report, prompt_info
+            FROM survey_records
+            WHERE user_id = ?
+              AND (survey_results IS NOT NULL OR prompt_info IS NOT NULL)
+            ORDER BY created_at DESC
+        """, (user_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
 
 
 async def delete_session(session_token: str) -> None:
@@ -123,54 +189,25 @@ async def delete_session(session_token: str) -> None:
         await db.commit()
 
 
-async def get_user_sessions(user_id: str) -> list[dict]:
-    """Return sessions that have any recorded data, most recent first."""
-    async with _open_db() as db:
-        async with db.execute("""
-            SELECT session_token, session_id, created_at, last_active_at,
-                   survey_results, technical_report, prompt_info
-            FROM user_sessions
-            WHERE user_id = ?
-              AND (survey_results IS NOT NULL OR prompt_info IS NOT NULL)
-            ORDER BY created_at DESC
-        """, (user_id,)) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
-
-
-async def update_session_ssot_report(session_token: str, ssot_result: dict) -> None:
-    """Merge SSoT outcome (success or failure) into the prompt_info JSON column."""
-    async with _open_db() as db:
-        async with db.execute(
-            "SELECT prompt_info FROM user_sessions WHERE session_token = ?", (session_token,)
-        ) as cursor:
-            row = await cursor.fetchone()
-        if not row:
-            return
-        existing = json.loads(row["prompt_info"] or "{}")
-        existing["ssotReport"] = ssot_result
-        await db.execute(
-            "UPDATE user_sessions SET prompt_info = ? WHERE session_token = ?",
-            (json.dumps(existing), session_token),
-        )
-        await db.commit()
-
-
 async def get_all_users_with_session_info() -> list[dict]:
-    """Return all users with session count and most recent session details."""
+    """Return all users with assessment count and most recent survey details.
+
+    session_count is now the number of recorded survey runs (assessments taken),
+    and last_active_at / last_session_id reflect the most recent survey run.
+    """
     async with _open_db() as db:
         async with db.execute("""
             SELECT
                 u.user_id,
                 u.name,
                 u.created_at,
-                COUNT(s.session_token) AS session_count,
-                MAX(s.last_active_at)  AS last_active_at,
-                (SELECT session_id FROM user_sessions
+                COUNT(sr.survey_run_id) AS session_count,
+                MAX(sr.updated_at)      AS last_active_at,
+                (SELECT session_id FROM survey_records
                  WHERE user_id = u.user_id
-                 ORDER BY last_active_at DESC LIMIT 1) AS last_session_id
+                 ORDER BY updated_at DESC LIMIT 1) AS last_session_id
             FROM users u
-            LEFT JOIN user_sessions s ON u.user_id = s.user_id
+            LEFT JOIN survey_records sr ON u.user_id = sr.user_id
             GROUP BY u.user_id
             ORDER BY u.name
         """) as cursor:

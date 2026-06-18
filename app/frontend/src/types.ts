@@ -257,11 +257,12 @@ export type AdminUser = {
     last_session_id: string | null;
 };
 
-export type UserSession = {
-    session_token: string;
+export type SurveyRecord = {
+    survey_run_id: string;
     session_id: string;
+    survey_type: string | null;
     created_at: string;
-    last_active_at: string;
+    updated_at: string;
     survey_results: Record<string, {
         score: number;
         domain: string;

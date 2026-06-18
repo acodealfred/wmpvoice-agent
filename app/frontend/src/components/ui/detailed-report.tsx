@@ -23,6 +23,8 @@ interface DetailedReportProps {
     snapshots: BiometricSnapshot[];
     totalScore: number;
     sessionId?: string;
+    surveyRunId?: string;
+    surveyType?: string;
     onClose?: () => void;
     onAgentSpeaking?: (text: string) => void;
     onReportDelivered?: () => void;
@@ -57,7 +59,7 @@ function useThemeTokens(): Tokens {
     return tok;
 }
 
-export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onReportDelivered }: DetailedReportProps) {
+export function DetailedReport({ snapshots, totalScore, sessionId, surveyRunId, surveyType, onClose, onReportDelivered }: DetailedReportProps) {
     const tok = useThemeTokens();
 
     const [ssotLoading, setSsotLoading] = useState(false);
@@ -73,7 +75,7 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
         setSsotReport(null);
         setSsotQuery(null);
 
-        const payload = { snapshots, session_id: sessionId ?? "" };
+        const payload = { snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "" };
         console.group("[SSOT] Generate AI Report");
         console.log("→ POST /ssot-report", payload);
 
@@ -121,7 +123,7 @@ export function DetailedReport({ snapshots, totalScore, sessionId, onClose, onRe
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     credentials: "same-origin",
-                    body: JSON.stringify({ snapshots, session_id: sessionId ?? "" })
+                    body: JSON.stringify({ snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "" })
                 });
                 if (!res.ok || cancelled) return;
                 const data = (await res.json()) as AnalyzeReportResponse;

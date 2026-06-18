@@ -32,6 +32,9 @@ function App() {
     const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
     // Session ID starts as a local UUID and is replaced with the server-issued one on login
     const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
+    // Identifies a single survey run. A fresh id is minted for every new assessment so
+    // each survey is persisted as its own history record instead of overwriting the last.
+    const [surveyRunId, setSurveyRunId] = useState<string>(() => crypto.randomUUID());
     const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test" | "history">("assessment");
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
@@ -286,6 +289,8 @@ function App() {
         setSentiment(null);
         setStressResult(null);
         setEnableBiometrics(true);
+        // Each fresh assessment is a new persisted survey record.
+        setSurveyRunId(crypto.randomUUID());
     }, []);
 
     const onToggleListening = async () => {
@@ -869,6 +874,8 @@ function App() {
                                                                 snapshots={biometricSnapshots}
                                                                 totalScore={biometricSnapshots.reduce((sum, s) => sum + s.score, 0)}
                                                                 sessionId={sessionId}
+                                                                surveyRunId={surveyRunId}
+                                                                surveyType={surveyTypeConfig?.activeSurveyType}
                                                                 onClose={() => setShowDetailedReport(false)}
                                                                 onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
                                                                 onReportDelivered={refreshSession}

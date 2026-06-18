@@ -1,3 +1,4 @@
+
 import asyncio
 import uuid
 import logging
@@ -48,6 +49,28 @@ async def init_db() -> None:
                 technical_report TEXT,
                 prompt_info     TEXT
             )
+        """)
+
+        # One row per completed survey run. A single login (user_sessions row)
+        # can own many survey_records, so a user's full assessment history is
+        # preserved instead of each survey overwriting the last.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS survey_records (
+                survey_run_id    TEXT PRIMARY KEY,
+                user_id          TEXT NOT NULL REFERENCES users(user_id),
+                session_token    TEXT,
+                session_id       TEXT,
+                survey_type      TEXT,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL,
+                survey_results   TEXT,
+                technical_report TEXT,
+                prompt_info      TEXT
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_survey_records_user
+            ON survey_records(user_id, created_at DESC)
         """)
 
         now = datetime.utcnow().isoformat()

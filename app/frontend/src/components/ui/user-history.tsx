@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen, ClipboardList, ExternalLink, RefreshCw } from "lucide-react";
-import { UserSession } from "@/types";
+import { SurveyRecord } from "@/types";
 
 function riskColor(risk: string) {
     if (risk === "Low") return "bg-green-100 text-green-800";
@@ -92,7 +92,7 @@ function AIReportSection({ info }: { info: SsotSection }) {
     );
 }
 
-function SessionCard({ session }: { session: UserSession }) {
+function SessionCard({ session }: { session: SurveyRecord }) {
     const [expanded, setExpanded] = useState(false);
     const report = session.technical_report;
     const survey = session.survey_results;
@@ -108,7 +108,9 @@ function SessionCard({ session }: { session: UserSession }) {
                 <div className="flex items-center gap-4">
                     <div>
                         <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">{fmt(session.created_at)}</p>
-                        <p className="mt-0.5 text-xs text-[color:var(--ciq-text-faint)]">Session {session.session_id.slice(0, 8)}…</p>
+                        <p className="mt-0.5 text-xs text-[color:var(--ciq-text-faint)]">
+                            {session.survey_type ? `${session.survey_type} · ` : ""}Run {session.survey_run_id.slice(0, 8)}…
+                        </p>
                     </div>
                     {report && (
                         <>
@@ -230,7 +232,7 @@ function SessionCard({ session }: { session: UserSession }) {
 }
 
 export function UserHistory() {
-    const [sessions, setSessions] = useState<UserSession[]>([]);
+    const [sessions, setSessions] = useState<SurveyRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -247,7 +249,7 @@ export function UserHistory() {
                 return;
             }
             const data = await res.json();
-            setSessions(data.sessions);
+            setSessions(data.records);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load history.");
         } finally {
@@ -301,7 +303,7 @@ export function UserHistory() {
             {sessions.length > 0 && (
                 <div className="space-y-3">
                     {sessions.map(s => (
-                        <SessionCard key={s.session_token} session={s} />
+                        <SessionCard key={s.survey_run_id} session={s} />
                     ))}
                 </div>
             )}
