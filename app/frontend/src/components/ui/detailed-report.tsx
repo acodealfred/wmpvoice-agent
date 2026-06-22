@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
@@ -60,6 +60,8 @@ function useThemeTokens(): Tokens {
     return tok;
 }
 
+type ReportTab = "analysis" | "kb" | "consultative";
+
 export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onClose, onReportDelivered }: DetailedReportProps) {
     const tok = useThemeTokens();
 
@@ -78,6 +80,9 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     const [consultText, setConsultText] = useState<string | null>(null);
     const [consultLoading, setConsultLoading] = useState(false);
     const [consultError, setConsultError] = useState<string | null>(null);
+
+    // Which AI report is shown in the shared content area below the tab bar.
+    const [activeReportTab, setActiveReportTab] = useState<ReportTab | null>(null);
 
     const handleGenerateAnalysis = async () => {
         setAnalysisLoading(true);
@@ -175,6 +180,14 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         } finally {
             setSsotLoading(false);
         }
+    };
+
+    // Open a report tab; the first time it's opened, kick off its generation.
+    const openReportTab = (tab: ReportTab) => {
+        setActiveReportTab(tab);
+        if (tab === "analysis" && !analysisResult && !analysisLoading) handleGenerateAnalysis();
+        else if (tab === "consultative" && !consultText && !consultLoading) handleGenerateConsultative();
+        else if (tab === "kb" && !ssotReport && !ssotLoading) handleGenerateAIReport();
     };
 
     // ── Data-driven technical report (POST /analyze-report) ───────────────
@@ -289,33 +302,47 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         boxShadow: "0 8px 30px rgba(0,0,0,0.18)"
     } as const;
 
-    const renderInsightGroup = (title: string, items?: AnalysisInsight[]) => {
+    const renderInsightGroup = (title: string, items: AnalysisInsight[] | undefined, accent: string) => {
         if (!items || items.length === 0) return null;
         return (
             <div>
-                <h4 className="mb-2 text-sm font-semibold text-[color:var(--ciq-text-body)]">{title}</h4>
-                <ul className="space-y-2">
+                <div className="mb-2.5 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: accent }} />
+                    <h4 className="text-sm font-bold tracking-tight text-[color:var(--ciq-text-strong)]">{title}</h4>
+                    <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--ciq-text-muted)]">
+                        {items.length}
+                    </span>
+                </div>
+                <ul className="space-y-2.5">
                     {items.map((it, i) => (
-                        <li key={`${title}-${i}`} className="rounded-lg border border-[color:var(--ciq-line)] p-3">
-                            <div className="flex items-start justify-between gap-2">
-                                <p className="text-sm text-[color:var(--ciq-text-strong)]">{it.insight}</p>
-                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${confidenceColor(it.confidence)}`}>
-                                    {it.confidence}
-                                </span>
+                        <li
+                            key={`${title}-${i}`}
+                            className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-3.5"
+                            style={{ borderLeft: `3px solid ${accent}` }}
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <p className="text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">{it.insight}</p>
+                                {it.confidence && (
+                                    <span
+                                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${confidenceColor(it.confidence)}`}
+                                    >
+                                        {it.confidence}
+                                    </span>
+                                )}
                             </div>
                             {(it.rule || it.dataPoint) && (
-                                <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">
+                                <div className="mt-2.5 flex flex-wrap gap-1.5">
                                     {it.rule && (
-                                        <span>
-                                            <span className="font-medium">Rule:</span> {it.rule}{" "}
+                                        <span className="rounded-md bg-[color:var(--ciq-card-2)] px-2 py-1 text-[11px] leading-snug text-[color:var(--ciq-text-muted)]">
+                                            <span className="font-semibold text-[color:var(--ciq-text-body)]">Rule</span> · {it.rule}
                                         </span>
                                     )}
                                     {it.dataPoint && (
-                                        <span>
-                                            · <span className="font-medium">Data:</span> {it.dataPoint}
+                                        <span className="rounded-md bg-[color:var(--ciq-card-2)] px-2 py-1 text-[11px] leading-snug text-[color:var(--ciq-text-muted)]">
+                                            <span className="font-semibold text-[color:var(--ciq-text-body)]">Data</span> · {it.dataPoint}
                                         </span>
                                     )}
-                                </p>
+                                </div>
                             )}
                         </li>
                     ))}
@@ -324,14 +351,38 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         );
     };
 
-    const insightCount = analysisResult
-        ? (analysisResult.correlations?.length ?? 0) + (analysisResult.contradictions?.length ?? 0) + (analysisResult.patterns?.length ?? 0)
+    // Normalise the analysis into structured groups + an optional prose fallback, so a
+    // raw JSON blob never reaches the UI. Handles ``` fences and surrounding prose by
+    // extracting the first {...} block; prose that just looks like JSON is suppressed.
+    const { analysis: normalizedAnalysis, analysisProse } = useMemo<{ analysis: AnalysisResult | null; analysisProse: string }>(() => {
+        if (!analysisResult) return { analysis: null, analysisProse: "" };
+        const groups = (analysisResult.correlations?.length ?? 0) + (analysisResult.contradictions?.length ?? 0) + (analysisResult.patterns?.length ?? 0);
+        if (groups > 0) return { analysis: analysisResult, analysisProse: "" };
+
+        const raw = (analysisResult.raw ?? analysisResult.summary ?? "").trim();
+        if (!raw) return { analysis: null, analysisProse: "" };
+
+        const start = raw.indexOf("{");
+        const end = raw.lastIndexOf("}");
+        if (start !== -1 && end > start) {
+            try {
+                const parsed = JSON.parse(raw.slice(start, end + 1));
+                if (parsed && typeof parsed === "object" && (parsed.correlations || parsed.contradictions || parsed.patterns)) {
+                    return { analysis: { ...analysisResult, ...parsed }, analysisProse: "" };
+                }
+            } catch {
+                /* fall through to prose handling */
+            }
+        }
+        // Genuine prose only — never render something that looks like JSON.
+        const looksLikeJson = raw.startsWith("{") || raw.startsWith("[") || raw.startsWith("```");
+        return { analysis: null, analysisProse: looksLikeJson ? "" : raw };
+    }, [analysisResult]);
+
+    const insightCount = normalizedAnalysis
+        ? (normalizedAnalysis.correlations?.length ?? 0) + (normalizedAnalysis.contradictions?.length ?? 0) + (normalizedAnalysis.patterns?.length ?? 0)
         : 0;
-    // Fallback text the LLM returned when it didn't produce the structured groups
-    // (prose, or markdown-wrapped JSON the backend couldn't parse). Without this the
-    // analysis silently rendered nothing — the "behavioral analysis not working" bug.
-    const analysisFallbackText = analysisResult ? (analysisResult.raw ?? analysisResult.summary ?? "") : "";
-    const hasAnalysis = insightCount > 0 || !!analysisFallbackText.trim();
+    const hasAnalysis = insightCount > 0 || !!analysisProse.trim();
     const hasConsultative = !!consultText?.trim();
 
     const cardClass = "rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4";
@@ -492,133 +543,201 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                 Note: This is a demonstration only. Results should be validated by a healthcare professional.
             </p>
 
-            {/* ── On-demand AI insights ── */}
-            {/* The two slow LLM generations are produced only when the user asks, so the
-                report above appears instantly. Each button calls its own endpoint. */}
-            <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">
+            {/* ── AI reports — tabbed nav + shared content area ── */}
+            <div className="mb-2 border-t border-[color:var(--ciq-line)] pt-6">
                 <h3 className="mb-1 font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">AI Insights</h3>
-                <p className="mb-3 text-xs text-[color:var(--ciq-text-faint)]">Optional — generate these on demand (each takes a few seconds).</p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <button
-                        onClick={handleGenerateAnalysis}
-                        disabled={analysisLoading || snapshots.length === 0}
-                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] transition-colors hover:bg-[color:var(--ciq-card-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {analysisLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />}
-                        {analysisLoading ? "Analyzing…" : "Behavioral Analysis"}
-                    </button>
-                    <button
-                        onClick={handleGenerateConsultative}
-                        disabled={consultLoading || snapshots.length === 0}
-                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] transition-colors hover:bg-[color:var(--ciq-card-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {consultLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                        {consultLoading ? "Summarizing…" : "Consultative Summary"}
-                    </button>
-                    <button
-                        onClick={handleGenerateAIReport}
-                        disabled={ssotLoading || snapshots.length === 0}
-                        className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-5 py-3 text-sm font-semibold text-white shadow-md transition-colors hover:from-blue-700 hover:to-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {ssotLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookOpen className="h-4 w-4" />}
-                        {ssotLoading ? "Generating…" : "AI Report (KB)"}
-                    </button>
+                <p className="mb-3 text-xs text-[color:var(--ciq-text-faint)]">
+                    Pick a report to generate — each takes a few seconds. Switching tabs swaps the view below.
+                </p>
+
+                <div className="flex w-full items-stretch border-b border-[color:var(--ciq-line)]">
+                    <ReportTabButton
+                        label="Behavioral Analysis"
+                        icon={<Gauge className="h-4 w-4" />}
+                        active={activeReportTab === "analysis"}
+                        loading={analysisLoading}
+                        disabled={snapshots.length === 0}
+                        onClick={() => openReportTab("analysis")}
+                    />
+                    <ReportTabButton
+                        label="AI Report (KB)"
+                        icon={<BookOpen className="h-4 w-4" />}
+                        active={activeReportTab === "kb"}
+                        loading={ssotLoading}
+                        disabled={snapshots.length === 0}
+                        special
+                        onClick={() => openReportTab("kb")}
+                    />
+                    <ReportTabButton
+                        label="Consultative Summary"
+                        icon={<Sparkles className="h-4 w-4" />}
+                        active={activeReportTab === "consultative"}
+                        loading={consultLoading}
+                        disabled={snapshots.length === 0}
+                        onClick={() => openReportTab("consultative")}
+                    />
                 </div>
 
-                {analysisError && (
-                    <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{analysisError}</span>
-                    </div>
-                )}
-                {consultError && (
-                    <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{consultError}</span>
-                    </div>
-                )}
+                <div className="mt-4 min-h-[9rem] rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
+                    {activeReportTab === null && (
+                        <div className="flex min-h-[7rem] flex-col items-center justify-center gap-1.5 text-center">
+                            <Sparkles className="h-6 w-6 text-[color:var(--ciq-text-faint)]" />
+                            <p className="text-sm text-[color:var(--ciq-text-muted)]">Choose a report above to generate it.</p>
+                        </div>
+                    )}
 
-                {(hasAnalysis || hasConsultative) && (
-                    <div className="mt-4 space-y-4">
-                        {hasAnalysis && (
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-2">
-                                    <Gauge className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
-                                    <h4 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Behavioral Analysis</h4>
-                                </div>
+                    {activeReportTab === "analysis" &&
+                        (analysisLoading ? (
+                            <ReportLoading label="Analyzing behaviour…" />
+                        ) : analysisError ? (
+                            <ReportError text={analysisError} onRetry={handleGenerateAnalysis} />
+                        ) : hasAnalysis ? (
+                            <div className="space-y-5">
                                 {insightCount > 0 ? (
                                     <>
-                                        {renderInsightGroup("Correlations", analysisResult?.correlations)}
-                                        {renderInsightGroup("Contradictions", analysisResult?.contradictions)}
-                                        {renderInsightGroup("Patterns", analysisResult?.patterns)}
+                                        {renderInsightGroup("Correlations", normalizedAnalysis?.correlations, tok.blue)}
+                                        {renderInsightGroup("Contradictions", normalizedAnalysis?.contradictions, tok.red)}
+                                        {renderInsightGroup("Patterns", normalizedAnalysis?.patterns, tok.purple)}
                                     </>
                                 ) : (
-                                    // LLM returned prose instead of the structured groups — render it as markdown.
-                                    <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
-                                        <Markdown>{analysisFallbackText}</Markdown>
+                                    <Markdown>{analysisProse}</Markdown>
+                                )}
+                            </div>
+                        ) : (
+                            <ReportEmpty label="Generate Behavioral Analysis" onClick={handleGenerateAnalysis} />
+                        ))}
+
+                    {activeReportTab === "kb" &&
+                        (ssotLoading ? (
+                            <ReportLoading label="Generating AI report…" />
+                        ) : ssotReport ? (
+                            <div className="space-y-3">
+                                {ssotQuery && (
+                                    <div className="rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-3">
+                                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
+                                            Query sent to Knowledge Base
+                                        </p>
+                                        <p className="text-sm italic leading-relaxed text-[color:var(--ciq-text-body)]">{ssotQuery}</p>
+                                    </div>
+                                )}
+                                <div className="flex items-center gap-2">
+                                    <BookOpen className="h-5 w-5 text-[color:var(--ciq-accent-blue)]" />
+                                    <h4 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">AI Consultative Report</h4>
+                                    <span className="ml-auto rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-accent-blue)]">
+                                        SSOT · Evidence-based
+                                    </span>
+                                </div>
+                                <Markdown>{ssotReport.answer}</Markdown>
+                                {ssotReport.citations.length > 0 && (
+                                    <div className="border-t border-[color:var(--ciq-line)] pt-3">
+                                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Citations</p>
+                                        <ul className="space-y-1.5">
+                                            {ssotReport.citations.map((c, i) => (
+                                                <li key={i} className="flex items-start gap-2 text-xs text-[color:var(--ciq-text-body)]">
+                                                    <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-[color:var(--ciq-accent-blue)]" />
+                                                    <span>
+                                                        <span className="font-medium text-[color:var(--ciq-accent-blue)]">{c.paperTitle}</span>
+                                                        {c.paperPage > 0 && (
+                                                            <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>
+                                                        )}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
                                     </div>
                                 )}
                             </div>
-                        )}
+                        ) : ssotError ? (
+                            <ReportError text={ssotError} onRetry={handleGenerateAIReport} />
+                        ) : (
+                            <ReportEmpty label="Generate AI Report" onClick={handleGenerateAIReport} />
+                        ))}
 
-                        {hasConsultative && (
-                            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
-                                <div className="mb-2 flex items-center gap-2">
-                                    <Sparkles className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Consultative Summary</p>
-                                </div>
-                                <Markdown>{consultText ?? ""}</Markdown>
-                            </div>
-                        )}
-                    </div>
-                )}
+                    {activeReportTab === "consultative" &&
+                        (consultLoading ? (
+                            <ReportLoading label="Summarizing…" />
+                        ) : consultError ? (
+                            <ReportError text={consultError} onRetry={handleGenerateConsultative} />
+                        ) : hasConsultative ? (
+                            <Markdown>{consultText ?? ""}</Markdown>
+                        ) : (
+                            <ReportEmpty label="Generate Consultative Summary" onClick={handleGenerateConsultative} />
+                        ))}
+                </div>
             </div>
+        </div>
+    );
+}
 
-            {/* ── AI Consultative Report (SSOT) ── */}
-            {ssotQuery && (
-                <div className="mb-4 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Query sent to Knowledge Base</p>
-                    <p className="text-sm italic leading-relaxed text-[color:var(--ciq-text-body)]">{ssotQuery}</p>
-                </div>
-            )}
+function ReportTabButton({
+    label,
+    icon,
+    active,
+    loading,
+    disabled,
+    special,
+    onClick
+}: {
+    label: string;
+    icon: React.ReactNode;
+    active: boolean;
+    loading: boolean;
+    disabled?: boolean;
+    special?: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={disabled}
+            aria-current={active ? "page" : undefined}
+            className={`relative -mb-px flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50 ${
+                special ? "rounded-t-lg bg-gradient-to-b from-blue-500/10 to-purple-500/10" : ""
+            } ${
+                active
+                    ? `font-bold text-[color:var(--ciq-text-strong)] ${special ? "border-[color:var(--ciq-accent-blue)]" : "border-[color:var(--ciq-accent-purple)]"}`
+                    : "border-transparent font-medium text-[color:var(--ciq-text-muted)] hover:text-[color:var(--ciq-text-strong)]"
+            }`}
+        >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className={special ? "text-[color:var(--ciq-accent-blue)]" : ""}>{icon}</span>}
+            <span className={special && !active ? "bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text font-semibold text-transparent" : ""}>
+                {label}
+            </span>
+        </button>
+    );
+}
 
-            {ssotError && (
-                <div className="mb-4 flex items-start gap-2 rounded-lg bg-red-50 p-3 text-red-700">
-                    <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-                    <span className="text-sm">{ssotError}</span>
-                </div>
-            )}
+function ReportLoading({ label }: { label: string }) {
+    return (
+        <div className="flex min-h-[7rem] items-center justify-center gap-2 text-sm text-[color:var(--ciq-text-muted)]">
+            <Loader2 className="h-5 w-5 animate-spin" /> {label}
+        </div>
+    );
+}
 
-            {ssotReport && (
-                <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-5">
-                    <div className="mb-3 flex items-center gap-2">
-                        <BookOpen className="h-5 w-5 text-[color:var(--ciq-accent-blue)]" />
-                        <h3 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">AI Consultative Report</h3>
-                        <span className="ml-auto rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-accent-blue)]">
-                            SSOT · Evidence-based
-                        </span>
-                    </div>
+function ReportError({ text, onRetry }: { text: string; onRetry: () => void }) {
+    return (
+        <div className="space-y-3">
+            <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{text}</span>
+            </div>
+            <button onClick={onRetry} className="text-sm font-medium text-[color:var(--ciq-accent-purple)] hover:underline">
+                Try again
+            </button>
+        </div>
+    );
+}
 
-                    <Markdown>{ssotReport.answer}</Markdown>
-
-                    {ssotReport.citations.length > 0 && (
-                        <div className="mt-4 border-t border-[color:var(--ciq-line)] pt-3">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Citations</p>
-                            <ul className="space-y-1.5">
-                                {ssotReport.citations.map((c, i) => (
-                                    <li key={i} className="flex items-start gap-2 text-xs text-[color:var(--ciq-text-body)]">
-                                        <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-[color:var(--ciq-accent-blue)]" />
-                                        <span>
-                                            <span className="font-medium text-[color:var(--ciq-accent-blue)]">{c.paperTitle}</span>
-                                            {c.paperPage > 0 && <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                </div>
-            )}
+function ReportEmpty({ label, onClick }: { label: string; onClick: () => void }) {
+    return (
+        <div className="flex min-h-[7rem] items-center justify-center">
+            <button
+                onClick={onClick}
+                className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] px-5 py-2.5 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)]"
+            >
+                {label}
+            </button>
         </div>
     );
 }

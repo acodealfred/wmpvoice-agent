@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 import aiohttp
@@ -296,6 +297,31 @@ def _strip_llm_error(text: str) -> str:
     return text
 
 
+def _parse_llm_json(text: str):
+    """Parse a JSON object from an LLM response, tolerating ```json code fences and
+    surrounding prose. Returns the parsed object, or None if no JSON could be found —
+    so the structured behavioral-analysis groups render instead of a raw JSON blob."""
+    if not text:
+        return None
+    s = text.strip()
+    # Strip a wrapping ```json … ``` (or plain ```) code fence if present.
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", s, re.DOTALL)
+    if fence:
+        s = fence.group(1).strip()
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+    # Last resort: parse the first {...} block embedded in prose.
+    start, end = s.find("{"), s.rfind("}")
+    if 0 <= start < end:
+        try:
+            return json.loads(s[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
 async def analyze_report(request):
     """Build the DETERMINISTIC burnout report (no LLM) and persist it.
 
@@ -396,9 +422,8 @@ async def report_behavioral_analysis(request):
         analysis_result_str = _strip_llm_error(analysis_result_str)
         if not analysis_result_str:
             return web.json_response({"error": "Behavioral analysis is unavailable right now."}, status=503)
-        try:
-            analysis_data = json.loads(analysis_result_str)
-        except json.JSONDecodeError:
+        analysis_data = _parse_llm_json(analysis_result_str)
+        if analysis_data is None:
             analysis_data = {"raw": analysis_result_str}
 
         # Persist analysis into the existing history row + refresh the agent's context.
