@@ -1,8 +1,18 @@
 import { useState, useRef, useEffect } from "react";
 import { BiometricSnapshot, SSoTReport, Citation } from "@/types";
 import {
-    Sparkles, BookOpen, ExternalLink, AlertCircle,
-    Loader2, ChevronRight, ChevronLeft, RefreshCw, FlaskConical, MessageCircle, Send, PlusCircle,
+    Sparkles,
+    BookOpen,
+    ExternalLink,
+    AlertCircle,
+    Loader2,
+    ChevronRight,
+    ChevronLeft,
+    RefreshCw,
+    FlaskConical,
+    MessageCircle,
+    Send,
+    PlusCircle
 } from "lucide-react";
 
 // ── Internal types ─────────────────────────────────────────────────────────
@@ -24,7 +34,7 @@ const DOMAINS: { id: string; domain: string }[] = [
     { id: "q2", domain: "Depersonalization" },
     { id: "q3", domain: "Personal Accomplishment" },
     { id: "q4", domain: "Physical Exhaustion" },
-    { id: "q5", domain: "Job Satisfaction" },
+    { id: "q5", domain: "Job Satisfaction" }
 ];
 
 // All unique pairs of 2 domains (10 combinations of 5C2)
@@ -43,16 +53,16 @@ const RISK_CYCLE: RiskLevel[] = ["high", "moderate", "low"];
 const RISK_LABELS: Record<RiskLevel, string> = {
     high: "High burnout risk",
     moderate: "Moderate burnout risk",
-    low: "Low burnout risk",
+    low: "Low burnout risk"
 };
 
 // ── Score assignment per risk level ───────────────────────────────────────
 // Primary domain gets the higher score, others get the lower score.
 // Totals: high ≈ 22–23, moderate ≈ 17, low ≈ 7
 const SCORES: Record<RiskLevel, { primary: number; other: number }> = {
-    high:     { primary: 5, other: 4 },
+    high: { primary: 5, other: 4 },
     moderate: { primary: 4, other: 3 },
-    low:      { primary: 2, other: 1 },
+    low: { primary: 2, other: 1 }
 };
 
 // ── Query template (mirrors generate_ssot_report in app.py) ───────────────
@@ -85,7 +95,7 @@ function generateScenarios(count: number): TestScenario[] {
             score: primaryDomains.includes(q.domain) ? primary : other,
             voiceSentiment: risk === "high" ? "negative" : risk === "moderate" ? "neutral" : "positive",
             blinkRateChange: risk === "high" ? 35 : risk === "moderate" ? 10 : -10,
-            gazePosition: risk === "high" ? "Down" : risk === "moderate" ? "Center" : "Center",
+            gazePosition: risk === "high" ? "Down" : risk === "moderate" ? "Center" : "Center"
         }));
 
         results.push({
@@ -93,7 +103,7 @@ function generateScenarios(count: number): TestScenario[] {
             riskLevel: risk,
             primaryDomains,
             snapshots,
-            previewQuery: buildQuery(snapshots, risk),
+            previewQuery: buildQuery(snapshots, risk)
         });
     }
     return results;
@@ -101,9 +111,9 @@ function generateScenarios(count: number): TestScenario[] {
 
 // ── Risk level badge colours ───────────────────────────────────────────────
 const RISK_COLOURS: Record<RiskLevel, string> = {
-    high:     "bg-red-900/50 text-red-300 border-red-700",
+    high: "bg-red-900/50 text-red-300 border-red-700",
     moderate: "bg-yellow-900/50 text-yellow-300 border-yellow-700",
-    low:      "bg-green-900/50 text-green-300 border-green-700",
+    low: "bg-green-900/50 text-green-300 border-green-700"
 };
 
 // ── ConsultativeReport: parses Mithra's ## markdown sections into panels ──────
@@ -119,9 +129,14 @@ const RISK_COLOURS: Record<RiskLevel, string> = {
 type ReportPanel = { label: string; colour: string; border: string; bg: string; body: string };
 
 const SECTION_RULES: { keywords: string[]; label: string; colour: string; border: string; bg: string }[] = [
-    { keywords: ["root cause", "causes of"],   label: "Root Cause",    colour: "text-red-300",    border: "border-red-800",   bg: "bg-red-950/40"   },
-    { keywords: ["recommendation", "treating", "addressing", "prevention", "treatment"],
-                                                label: "Recommendation",colour: "text-green-300",  border: "border-green-800", bg: "bg-green-950/40" },
+    { keywords: ["root cause", "causes of"], label: "Root Cause", colour: "text-red-300", border: "border-red-800", bg: "bg-red-950/40" },
+    {
+        keywords: ["recommendation", "treating", "addressing", "prevention", "treatment"],
+        label: "Recommendation",
+        colour: "text-green-300",
+        border: "border-green-800",
+        bg: "bg-green-950/40"
+    }
 ];
 
 function parseMithraSections(text: string): ReportPanel[] {
@@ -156,7 +171,7 @@ function parseMithraSections(text: string): ReportPanel[] {
             colour: "text-blue-300",
             border: "border-blue-800",
             bg: "bg-blue-950/40",
-            body: generalBody.trim(),
+            body: generalBody.trim()
         });
     }
 
@@ -264,7 +279,7 @@ export function TestGenerator() {
         const payload = {
             snapshots: scenarios[currentIdx].snapshots,
             session_id: "",
-            query_override: editableQuery.trim() || scenarios[currentIdx].previewQuery,
+            query_override: editableQuery.trim() || scenarios[currentIdx].previewQuery
         };
 
         console.group("[TestGen] Send to SSOT");
@@ -274,7 +289,7 @@ export function TestGenerator() {
             const resp = await fetch("/ssot-report", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
+                body: JSON.stringify(payload)
             });
             const data = await resp.json();
             console.log(`← HTTP ${resp.status}`, data);
@@ -314,12 +329,15 @@ export function TestGenerator() {
                 resp = await fetch("/kb/chats", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ initialQuestion: question, title: "KB Chat Session" }),
+                    body: JSON.stringify({ initialQuestion: question, title: "KB Chat Session" })
                 });
                 const data = await resp.json();
                 console.log(`← HTTP ${resp.status}`, data);
                 console.groupEnd();
-                if (!resp.ok) { setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`); return; }
+                if (!resp.ok) {
+                    setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`);
+                    return;
+                }
                 const newChatId = data.chat?.id ?? null;
                 setChatId(newChatId);
                 // CreateChatResponse only returns `chat`. Fetch messages to get the first answer.
@@ -329,11 +347,14 @@ export function TestGenerator() {
                         const msgData = await msgResp.json();
                         const assistantMsg = (msgData.messages ?? []).find((m: { role: string }) => m.role === "assistant");
                         if (assistantMsg) {
-                            setChatMessages(prev => [...prev, {
-                                role: "assistant",
-                                content: assistantMsg.content ?? "",
-                                citations: assistantMsg.citations ?? [],
-                            }]);
+                            setChatMessages(prev => [
+                                ...prev,
+                                {
+                                    role: "assistant",
+                                    content: assistantMsg.content ?? "",
+                                    citations: assistantMsg.citations ?? []
+                                }
+                            ]);
                         }
                     }
                 }
@@ -343,17 +364,23 @@ export function TestGenerator() {
                 resp = await fetch(`/kb/chats/${chatId}/messages`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ questionText: question }),
+                    body: JSON.stringify({ questionText: question })
                 });
                 const data = await resp.json();
                 console.log(`← HTTP ${resp.status}`, data);
                 console.groupEnd();
-                if (!resp.ok) { setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`); return; }
-                setChatMessages(prev => [...prev, {
-                    role: "assistant",
-                    content: data.message?.content ?? data.answer ?? "",
-                    citations: data.message?.citations ?? data.citations ?? [],
-                }]);
+                if (!resp.ok) {
+                    setChatError(data.message ?? data.error ?? `HTTP ${resp.status}`);
+                    return;
+                }
+                setChatMessages(prev => [
+                    ...prev,
+                    {
+                        role: "assistant",
+                        content: data.message?.content ?? data.answer ?? "",
+                        citations: data.message?.citations ?? data.citations ?? []
+                    }
+                ]);
             }
         } catch (err) {
             console.error("[Chat] Error", err);
@@ -380,7 +407,6 @@ export function TestGenerator() {
 
     return (
         <div className="space-y-6 p-6">
-
             {/* ── Header ── */}
             <div className="flex items-center gap-3">
                 <FlaskConical className="h-6 w-6 text-purple-400" />
@@ -407,8 +433,9 @@ export function TestGenerator() {
                         onChange={e => setTestCount(Number(e.target.value))}
                         className="mb-4 w-full accent-purple-500"
                     />
-                    <div className="flex items-center justify-between text-xs text-[color:var(--ciq-text-muted)] mb-4">
-                        <span>1</span><span>10</span>
+                    <div className="mb-4 flex items-center justify-between text-xs text-[color:var(--ciq-text-muted)]">
+                        <span>1</span>
+                        <span>10</span>
                     </div>
                     <button
                         onClick={handleGenerate}
@@ -423,7 +450,6 @@ export function TestGenerator() {
             {/* ── Scenario navigator ── */}
             {scenario && (
                 <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5">
-
                     {/* Counter + label */}
                     <div className="mb-3 flex items-center gap-3">
                         <span className="rounded-full bg-purple-900/50 px-3 py-0.5 text-xs font-medium text-purple-300">
@@ -456,9 +482,15 @@ export function TestGenerator() {
                                                 <span className="ml-2 rounded bg-purple-900/50 px-1 py-0.5 text-[10px] text-purple-300">primary</span>
                                             )}
                                         </td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center font-semibold text-[color:var(--ciq-text-strong)]">{s.score}/5</td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center capitalize text-[color:var(--ciq-text-body)]">{s.voiceSentiment}</td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center text-[color:var(--ciq-text-body)]">{s.gazePosition}</td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center font-semibold text-[color:var(--ciq-text-strong)]">
+                                            {s.score}/5
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center capitalize text-[color:var(--ciq-text-body)]">
+                                            {s.voiceSentiment}
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center text-[color:var(--ciq-text-body)]">
+                                            {s.gazePosition}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -488,9 +520,9 @@ export function TestGenerator() {
 
             {/* ── Query editor + AI Report (side by side) ── */}
             {scenario && (
-                <div className="flex gap-4 items-start">
+                <div className="flex items-start gap-4">
                     {/* Left: query editor */}
-                    <div className="flex-1 min-w-0 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5">
+                    <div className="min-w-0 flex-1 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5">
                         <div className="mb-2 flex items-center justify-between">
                             <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Mithra Query — Edit before sending</p>
                             <button
@@ -507,7 +539,9 @@ export function TestGenerator() {
                             rows={5}
                             className="w-full resize-y rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm leading-relaxed text-[color:var(--ciq-text-strong)] focus:border-purple-500 focus:outline-none"
                         />
-                        <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">You may freely edit this query before sending it to the Knowledge Base.</p>
+                        <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">
+                            You may freely edit this query before sending it to the Knowledge Base.
+                        </p>
 
                         <button
                             onClick={handleSendToSSoT}
@@ -515,21 +549,23 @@ export function TestGenerator() {
                             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {ssotLoading ? (
-                                <><Loader2 className="h-4 w-4 animate-spin" /> Generating Report…</>
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin" /> Generating Report…
+                                </>
                             ) : (
-                                <><Sparkles className="h-4 w-4" /> Send to SSOT API</>
+                                <>
+                                    <Sparkles className="h-4 w-4" /> Send to SSOT API
+                                </>
                             )}
                         </button>
                     </div>
 
                     {/* Right: AI Consultative Report (or placeholder) */}
-                    <div className="flex-1 min-w-0 rounded-xl border border-blue-700 bg-[color:var(--ciq-card)] p-5 self-stretch flex flex-col">
+                    <div className="flex min-w-0 flex-1 flex-col self-stretch rounded-xl border border-blue-700 bg-[color:var(--ciq-card)] p-5">
                         <div className="mb-3 flex items-center gap-2">
                             <BookOpen className="h-5 w-5 text-blue-400" />
                             <h3 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">AI Consultative Report</h3>
-                            <span className="ml-auto rounded-full bg-blue-900/50 px-2 py-0.5 text-xs font-medium text-blue-300">
-                                SSOT · Evidence-based
-                            </span>
+                            <span className="ml-auto rounded-full bg-blue-900/50 px-2 py-0.5 text-xs font-medium text-blue-300">SSOT · Evidence-based</span>
                         </div>
 
                         {ssotError && (
@@ -547,25 +583,23 @@ export function TestGenerator() {
                         )}
 
                         {!ssotReport && !ssotLoading && !ssotError && (
-                            <p className="flex-1 text-sm italic text-[color:var(--ciq-text-body)]">
-                                Send the query to generate a consultative report here.
-                            </p>
+                            <p className="flex-1 text-sm italic text-[color:var(--ciq-text-body)]">Send the query to generate a consultative report here.</p>
                         )}
 
                         {ssotReport && llmUsed && (
-                            <div className="flex-1 overflow-y-auto space-y-4">
+                            <div className="flex-1 space-y-4 overflow-y-auto">
                                 <ConsultativeReport answer={ssotReport.answer} citations={ssotReport.citations} />
                             </div>
                         )}
 
                         {ssotReport && llmUsed === false && (
-                            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-4">
+                            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-4 text-center">
                                 <p className="text-sm font-medium text-amber-300">Reporting LLM not configured</p>
-                                <p className="text-xs text-[color:var(--ciq-text-muted)] max-w-xs">
+                                <p className="max-w-xs text-xs text-[color:var(--ciq-text-muted)]">
                                     Set <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-amber-300">REPORT_OPENAI_ENDPOINT</code>,{" "}
                                     <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-amber-300">REPORT_OPENAI_API_KEY</code> and{" "}
-                                    <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-amber-300">REPORT_OPENAI_DEPLOYMENT</code>{" "}
-                                    in the backend environment to enable the physiometric consultative report.
+                                    <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-amber-300">REPORT_OPENAI_DEPLOYMENT</code> in the
+                                    backend environment to enable the physiometric consultative report.
                                 </p>
                             </div>
                         )}
@@ -579,9 +613,7 @@ export function TestGenerator() {
                     <div className="mb-3 flex items-center gap-2">
                         <BookOpen className="h-5 w-5 text-amber-400" />
                         <h3 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Facts</h3>
-                        <span className="ml-auto rounded-full bg-amber-900/50 px-2 py-0.5 text-xs font-medium text-amber-300">
-                            RAW · Source Material
-                        </span>
+                        <span className="ml-auto rounded-full bg-amber-900/50 px-2 py-0.5 text-xs font-medium text-amber-300">RAW · Source Material</span>
                     </div>
                     {mithraRaw.answer ? (
                         <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">{mithraRaw.answer}</p>
@@ -597,9 +629,7 @@ export function TestGenerator() {
                                         <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
                                         <span>
                                             <span className="font-medium text-amber-300">{c.paperTitle}</span>
-                                            {c.paperPage > 0 && (
-                                                <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>
-                                            )}
+                                            {c.paperPage > 0 && <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>}
                                         </span>
                                     </li>
                                 ))}
@@ -610,16 +640,12 @@ export function TestGenerator() {
             )}
 
             {/* ── KB Chat (always visible) ── */}
-            <div className="rounded-xl border border-green-800 bg-[color:var(--ciq-card)] flex flex-col" style={{ minHeight: "420px" }}>
+            <div className="flex flex-col rounded-xl border border-green-800 bg-[color:var(--ciq-card)]" style={{ minHeight: "420px" }}>
                 {/* Header */}
                 <div className="flex items-center gap-2 border-b border-[color:var(--ciq-line)] px-4 py-3">
                     <MessageCircle className="h-4 w-4 text-green-400" />
                     <h3 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Chat with Knowledge Base</h3>
-                    {chatId && (
-                        <span className="ml-1 rounded-full bg-green-900/40 px-2 py-0.5 text-[10px] text-green-400">
-                            session active
-                        </span>
-                    )}
+                    {chatId && <span className="ml-1 rounded-full bg-green-900/40 px-2 py-0.5 text-[10px] text-green-400">session active</span>}
                     <button
                         onClick={handleNewChat}
                         className="ml-auto flex items-center gap-1 rounded-lg border border-[color:var(--ciq-line)] px-2 py-1 text-xs text-[color:var(--ciq-text-muted)] hover:bg-[color:var(--ciq-card-2)] hover:text-[color:var(--ciq-text-strong)]"
@@ -630,7 +656,7 @@ export function TestGenerator() {
                 </div>
 
                 {/* Message list */}
-                <div className="flex-1 overflow-y-auto space-y-4 p-4" style={{ maxHeight: "420px" }}>
+                <div className="flex-1 space-y-4 overflow-y-auto p-4" style={{ maxHeight: "420px" }}>
                     {chatMessages.length === 0 && (
                         <div className="flex h-full items-center justify-center">
                             <p className="text-xs text-[color:var(--ciq-text-body)]">Ask anything about your company's Knowledge Base…</p>
@@ -638,15 +664,17 @@ export function TestGenerator() {
                     )}
                     {chatMessages.map((msg, idx) => (
                         <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                            <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
-                                msg.role === "user"
-                                    ? "bg-green-700 text-white"
-                                    : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-strong)]"
-                            }`}>
+                            <div
+                                className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
+                                    msg.role === "user" ? "bg-green-700 text-white" : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-strong)]"
+                                }`}
+                            >
                                 {msg.content ? (
                                     <p className="whitespace-pre-line leading-relaxed">{msg.content}</p>
                                 ) : (
-                                    <p className="italic text-[color:var(--ciq-text-muted)] text-xs">No content returned — check KB documents are uploaded and indexed.</p>
+                                    <p className="text-xs italic text-[color:var(--ciq-text-muted)]">
+                                        No content returned — check KB documents are uploaded and indexed.
+                                    </p>
                                 )}
                                 {msg.citations.length > 0 && (
                                     <div className="mt-2 border-t border-[color:var(--ciq-line)] pt-2">
@@ -657,7 +685,9 @@ export function TestGenerator() {
                                                     <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-green-400" />
                                                     <span>
                                                         <span className="font-medium text-green-300">{c.paperTitle}</span>
-                                                        {c.paperPage > 0 && <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>}
+                                                        {c.paperPage > 0 && (
+                                                            <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>
+                                                        )}
                                                     </span>
                                                 </li>
                                             ))}
@@ -684,12 +714,17 @@ export function TestGenerator() {
                 </div>
 
                 {/* Input bar */}
-                <div className="border-t border-[color:var(--ciq-line)] p-3 flex gap-2">
+                <div className="flex gap-2 border-t border-[color:var(--ciq-line)] p-3">
                     <input
                         type="text"
                         value={chatInput}
                         onChange={e => setChatInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
+                        onKeyDown={e => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                handleChatSend();
+                            }
+                        }}
                         placeholder="Ask the Knowledge Base…"
                         disabled={chatLoading}
                         className="flex-1 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder-slate-500 focus:border-green-500 focus:outline-none disabled:opacity-50"
@@ -704,7 +739,6 @@ export function TestGenerator() {
                     </button>
                 </div>
             </div>
-
         </div>
     );
 }

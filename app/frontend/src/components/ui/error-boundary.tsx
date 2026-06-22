@@ -37,9 +37,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 <div className="flex items-start gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4 text-sm text-[color:var(--ciq-text-body)]">
                     <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--ciq-accent-red)]" />
                     <div>
-                        <p className="font-semibold text-[color:var(--ciq-text-strong)]">
-                            Something went wrong loading the {this.props.label ?? "content"}.
-                        </p>
+                        <p className="font-semibold text-[color:var(--ciq-text-strong)]">Something went wrong loading the {this.props.label ?? "content"}.</p>
                         {this.state.message && <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">{this.state.message}</p>}
                     </div>
                 </div>

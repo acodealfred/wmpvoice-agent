@@ -73,6 +73,19 @@ async def init_db() -> None:
             ON survey_records(user_id, created_at DESC)
         """)
 
+        # One calibrated biometric baseline per user (pupil size + blink rate),
+        # keyed by user_id so it follows the user across devices/browsers. A new
+        # recording upserts this row; "Re-record" deletes it so a fresh one is taken.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_baselines (
+                user_id    TEXT PRIMARY KEY REFERENCES users(user_id),
+                pupil_size REAL NOT NULL,
+                blink_rate REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
         now = datetime.utcnow().isoformat()
         for name, password in SEED_USERS:
             user_id = str(uuid.uuid4())

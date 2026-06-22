@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
+import { Markdown } from "@/components/ui/markdown";
 import {
     ResponsiveContainer,
     RadialBarChart,
@@ -108,7 +109,13 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 // Pass any already-generated analysis so the summary can reference it.
-                body: JSON.stringify({ snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "", analysis: analysisResult ?? undefined })
+                body: JSON.stringify({
+                    snapshots,
+                    session_id: sessionId ?? "",
+                    survey_run_id: surveyRunId ?? "",
+                    survey_type: surveyType ?? "",
+                    analysis: analysisResult ?? undefined
+                })
             });
             const data = await res.json();
             if (!res.ok) {
@@ -205,7 +212,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     if (attempt < MAX_ATTEMPTS) {
                         await sleep(attempt * 1000); // 1s, 2s backoff
                     } else {
-                        setSaveError("We couldn't save this result automatically. Press \"Generate AI Report\" below to retry and save it to your history.");
+                        setSaveError('We couldn\'t save this result automatically. Press "Generate AI Report" below to retry and save it to your history.');
                     }
                 }
             }
@@ -252,7 +259,11 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     const avgLatency = latencies.length ? (latencies.reduce((a, b) => a + b, 0) / latencies.length / 1000).toFixed(1) : null;
 
     const confidenceColor = (c: string) =>
-        c === "high" ? "bg-green-100 text-green-700" : c === "medium" ? "bg-yellow-100 text-yellow-700" : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-body)]";
+        c === "high"
+            ? "bg-green-100 text-green-700"
+            : c === "medium"
+              ? "bg-yellow-100 text-yellow-700"
+              : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-body)]";
 
     const blinkBand = (changePct: number): { label: string; color: string } => {
         const mag = Math.abs(changePct);
@@ -314,24 +325,31 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     };
 
     const insightCount = analysisResult
-        ? (analysisResult.correlations?.length ?? 0) +
-          (analysisResult.contradictions?.length ?? 0) +
-          (analysisResult.patterns?.length ?? 0)
+        ? (analysisResult.correlations?.length ?? 0) + (analysisResult.contradictions?.length ?? 0) + (analysisResult.patterns?.length ?? 0)
         : 0;
+    // Fallback text the LLM returned when it didn't produce the structured groups
+    // (prose, or markdown-wrapped JSON the backend couldn't parse). Without this the
+    // analysis silently rendered nothing — the "behavioral analysis not working" bug.
+    const analysisFallbackText = analysisResult ? (analysisResult.raw ?? analysisResult.summary ?? "") : "";
+    const hasAnalysis = insightCount > 0 || !!analysisFallbackText.trim();
     const hasConsultative = !!consultText?.trim();
 
     const cardClass = "rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4";
 
     return (
-        <div className="w-full max-w-5xl rounded-2xl bg-[color:var(--ciq-card)] p-6 shadow-lg">
+        <div className="w-full rounded-2xl bg-[color:var(--ciq-card)] p-6 shadow-lg">
             {/* ── Header ── */}
             <div className="mb-5 flex items-center justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold text-[color:var(--ciq-text-strong)]">Burnout Assessment</h2>
+                    <h2 className="font-display text-2xl font-bold text-[color:var(--ciq-text-strong)]">Burnout Assessment</h2>
                     <p className="text-sm text-[color:var(--ciq-text-muted)]">Behavioral &amp; physiological insight dashboard</p>
                 </div>
                 {onClose && (
-                    <button onClick={onClose} className="rounded-full p-2 text-[color:var(--ciq-text-muted)] hover:bg-[color:var(--ciq-card-2)]" aria-label="Close report">
+                    <button
+                        onClick={onClose}
+                        className="rounded-full p-2 text-[color:var(--ciq-text-muted)] hover:bg-[color:var(--ciq-card-2)]"
+                        aria-label="Close report"
+                    >
                         ✕
                     </button>
                 )}
@@ -355,13 +373,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <div className="md:col-span-2">
                         <div className="relative">
                             <ResponsiveContainer width="100%" height={240}>
-                                <RadialBarChart
-                                    innerRadius="68%"
-                                    outerRadius="100%"
-                                    data={[{ value: scorePct, fill: riskHex }]}
-                                    startAngle={180}
-                                    endAngle={0}
-                                >
+                                <RadialBarChart innerRadius="68%" outerRadius="100%" data={[{ value: scorePct, fill: riskHex }]} startAngle={180} endAngle={0}>
                                     <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
                                     <RadialBar background={{ fill: tok.card }} dataKey="value" cornerRadius={14} angleAxisId={0} />
                                 </RadialBarChart>
@@ -373,7 +385,10 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                             {displayScore}
                                             <span className="text-2xl font-semibold text-[color:var(--ciq-text-muted)]">/{displayMax}</span>
                                         </div>
-                                        <div className="mt-1.5 rounded-full px-4 py-1 text-base font-bold" style={{ color: riskHex, background: `${riskHex}22` }}>
+                                        <div
+                                            className="mt-1.5 rounded-full px-4 py-1 text-base font-bold"
+                                            style={{ color: riskHex, background: `${riskHex}22` }}
+                                        >
                                             {riskLevel} risk
                                         </div>
                                     </>
@@ -429,41 +444,48 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             <div className="mb-6">
                 <p className="mb-3 text-sm font-semibold text-[color:var(--ciq-text-body)]">Detailed data table</p>
                 <div className="overflow-x-auto">
-                        <table className="w-full border-collapse text-sm">
-                            <thead>
-                                <tr className="bg-[color:var(--ciq-card-2)]">
-                                    {["Question", "Domain", "Score", "Blink Rate", "Pupil Dilation", "Gaze Position", "Response Latency"].map(h => (
-                                        <th key={h} className="border border-[color:var(--ciq-line)] px-3 py-2 text-left font-semibold text-[color:var(--ciq-text-strong)]">
-                                            {h}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {snapshots.map((s, index) => {
-                                    const b = blinkBand(s.blinkRateChange);
-                                    const p = pupilBand(s.pupilMmChange);
-                                    return (
-                                        <tr key={s.questionId} className={index % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
-                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.questionId}</td>
-                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.domain}</td>
-                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium text-[color:var(--ciq-text-strong)]">{s.score}/5</td>
-                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
-                                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>{b.label}</span>
-                                            </td>
-                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
-                                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${p.color}`}>{p.label}</span>
-                                            </td>
-                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">{s.gazePosition}</td>
-                                            <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
-                                                {s.responseLatencyMs != null ? `${(s.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                    <table className="w-full border-collapse text-sm">
+                        <thead>
+                            <tr className="bg-[color:var(--ciq-card-2)]">
+                                {["Question", "Domain", "Score", "Blink Rate", "Pupil Dilation", "Gaze Position", "Response Latency"].map(h => (
+                                    <th
+                                        key={h}
+                                        className="border border-[color:var(--ciq-line)] px-3 py-2 text-left font-semibold text-[color:var(--ciq-text-strong)]"
+                                    >
+                                        {h}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {snapshots.map((s, index) => {
+                                const b = blinkBand(s.blinkRateChange);
+                                const p = pupilBand(s.pupilMmChange);
+                                return (
+                                    <tr key={s.questionId} className={index % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.questionId}</td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.domain}</td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium text-[color:var(--ciq-text-strong)]">
+                                            {s.score}/5
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
+                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>{b.label}</span>
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
+                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${p.color}`}>{p.label}</span>
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
+                                            {s.gazePosition}
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
+                                            {s.responseLatencyMs != null ? `${(s.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <p className="mb-6 text-xs text-[color:var(--ciq-text-faint)]">
@@ -474,13 +496,13 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             {/* The two slow LLM generations are produced only when the user asks, so the
                 report above appears instantly. Each button calls its own endpoint. */}
             <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">
-                <h3 className="mb-1 text-lg font-semibold text-[color:var(--ciq-text-strong)]">AI Insights</h3>
+                <h3 className="mb-1 font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">AI Insights</h3>
                 <p className="mb-3 text-xs text-[color:var(--ciq-text-faint)]">Optional — generate these on demand (each takes a few seconds).</p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <button
                         onClick={handleGenerateAnalysis}
                         disabled={analysisLoading || snapshots.length === 0}
-                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] transition-colors hover:bg-[color:var(--ciq-card-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {analysisLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />}
                         {analysisLoading ? "Analyzing…" : "Behavioral Analysis"}
@@ -488,10 +510,18 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <button
                         onClick={handleGenerateConsultative}
                         disabled={consultLoading || snapshots.length === 0}
-                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-5 py-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] transition-colors hover:bg-[color:var(--ciq-card-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {consultLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                         {consultLoading ? "Summarizing…" : "Consultative Summary"}
+                    </button>
+                    <button
+                        onClick={handleGenerateAIReport}
+                        disabled={ssotLoading || snapshots.length === 0}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-5 py-3 text-sm font-semibold text-white shadow-md transition-colors hover:from-blue-700 hover:to-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {ssotLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookOpen className="h-4 w-4" />}
+                        {ssotLoading ? "Generating…" : "AI Report (KB)"}
                     </button>
                 </div>
 
@@ -508,46 +538,39 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     </div>
                 )}
 
-                {(insightCount > 0 || hasConsultative) && (
+                {(hasAnalysis || hasConsultative) && (
                     <div className="mt-4 space-y-4">
-                        {insightCount > 0 && <h4 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Behavioral Analysis</h4>}
-                        {renderInsightGroup("Correlations", analysisResult?.correlations)}
-                        {renderInsightGroup("Contradictions", analysisResult?.contradictions)}
-                        {renderInsightGroup("Patterns", analysisResult?.patterns)}
+                        {hasAnalysis && (
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <Gauge className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
+                                    <h4 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Behavioral Analysis</h4>
+                                </div>
+                                {insightCount > 0 ? (
+                                    <>
+                                        {renderInsightGroup("Correlations", analysisResult?.correlations)}
+                                        {renderInsightGroup("Contradictions", analysisResult?.contradictions)}
+                                        {renderInsightGroup("Patterns", analysisResult?.patterns)}
+                                    </>
+                                ) : (
+                                    // LLM returned prose instead of the structured groups — render it as markdown.
+                                    <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
+                                        <Markdown>{analysisFallbackText}</Markdown>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {hasConsultative && (
-                            <div className="rounded-lg bg-[color:var(--ciq-card-2)] p-4">
-                                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Consultative Summary</p>
-                                <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-body)]">{consultText}</p>
+                            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
+                                <div className="mb-2 flex items-center gap-2">
+                                    <Sparkles className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Consultative Summary</p>
+                                </div>
+                                <Markdown>{consultText ?? ""}</Markdown>
                             </div>
                         )}
                     </div>
-                )}
-            </div>
-
-            {/* ── Generate AI Report button ── */}
-            <div className="mb-6 border-t border-[color:var(--ciq-line)] pt-6">
-                <button
-                    onClick={handleGenerateAIReport}
-                    disabled={ssotLoading || snapshots.length === 0}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {ssotLoading ? (
-                        <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Generating AI Report…
-                        </>
-                    ) : (
-                        <>
-                            <Sparkles className="h-4 w-4" />
-                            Generate AI Report
-                        </>
-                    )}
-                </button>
-                {!ssotReport && !ssotLoading && (
-                    <p className="mt-2 text-center text-xs text-[color:var(--ciq-text-faint)]">
-                        Generates a consultative report from your organisation's knowledge base with evidence-based citations.
-                    </p>
                 )}
             </div>
 
@@ -576,7 +599,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                         </span>
                     </div>
 
-                    <p className="whitespace-pre-line text-sm leading-relaxed text-[color:var(--ciq-text-strong)]">{ssotReport.answer}</p>
+                    <Markdown>{ssotReport.answer}</Markdown>
 
                     {ssotReport.citations.length > 0 && (
                         <div className="mt-4 border-t border-[color:var(--ciq-line)] pt-3">

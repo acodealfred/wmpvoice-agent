@@ -197,10 +197,13 @@ export type AnalysisInsight = {
 };
 
 export type AnalysisResult = {
-    correlations: AnalysisInsight[];
-    contradictions: AnalysisInsight[];
-    patterns: AnalysisInsight[];
-    summary: string;
+    correlations?: AnalysisInsight[];
+    contradictions?: AnalysisInsight[];
+    patterns?: AnalysisInsight[];
+    summary?: string;
+    // Fallback when the LLM returns prose / markdown-wrapped JSON the backend
+    // couldn't parse into the structured groups above.
+    raw?: string;
 };
 
 // Response from POST /analyze-report — the data-driven technical report.
@@ -263,14 +266,17 @@ export type SurveyRecord = {
     survey_type: string | null;
     created_at: string;
     updated_at: string;
-    survey_results: Record<string, {
-        score: number;
-        domain: string;
-        voiceSentiment: string;
-        blinkRateChange: number;
-        gazePosition: string;
-        responseLatencyMs?: number | null;
-    }> | null;
+    survey_results: Record<
+        string,
+        {
+            score: number;
+            domain: string;
+            voiceSentiment: string;
+            blinkRateChange: number;
+            gazePosition: string;
+            responseLatencyMs?: number | null;
+        }
+    > | null;
     technical_report: {
         totalScore: number;
         riskLevel: "Low" | "Moderate" | "High";

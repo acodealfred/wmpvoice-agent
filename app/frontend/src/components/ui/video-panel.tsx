@@ -1,11 +1,11 @@
 import { useEffect } from "react";
-import { Video, VideoOff } from "lucide-react";
+import { VideoOff } from "lucide-react";
 import { useVideoCapture, EmotionResult } from "@/hooks/useVideoCapture";
-import { Button } from "@/components/ui/button";
 import { SurveyOption, SurveyQuestion } from "@/types";
 
 interface VideoPanelProps {
     isRecording?: boolean;
+    expanded?: boolean;
     onEmotionDetected?: (emotion: EmotionResult) => void;
     onVideoReady?: (video: HTMLVideoElement) => void;
     surveyQuestions?: SurveyQuestion[];
@@ -14,7 +14,16 @@ interface VideoPanelProps {
     surveyOptions?: SurveyOption[];
 }
 
-export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoReady, surveyQuestions, surveyTotal, surveyCompleted, surveyOptions }: VideoPanelProps) {
+export function VideoPanel({
+    isRecording = false,
+    expanded = false,
+    onEmotionDetected,
+    onVideoReady,
+    surveyQuestions,
+    surveyTotal,
+    surveyCompleted,
+    surveyOptions
+}: VideoPanelProps) {
     const { videoRef, canvasRef, isStreaming, startVideo, stopVideo, startAnalysis, stopAnalysis } = useVideoCapture({ onEmotionDetected });
 
     useEffect(() => {
@@ -35,8 +44,10 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoRead
     }, [isRecording, isStreaming, startVideo, stopVideo, startAnalysis, stopAnalysis]);
 
     return (
-        <div className="flex h-full flex-col">
-            <div className="relative flex-1 min-h-0 overflow-hidden rounded-lg bg-[#0d1a14]">
+        <div className="flex flex-col">
+            <div
+                className={`relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-[#0d1a14] transition-[max-width] duration-300 ${expanded ? "max-w-none" : "max-w-xl"}`}
+            >
                 <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
                 <canvas ref={canvasRef} className="hidden" />
 
@@ -59,9 +70,9 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoRead
                                     {surveyOptions && surveyOptions.length > 0 && (
                                         <div className="mt-1 flex flex-wrap gap-2">
                                             {surveyOptions.map(opt => (
-                                                <button key={opt.value} className="rounded bg-[#2a3830] px-2 py-0.5 text-xs hover:bg-[#354840]">
+                                                <span key={opt.value} className="rounded bg-white/15 px-2 py-0.5 text-xs">
                                                     {opt.label}
-                                                </button>
+                                                </span>
                                             ))}
                                         </div>
                                     )}
@@ -79,20 +90,6 @@ export function VideoPanel({ isRecording = false, onEmotionDetected, onVideoRead
                             )}
                         </div>
                     </div>
-                )}
-            </div>
-
-            <div className="mt-3 flex gap-2">
-                {!isStreaming ? (
-                    <Button onClick={startVideo} size="sm" variant="secondary" className="flex-1">
-                        <Video className="mr-2 h-4 w-4" />
-                        Start Camera
-                    </Button>
-                ) : (
-                    <Button onClick={stopVideo} size="sm" variant="destructive" className="flex-1">
-                        <VideoOff className="mr-2 h-4 w-4" />
-                        Stop Camera
-                    </Button>
                 )}
             </div>
         </div>

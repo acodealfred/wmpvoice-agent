@@ -215,6 +215,39 @@ async def get_user_survey_records(user_id: str) -> list[dict]:
             return [dict(r) for r in rows]
 
 
+async def get_user_baseline(user_id: str) -> dict | None:
+    """Return the user's calibrated baseline, or None if not recorded yet."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT pupil_size, blink_rate, updated_at FROM user_baselines WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def upsert_user_baseline(user_id: str, pupil_size: float, blink_rate: float) -> None:
+    """Insert or overwrite the user's baseline (one row per user)."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO user_baselines (user_id, pupil_size, blink_rate, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   pupil_size = excluded.pupil_size,
+                   blink_rate = excluded.blink_rate,
+                   updated_at = excluded.updated_at""",
+            (user_id, pupil_size, blink_rate, now, now),
+        )
+        await db.commit()
+
+
+async def delete_user_baseline(user_id: str) -> None:
+    async with _open_db() as db:
+        await db.execute("DELETE FROM user_baselines WHERE user_id = ?", (user_id,))
+        await db.commit()
+
+
 async def delete_session(session_token: str) -> None:
     async with _open_db() as db:
         await db.execute(

@@ -275,6 +275,19 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         baselineBlinkRateSamplesRef.current = [];
     }, []);
 
+    // Inject a baseline obtained elsewhere (e.g. fetched from the DB for a returning
+    // user) so the 30s recording can be skipped. Mirrors completeBaselineSession's
+    // ref wiring so downstream blink-change math uses it, and caches it locally.
+    const setBaseline = useCallback((data: BaselineData) => {
+        baselineRateRef.current = data.blinkRate;
+        smoothedBlinkRateRef.current = data.blinkRate;
+        currentSmoothedBlinkRateRef.current = data.blinkRate;
+        setBaselineData(data);
+        setBaselineSessionStatus("completed");
+        setBaselineProgress(100);
+        saveBaselineToFile(data);
+    }, []);
+
     const extractMetrics = useCallback(
         (result: FaceLandmarkerResult): BiometricMetrics | null => {
             const faceLandmarks = result.faceLandmarks?.[0] || [];
@@ -397,12 +410,9 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             if (gazeBaselineXRef.current === null) {
                 gazeBaselineXRef.current = irisRawX; // instant calibration on first frame
             }
-            gazeBaselineXRef.current =
-                gazeBaselineXRef.current * (1 - BASELINE_ALPHA) + irisRawX * BASELINE_ALPHA;
+            gazeBaselineXRef.current = gazeBaselineXRef.current * (1 - BASELINE_ALPHA) + irisRawX * BASELINE_ALPHA;
             // 35× amplification: a 0.01 (1%) deviation from baseline → ±0.35 output swing
-            const gazeX = Math.max(0, Math.min(1,
-                0.5 + (irisRawX - gazeBaselineXRef.current) * 35
-            ));
+            const gazeX = Math.max(0, Math.min(1, 0.5 + (irisRawX - gazeBaselineXRef.current) * 35));
 
             // --- Vertical gaze: corner-based (already working) ---
             const gazeY = computeGazeAxis(
@@ -417,10 +427,15 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
 
             if (shouldLog) {
                 console.log(
-                    "[Gaze] irisX:", irisRawX.toFixed(4),
-                    "| baseline:", (gazeBaselineXRef.current ?? 0).toFixed(4),
-                    "| Δ:", (irisRawX - (gazeBaselineXRef.current ?? irisRawX)).toFixed(4),
-                    "| out:", gazeX.toFixed(3), gazeY.toFixed(3)
+                    "[Gaze] irisX:",
+                    irisRawX.toFixed(4),
+                    "| baseline:",
+                    (gazeBaselineXRef.current ?? 0).toFixed(4),
+                    "| Δ:",
+                    (irisRawX - (gazeBaselineXRef.current ?? irisRawX)).toFixed(4),
+                    "| out:",
+                    gazeX.toFixed(3),
+                    gazeY.toFixed(3)
                 );
             }
             const normalizedIrisSize = calculateIrisSize(faceLandmarks);
@@ -588,6 +603,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         baselineData,
         baselineProgress,
         startBaselineSession,
-        clearBaseline
+        clearBaseline,
+        setBaseline
     };
 }

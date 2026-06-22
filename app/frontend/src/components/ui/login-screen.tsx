@@ -21,7 +21,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify({ username, password })
             });
             const data = await res.json();
             if (!res.ok) {
@@ -31,7 +31,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             onLogin({
                 user_id: data.user.user_id,
                 name: data.user.name,
-                session_id: data.session_id,
+                session_id: data.session_id
             });
         } catch {
             setError("Network error. Please try again.");
@@ -42,9 +42,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
     return (
         <div className="ciq-page flex min-h-screen flex-col items-center justify-center">
-            <div
-                className="ciq-glass-card w-full max-w-sm p-8 shadow-xl"
-            >
+            <div className="ciq-glass-card w-full max-w-sm p-8 shadow-xl">
                 <div className="mb-6 flex flex-col items-center gap-3">
                     <img src={logo} alt="CIQ logo" className="ciq-logo h-14 w-14 rounded-xl" />
                     <h1 className="text-xl font-bold text-[color:var(--ciq-text-strong)]">CIQ Voice Agent</h1>
@@ -69,9 +67,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                         autoComplete="current-password"
                         className="rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 py-3 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                     />
-                    {error && (
-                        <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
-                    )}
+                    {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>}
                     <button
                         type="submit"
                         disabled={loading}

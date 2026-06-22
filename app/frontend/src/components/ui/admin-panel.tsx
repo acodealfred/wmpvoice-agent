@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument, AdminUser } from "@/types";
 import { apiFetch } from "@/lib/api";
+import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -69,7 +70,9 @@ export function AdminPanel() {
                 setRegMessage("Unauthorized — MITHRA_APP_TOKEN is missing or invalid in container configuration.");
             } else if (resp.status === 404) {
                 setRegStatus("error");
-                setRegMessage("Mithra returned 404. The MITHRA_APP_TOKEN may be missing, or the company does not exist in Mithra yet. Check container env vars.");
+                setRegMessage(
+                    "Mithra returned 404. The MITHRA_APP_TOKEN may be missing, or the company does not exist in Mithra yet. Check container env vars."
+                );
             } else {
                 const body = await resp.text().catch(() => "");
                 setRegStatus("error");
@@ -96,22 +99,20 @@ export function AdminPanel() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify({ limit: 100 }),
+                body: JSON.stringify({ limit: 100 })
             });
             if (resp.ok) {
                 const data = await resp.json();
-                const papers: KBDocument[] = (data.papers ?? []).map((p: {
-                    id: string; title: string; updatedAt?: string;
-                    lifeCycleState?: string;
-                    contentMetadata?: { sizeSi?: string; type?: string };
-                }) => ({
-                    paperId: p.id,
-                    title: p.title,
-                    uploadedAt: p.updatedAt ?? "",
-                    lifeCycleState: p.lifeCycleState,
-                    sizeSi: p.contentMetadata?.sizeSi,
-                    fileType: p.contentMetadata?.type,
-                }));
+                const papers: KBDocument[] = (data.papers ?? []).map(
+                    (p: { id: string; title: string; updatedAt?: string; lifeCycleState?: string; contentMetadata?: { sizeSi?: string; type?: string } }) => ({
+                        paperId: p.id,
+                        title: p.title,
+                        uploadedAt: p.updatedAt ?? "",
+                        lifeCycleState: p.lifeCycleState,
+                        sizeSi: p.contentMetadata?.sizeSi,
+                        fileType: p.contentMetadata?.type
+                    })
+                );
                 setDocuments(papers);
             } else if (resp.status === 401 || resp.status === 403) {
                 setDocsError("Unauthorized — check MITHRA_APP_TOKEN.");
@@ -126,7 +127,9 @@ export function AdminPanel() {
         }
     }, []);
 
-    useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
+    useEffect(() => {
+        fetchDocuments();
+    }, [fetchDocuments]);
 
     // ── User Management ───────────────────────────────────────────────
     const [users, setUsers] = useState<AdminUser[]>([]);
@@ -151,7 +154,9 @@ export function AdminPanel() {
         }
     }, []);
 
-    useEffect(() => { fetchUsers(); }, [fetchUsers]);
+    useEffect(() => {
+        fetchUsers();
+    }, [fetchUsers]);
 
     // ── Biometric guardrail toggle ───────────────────────────────────
     const [guardrailEnabled, setGuardrailEnabled] = useState<boolean | null>(null);
@@ -160,7 +165,7 @@ export function AdminPanel() {
 
     useEffect(() => {
         apiFetch("/config")
-            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(r => (r.ok ? r.json() : Promise.reject()))
             .then(data => setGuardrailEnabled(data.biometricGuardrailEnabled ?? true))
             .catch(() => setGuardrailEnabled(null));
     }, []);
@@ -170,19 +175,19 @@ export function AdminPanel() {
         const prev = guardrailEnabled;
         const next = !guardrailEnabled;
         setGuardrailError(null);
-        setGuardrailEnabled(next);   // optimistic — instant visual feedback
+        setGuardrailEnabled(next); // optimistic — instant visual feedback
         setGuardrailSaving(true);
         try {
             const resp = await apiFetch("/admin/biometric-guardrail", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ enabled: next }),
+                body: JSON.stringify({ enabled: next })
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             setGuardrailEnabled(data.biometricGuardrailEnabled);
         } catch (err) {
-            setGuardrailEnabled(prev);   // revert on failure
+            setGuardrailEnabled(prev); // revert on failure
             setGuardrailError(err instanceof Error ? `Couldn't update (${err.message})` : "Couldn't update");
         } finally {
             setGuardrailSaving(false);
@@ -252,9 +257,55 @@ export function AdminPanel() {
         }
     };
 
+    // ── Text size (app-wide) ──────────────────────────────────────────
+    const [fontScale, setFontScaleState] = useState<FontScale>(getFontScale);
+    const changeFontScale = (scale: FontScale) => {
+        setFontScale(scale);
+        setFontScaleState(scale);
+    };
+    const fontScaleIndex = FONT_SCALES.indexOf(fontScale);
+
     // ── Render ─────────────────────────────────────────────────────────
     return (
         <div className="space-y-6 p-6">
+            {/* ── Section: Text Size ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <Type className="h-5 w-5 text-purple-400" />
+                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Text Size</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    Scales text across the whole app. Applies instantly and is remembered on this device.
+                </p>
+                <div className="max-w-md">
+                    <input
+                        type="range"
+                        min={0}
+                        max={FONT_SCALES.length - 1}
+                        step={1}
+                        value={fontScaleIndex}
+                        onChange={e => changeFontScale(FONT_SCALES[Number(e.target.value)])}
+                        aria-label="Text size"
+                        className="ciq-range w-full"
+                    />
+                    <div className="mt-2 flex justify-between">
+                        {FONT_SCALES.map(scale => (
+                            <button
+                                key={scale}
+                                onClick={() => changeFontScale(scale)}
+                                className={`text-xs font-medium transition-colors ${
+                                    scale === fontScale
+                                        ? "text-[color:var(--ciq-accent-purple)]"
+                                        : "text-[color:var(--ciq-text-muted)] hover:text-[color:var(--ciq-text-body)]"
+                                }`}
+                            >
+                                {FONT_SCALE_LABEL[scale]}
+                                <span className="ml-1 text-[color:var(--ciq-text-faint)]">({FONT_SCALE_PCT[scale]})</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
 
             {/* ── Section: Biometric Guardrail ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
@@ -263,15 +314,12 @@ export function AdminPanel() {
                     <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometric Guardrail</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
-                    When ON, the agent may only <strong>describe</strong> biometric readings and declines any
-                    interpretive, causal, predictive, or prescriptive question about them. Burnout score
-                    explanations and recommendations are unaffected. Applies to new conversation turns.
+                    When ON, the agent may only <strong>describe</strong> biometric readings and declines any interpretive, causal, predictive, or prescriptive
+                    question about them. Burnout score explanations and recommendations are unaffected. Applies to new conversation turns.
                 </p>
                 <div className="flex items-center justify-between gap-4">
                     <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
-                        {guardrailEnabled === null
-                            ? "Loading…"
-                            : guardrailEnabled ? "Guardrail is ON (descriptive-only)" : "Guardrail is OFF"}
+                        {guardrailEnabled === null ? "Loading…" : guardrailEnabled ? "Guardrail is ON (descriptive-only)" : "Guardrail is OFF"}
                     </span>
                     <div className="flex items-center gap-2">
                         {guardrailSaving && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
@@ -293,9 +341,7 @@ export function AdminPanel() {
                         </button>
                     </div>
                 </div>
-                {guardrailError && (
-                    <p className="mt-2 text-xs text-red-500">{guardrailError}</p>
-                )}
+                {guardrailError && <p className="mt-2 text-xs text-red-500">{guardrailError}</p>}
                 <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
                     Takes effect on new conversations — toggle, then Stop and Start the conversation to apply.
                 </p>
@@ -313,7 +359,9 @@ export function AdminPanel() {
                     {regStatus === "registered" && <CheckCircle2 className="h-4 w-4 text-green-400" />}
                     {(regStatus === "unregistered" || regStatus === "error") && <XCircle className="h-4 w-4 text-amber-400" />}
                     {regStatus === "unknown" && <span className="h-4 w-4" />}
-                    <span className={`text-sm ${regStatus === "registered" ? "text-green-300" : regStatus === "error" ? "text-red-300" : "text-[color:var(--ciq-text-body)]"}`}>
+                    <span
+                        className={`text-sm ${regStatus === "registered" ? "text-green-300" : regStatus === "error" ? "text-red-300" : "text-[color:var(--ciq-text-body)]"}`}
+                    >
                         {regStatus === "loading" ? "Checking registration…" : regMessage || "—"}
                     </span>
                     <Button
@@ -329,11 +377,7 @@ export function AdminPanel() {
                 </div>
 
                 {regStatus !== "registered" && (
-                    <Button
-                        onClick={handleRegister}
-                        disabled={registering || regStatus === "loading"}
-                        className="bg-purple-600 text-white hover:bg-purple-700"
-                    >
+                    <Button onClick={handleRegister} disabled={registering || regStatus === "loading"} className="bg-purple-600 text-white hover:bg-purple-700">
                         {registering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {registering ? "Registering…" : "Register Company"}
                     </Button>
@@ -385,17 +429,15 @@ export function AdminPanel() {
                         )}
                     </div>
 
-                    <Button
-                        onClick={handleUpload}
-                        disabled={uploading || !uploadFile}
-                        className="bg-purple-600 text-white hover:bg-purple-700"
-                    >
+                    <Button onClick={handleUpload} disabled={uploading || !uploadFile} className="bg-purple-600 text-white hover:bg-purple-700">
                         {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                         {uploading ? "Uploading…" : "Upload to Knowledge Base"}
                     </Button>
 
                     {uploadMsg && (
-                        <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${uploadMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                        <div
+                            className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${uploadMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}
+                        >
                             {uploadMsg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                             {uploadMsg.text}
                         </div>
@@ -420,9 +462,7 @@ export function AdminPanel() {
                         disabled={docsLoading}
                         className="ml-auto border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                     >
-                        {docsLoading
-                            ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                            : <RefreshCw className="mr-1 h-3 w-3" />}
+                        {docsLoading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
                         Refresh
                     </Button>
                 </div>
@@ -447,10 +487,10 @@ export function AdminPanel() {
                             <thead>
                                 <tr className="bg-[color:var(--ciq-card-2)] text-left text-xs text-[color:var(--ciq-text-muted)]">
                                     <th className="border border-[color:var(--ciq-line)] px-3 py-2">Title</th>
-                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden sm:table-cell">Paper ID</th>
-                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell">Size</th>
-                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell">State</th>
-                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 hidden lg:table-cell">Updated</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 sm:table-cell">Paper ID</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 md:table-cell">Size</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 md:table-cell">State</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 lg:table-cell">Updated</th>
                                     <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">Delete</th>
                                 </tr>
                             </thead>
@@ -463,22 +503,24 @@ export function AdminPanel() {
                                                 <span className="font-medium text-[color:var(--ciq-text-strong)]">{doc.title}</span>
                                             </div>
                                         </td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden sm:table-cell">
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 sm:table-cell">
                                             <span className="font-mono text-xs text-[color:var(--ciq-text-muted)]">{doc.paperId}</span>
                                         </td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell text-xs text-[color:var(--ciq-text-muted)]">
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 text-xs text-[color:var(--ciq-text-muted)] md:table-cell">
                                             {doc.sizeSi ?? "—"}
                                         </td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden md:table-cell">
-                                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                                doc.lifeCycleState === "active"
-                                                    ? "bg-green-900/50 text-green-300"
-                                                    : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
-                                            }`}>
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 md:table-cell">
+                                            <span
+                                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                                    doc.lifeCycleState === "active"
+                                                        ? "bg-green-900/50 text-green-300"
+                                                        : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
+                                                }`}
+                                            >
                                                 {doc.lifeCycleState ?? "—"}
                                             </span>
                                         </td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 hidden lg:table-cell text-xs text-[color:var(--ciq-text-muted)]">
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 text-xs text-[color:var(--ciq-text-muted)] lg:table-cell">
                                             {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "—"}
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
@@ -489,9 +531,7 @@ export function AdminPanel() {
                                                 disabled={deletingId === doc.paperId}
                                                 className="h-7 px-2"
                                             >
-                                                {deletingId === doc.paperId
-                                                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                                                    : <Trash2 className="h-3 w-3" />}
+                                                {deletingId === doc.paperId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                                             </Button>
                                         </td>
                                     </tr>
@@ -500,7 +540,9 @@ export function AdminPanel() {
                         </table>
 
                         {deleteMsg && (
-                            <div className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                            <div
+                                className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}
+                            >
                                 {deleteMsg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                                 {deleteMsg.text}
                             </div>
@@ -564,34 +606,32 @@ export function AdminPanel() {
                             </thead>
                             <tbody>
                                 {users.map((u, i) => (
-                                    <tr
-                                        key={u.user_id}
-                                        className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}
-                                    >
+                                    <tr key={u.user_id} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
                                         <td className="px-4 py-3 font-medium text-[color:var(--ciq-text-strong)]">{u.name}</td>
                                         <td className="px-4 py-3 text-center">
-                                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                u.session_count > 0
-                                                    ? "bg-purple-900/50 text-purple-300"
-                                                    : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
-                                            }`}>
+                                            <span
+                                                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                                    u.session_count > 0
+                                                        ? "bg-purple-900/50 text-purple-300"
+                                                        : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
+                                                }`}
+                                            >
                                                 {u.session_count}
                                             </span>
                                         </td>
                                         <td className="hidden px-4 py-3 sm:table-cell">
                                             {u.last_session_id ? (
-                                                <span className="font-mono text-xs text-[color:var(--ciq-text-muted)]">
-                                                    {u.last_session_id.slice(0, 8)}…
-                                                </span>
+                                                <span className="font-mono text-xs text-[color:var(--ciq-text-muted)]">{u.last_session_id.slice(0, 8)}…</span>
                                             ) : (
                                                 <span className="text-[color:var(--ciq-text-body)]">—</span>
                                             )}
                                         </td>
                                         <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] md:table-cell">
-                                            {u.last_active_at
-                                                ? new Date(u.last_active_at).toLocaleString()
-                                                : <span className="text-[color:var(--ciq-text-body)]">—</span>
-                                            }
+                                            {u.last_active_at ? (
+                                                new Date(u.last_active_at).toLocaleString()
+                                            ) : (
+                                                <span className="text-[color:var(--ciq-text-body)]">—</span>
+                                            )}
                                         </td>
                                         <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] lg:table-cell">
                                             {new Date(u.created_at).toLocaleDateString()}
@@ -642,8 +682,8 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
                 <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Delete by Paper ID</h2>
             </div>
             <p className="mb-3 text-xs text-[color:var(--ciq-text-muted)]">
-                Use this to delete a document from the Knowledge Base using its Paper ID directly —
-                useful for documents uploaded from another device or before tracking was enabled.
+                Use this to delete a document from the Knowledge Base using its Paper ID directly — useful for documents uploaded from another device or before
+                tracking was enabled.
             </p>
             <div className="flex gap-2">
                 <input
@@ -654,16 +694,14 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
                     className="flex-1 rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder-slate-500 focus:border-purple-500 focus:outline-none"
                     onKeyDown={e => e.key === "Enter" && !deleting && paperId.trim() && handleDelete()}
                 />
-                <Button
-                    variant="destructive"
-                    onClick={handleDelete}
-                    disabled={deleting || !paperId.trim()}
-                >
+                <Button variant="destructive" onClick={handleDelete} disabled={deleting || !paperId.trim()}>
                     {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                 </Button>
             </div>
             {msg && (
-                <div className={`mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                <div
+                    className={`mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}
+                >
                     {msg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                     {msg.text}
                 </div>

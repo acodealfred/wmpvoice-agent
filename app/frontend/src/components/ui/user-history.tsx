@@ -18,7 +18,7 @@ function sentimentColor(s: string) {
 function fmt(iso: string) {
     return new Date(iso).toLocaleString(undefined, {
         dateStyle: "medium",
-        timeStyle: "short",
+        timeStyle: "short"
     });
 }
 
@@ -44,9 +44,7 @@ function AIReportSection({ info }: { info: SsotSection }) {
             {/* Consultative agent response */}
             {info.agentResponse && (
                 <div className="rounded-lg border border-purple-100 bg-purple-50 p-4">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-600">
-                        Consultative Response
-                    </p>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-600">Consultative Response</p>
                     <p className="whitespace-pre-wrap text-sm text-[color:var(--ciq-text-strong)]">{info.agentResponse}</p>
                 </div>
             )}
@@ -55,7 +53,9 @@ function AIReportSection({ info }: { info: SsotSection }) {
             {ssot && "error" in ssot && (
                 <div className="flex items-start gap-2 rounded-lg border border-dashed border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span><strong>KB Report failed:</strong> {ssot.error}</span>
+                    <span>
+                        <strong>KB Report failed:</strong> {ssot.error}
+                    </span>
                 </div>
             )}
 
@@ -63,25 +63,19 @@ function AIReportSection({ info }: { info: SsotSection }) {
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
                     <div className="mb-2 flex items-center gap-1.5">
                         <BookOpen className="h-4 w-4 text-blue-600" />
-                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-                            AI Consultative Report
-                        </p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">AI Consultative Report</p>
                     </div>
                     <p className="whitespace-pre-wrap text-sm text-[color:var(--ciq-text-strong)]">{ssot.answer}</p>
 
                     {ssot.citations.length > 0 && (
                         <div className="mt-3 border-t border-blue-100 pt-3">
-                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-blue-500">
-                                References
-                            </p>
+                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-blue-500">References</p>
                             <ul className="space-y-1">
                                 {ssot.citations.map((c, i) => (
                                     <li key={i} className="flex items-center gap-1.5 text-xs text-blue-700">
                                         <ExternalLink className="h-3 w-3 shrink-0" />
                                         {c.paperTitle}
-                                        {c.paperPage > 0 && (
-                                            <span className="text-blue-400">p.{c.paperPage}</span>
-                                        )}
+                                        {c.paperPage > 0 && <span className="text-blue-400">p.{c.paperPage}</span>}
                                     </li>
                                 ))}
                             </ul>
@@ -115,9 +109,7 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                     </div>
                     {report && (
                         <>
-                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${riskColor(report.riskLevel)}`}>
-                                {report.riskLevel} Risk
-                            </span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${riskColor(report.riskLevel)}`}>{report.riskLevel} Risk</span>
                             <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
                                 Score: <strong>{report.totalScore}</strong>
                             </span>
@@ -129,22 +121,20 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                         </span>
                     )}
                 </div>
-                {expanded
-                    ? <ChevronUp className="h-4 w-4 text-[color:var(--ciq-text-faint)]" />
-                    : <ChevronDown className="h-4 w-4 text-[color:var(--ciq-text-faint)]" />
-                }
+                {expanded ? (
+                    <ChevronUp className="h-4 w-4 text-[color:var(--ciq-text-faint)]" />
+                ) : (
+                    <ChevronDown className="h-4 w-4 text-[color:var(--ciq-text-faint)]" />
+                )}
             </button>
 
             {/* Expanded detail */}
             {expanded && (
-                <div className="border-t border-[color:var(--ciq-line)] px-5 py-5 space-y-6">
-
+                <div className="space-y-6 border-t border-[color:var(--ciq-line)] px-5 py-5">
                     {/* Technical summary */}
                     {report && (
                         <div className="rounded-lg bg-purple-50 p-4">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-600">
-                                Burnout Summary
-                            </p>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-600">Burnout Summary</p>
                             <div className="flex flex-wrap gap-6 text-sm">
                                 <div>
                                     <span className="text-[color:var(--ciq-text-muted)]">Total Score </span>
@@ -152,11 +142,13 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                                 </div>
                                 <div>
                                     <span className="text-[color:var(--ciq-text-muted)]">Risk Level </span>
-                                    <span className={`font-semibold ${
-                                        report.riskLevel === "Low" ? "text-green-700"
-                                        : report.riskLevel === "Moderate" ? "text-amber-700"
-                                        : "text-red-700"
-                                    }`}>{report.riskLevel}</span>
+                                    <span
+                                        className={`font-semibold ${
+                                            report.riskLevel === "Low" ? "text-green-700" : report.riskLevel === "Moderate" ? "text-amber-700" : "text-red-700"
+                                        }`}
+                                    >
+                                        {report.riskLevel}
+                                    </span>
                                 </div>
                             </div>
                             {Object.keys(report.domainTotals).length > 0 && (
@@ -176,9 +168,7 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                         <div>
                             <div className="mb-2 flex items-center gap-1.5">
                                 <ClipboardList className="h-4 w-4 text-[color:var(--ciq-text-muted)]" />
-                                <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
-                                    Survey Results
-                                </p>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Survey Results</p>
                             </div>
                             <div className="overflow-x-auto rounded-lg border border-[color:var(--ciq-line)]">
                                 <table className="w-full text-sm">
@@ -202,12 +192,11 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                                                 </td>
                                                 <td className="hidden px-3 py-2 md:table-cell">
                                                     <span className={r.blinkRateChange >= 0 ? "text-red-600" : "text-green-600"}>
-                                                        {r.blinkRateChange >= 0 ? "+" : ""}{r.blinkRateChange.toFixed(1)}%
+                                                        {r.blinkRateChange >= 0 ? "+" : ""}
+                                                        {r.blinkRateChange.toFixed(1)}%
                                                     </span>
                                                 </td>
-                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">
-                                                    {r.gazePosition || "—"}
-                                                </td>
+                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">{r.gazePosition || "—"}</td>
                                                 <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] lg:table-cell">
                                                     {r.responseLatencyMs != null ? `${(r.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
                                                 </td>
@@ -221,9 +210,7 @@ function SessionCard({ session }: { session: SurveyRecord }) {
 
                     {/* AI report section */}
                     <div>
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
-                            AI Generated Report
-                        </p>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">AI Generated Report</p>
                         <AIReportSection info={info ?? {}} />
                     </div>
                 </div>
@@ -243,9 +230,10 @@ export function UserHistory() {
         try {
             const res = await apiFetch("/api/history");
             if (!res.ok) {
-                const msg = res.status === 401
-                    ? "Your session could not be verified. Try refreshing, or sign out and sign in again."
-                    : `Failed to load history (HTTP ${res.status}). Please retry.`;
+                const msg =
+                    res.status === 401
+                        ? "Your session could not be verified. Try refreshing, or sign out and sign in again."
+                        : `Failed to load history (HTTP ${res.status}). Please retry.`;
                 setError(msg);
                 return;
             }
@@ -258,7 +246,9 @@ export function UserHistory() {
         }
     }, []);
 
-    useEffect(() => { fetchSessions(); }, [fetchSessions]);
+    useEffect(() => {
+        fetchSessions();
+    }, [fetchSessions]);
 
     return (
         <div className="p-6">
@@ -295,9 +285,7 @@ export function UserHistory() {
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[color:var(--ciq-line)] py-20 text-center">
                     <ClipboardList className="mb-3 h-10 w-10 text-[color:var(--ciq-text-faint)]" />
                     <p className="font-medium text-[color:var(--ciq-text-muted)]">No sessions yet</p>
-                    <p className="mt-1 text-sm text-[color:var(--ciq-text-faint)]">
-                        Complete a survey to see your history here.
-                    </p>
+                    <p className="mt-1 text-sm text-[color:var(--ciq-text-faint)]">Complete a survey to see your history here.</p>
                 </div>
             )}
 
