@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon, Activity, Maximize2, Minimize2 } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon, Activity, Maximize2, Minimize2, Bot, Video } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LoginScreen } from "@/components/ui/login-screen";
 import { VideoPanel } from "@/components/ui/video-panel";
 import { GazeIndicator, gazeLabel } from "@/components/ui/gaze-indicator";
+import { CyberAvatar } from "@/components/ui/cyber-avatar";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 // Lazy-loaded so Recharts (heavy) is code-split out of the initial bundle and
 // only fetched when a completed survey opens the report.
@@ -70,6 +71,9 @@ function App() {
     const [isReasonExpanded, setIsReasonExpanded] = useState(false);
     // Toggles the camera feed between compact (centered, max-width) and full card width.
     const [videoExpanded, setVideoExpanded] = useState(false);
+    // Camera feed vs. the audio-reactive agent avatar. The camera keeps running
+    // underneath in avatar mode so biometric capture is never interrupted.
+    const [cameraView, setCameraView] = useState<"camera" | "avatar">("camera");
     const [stressResult, setStressResult] = useState<{ state: string; confidence: number; blink_rate_change_percent?: number; trend: string } | null>(null);
 
     // Real biometrics from MediaPipe face landmarker
@@ -321,7 +325,7 @@ function App() {
         }
     }, [isRecording, enableBiometrics, baselineSessionStatus, startBaselineSession]);
 
-    const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
+    const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer, getAnalyser: getAudioAnalyser } = useAudioPlayer();
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
 
     // Clear all per-assessment UI state so a new run starts from a clean slate.
@@ -593,8 +597,18 @@ function App() {
                                 <div className="flex h-full flex-col">
                                     <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
                                         <div className="flex items-center gap-2">
-                                            <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Camera Feed</h2>
+                                            <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">
+                                                {cameraView === "avatar" ? "AI Avatar" : "Camera Feed"}
+                                            </h2>
                                             <div className="ml-auto flex items-center gap-2">
+                                                <button
+                                                    onClick={() => setCameraView(v => (v === "camera" ? "avatar" : "camera"))}
+                                                    aria-label={cameraView === "camera" ? "Switch to AI avatar" : "Switch to camera feed"}
+                                                    title={cameraView === "camera" ? "Switch to AI avatar" : "Switch to camera feed"}
+                                                    className="flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)]"
+                                                >
+                                                    {cameraView === "camera" ? <Bot className="h-3.5 w-3.5" /> : <Video className="h-3.5 w-3.5" />}
+                                                </button>
                                                 <button
                                                     onClick={() => setVideoExpanded(prev => !prev)}
                                                     aria-label={videoExpanded ? "Shrink camera feed" : "Expand camera feed to full width"}
@@ -622,7 +636,9 @@ function App() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="p-4">
+                                    <div className="relative p-4">
+                                        {/* The camera stays mounted underneath in avatar mode so MediaPipe
+                                            biometric capture is never interrupted — the avatar just overlays it. */}
                                         <VideoPanel
                                             isRecording={isRecording}
                                             expanded={videoExpanded}
@@ -632,6 +648,13 @@ function App() {
                                             surveyOptions={surveyOptions}
                                             onVideoReady={setVideoElement}
                                         />
+                                        {cameraView === "avatar" && (
+                                            <div className="absolute inset-0 p-4">
+                                                <div className={`mx-auto aspect-video w-full ${videoExpanded ? "max-w-none" : "max-w-xl"}`}>
+                                                    <CyberAvatar getAnalyser={getAudioAnalyser} className="border border-[color:var(--ciq-border)]" />
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="border-t border-[color:var(--ciq-divider)] px-5 py-4">
                                         <div className="flex flex-col gap-2">

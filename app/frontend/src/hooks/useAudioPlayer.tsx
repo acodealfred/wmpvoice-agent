@@ -24,5 +24,9 @@ export default function useAudioPlayer() {
         audioPlayer.current?.stop();
     };
 
-    return { reset, play, stop };
+    // Returns the current player's analyser (recreated on each reset), or null before
+    // a session starts. Consumers poll this so they always read the live agent output.
+    const getAnalyser = () => audioPlayer.current?.getAnalyser() ?? null;
+
+    return { reset, play, stop, getAnalyser };
 }
