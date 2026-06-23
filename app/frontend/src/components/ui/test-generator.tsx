@@ -131,28 +131,63 @@ const SECTION_RULES: { keywords: string[]; label: string; tone: Tone }[] = [
     { keywords: ["recommendation", "treating", "addressing", "prevention", "treatment"], label: "Recommendation", tone: "green" }
 ];
 
+// Titles we accept as section boundaries when written colon-style ("Root Cause:")
+// rather than as markdown "## Root Cause". The report LLM is prompted to emit the
+// colon form ("General Case:", "Root Cause:", "Recommendation:"), so we must detect
+// it too — but gate on known keywords so ordinary prose like "Note:" isn't split.
+const SECTION_HEADING_KEYWORDS = [...SECTION_RULES.flatMap(r => r.keywords), "general case", "general"];
+
+function isSectionHeadingTitle(title: string): boolean {
+    const lower = title.toLowerCase();
+    return SECTION_HEADING_KEYWORDS.some(k => lower.includes(k));
+}
+
+// Split a report into { title, body } sections, handling BOTH markdown "## Heading"
+// and colon-style "Heading:" lines. Text before the first heading becomes a leading
+// section with an empty title.
+function splitReportSections(text: string): { title: string; body: string }[] {
+    const sections: { title: string; body: string }[] = [];
+    let current = { title: "", body: "" };
+    const mdHeading = /^#{1,6}\s+(.+?)\s*$/;
+    // Optional bold markers, a short title, then a colon, then optional inline body.
+    const colonHeading = /^\s*\*{0,2}\s*([A-Za-z][A-Za-z /&'-]{1,38}?)\s*\*{0,2}\s*:\s*(.*?)\s*\**\s*$/;
+
+    for (const line of text.split(/\r?\n/)) {
+        const md = line.match(mdHeading);
+        if (md) {
+            sections.push(current);
+            current = { title: md[1].trim(), body: "" };
+            continue;
+        }
+        const colon = line.match(colonHeading);
+        if (colon && isSectionHeadingTitle(colon[1])) {
+            sections.push(current);
+            current = { title: colon[1].trim(), body: colon[2].trim() };
+            continue;
+        }
+        current.body += (current.body ? "\n" : "") + line;
+    }
+    sections.push(current);
+    return sections.filter(s => s.title || s.body.trim());
+}
+
 function parseMithraSections(text: string): ReportPanel[] {
-    // Split on markdown ## headings
-    const chunks = text.split(/(?=^##\s)/m).filter(c => c.trim());
     const panels: ReportPanel[] = [];
     let generalBody = "";
 
-    for (const chunk of chunks) {
-        const headingMatch = chunk.match(/^##\s+(.+)/);
-        if (!headingMatch) {
-            generalBody += chunk;
+    for (const { title, body } of splitReportSections(text)) {
+        if (!title) {
+            generalBody += body;
             continue;
         }
-        const heading = headingMatch[1].trim();
-        const body = chunk.slice(headingMatch[0].length).trim();
-        const headingLower = heading.toLowerCase();
-
+        const headingLower = title.toLowerCase();
         const rule = SECTION_RULES.find(r => r.keywords.some(k => headingLower.includes(k)));
         if (rule) {
-            panels.push({ label: rule.label, tone: rule.tone, body });
+            panels.push({ label: rule.label, tone: rule.tone, body: body.trim() });
         } else {
-            // Unknown heading — treat as General Case content
-            generalBody += (generalBody ? "\n\n" : "") + `**${heading}**\n${body}`;
+            // "General Case" (or any unmatched heading) — fold into the General Case panel.
+            const chunk = headingLower.includes("general") ? body.trim() : `**${title}**\n${body.trim()}`;
+            generalBody += (generalBody ? "\n\n" : "") + chunk;
         }
     }
 
@@ -576,30 +611,24 @@ export function TestGenerator() {
                             <p className="flex-1 text-sm italic text-[color:var(--ciq-text-body)]">Send the query to generate a consultative report here.</p>
                         )}
 
-                        {ssotReport && llmUsed && (
-                            <div className="flex-1 space-y-4 overflow-y-auto">
+                        {ssotReport && !ssotLoading && (
+                            <div className="flex-1 space-y-3 overflow-y-auto">
+                                {/* When the reporting LLM is not configured the backend returns the raw
+                                    Knowledge Base answer (llmUsed=false). Render it anyway — same graceful
+                                    fallback as the assessment tab — with a small note rather than dead-ending. */}
+                                {llmUsed === false && (
+                                    <div className="flex items-start gap-2 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-xs text-[color:var(--ciq-text-muted)]">
+                                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--ciq-accent-amber)]" />
+                                        <span>
+                                            Showing raw Knowledge Base facts — set{" "}
+                                            <code className="rounded bg-[color:var(--ciq-card)] px-1 py-0.5 text-[color:var(--ciq-accent-amber)]">REPORT_OPENAI_ENDPOINT</code>,{" "}
+                                            <code className="rounded bg-[color:var(--ciq-card)] px-1 py-0.5 text-[color:var(--ciq-accent-amber)]">REPORT_OPENAI_API_KEY</code> and{" "}
+                                            <code className="rounded bg-[color:var(--ciq-card)] px-1 py-0.5 text-[color:var(--ciq-accent-amber)]">REPORT_OPENAI_DEPLOYMENT</code>{" "}
+                                            to enable the formatted physiometric report.
+                                        </span>
+                                    </div>
+                                )}
                                 <ConsultativeReport answer={ssotReport.answer} citations={ssotReport.citations} />
-                            </div>
-                        )}
-
-                        {ssotReport && llmUsed === false && (
-                            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-4 text-center">
-                                <p className="text-sm font-medium text-[color:var(--ciq-accent-amber)]">Reporting LLM not configured</p>
-                                <p className="max-w-xs text-xs text-[color:var(--ciq-text-muted)]">
-                                    Set{" "}
-                                    <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-[color:var(--ciq-accent-amber)]">
-                                        REPORT_OPENAI_ENDPOINT
-                                    </code>
-                                    ,{" "}
-                                    <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-[color:var(--ciq-accent-amber)]">
-                                        REPORT_OPENAI_API_KEY
-                                    </code>{" "}
-                                    and{" "}
-                                    <code className="rounded bg-[color:var(--ciq-card-2)] px-1 py-0.5 text-[color:var(--ciq-accent-amber)]">
-                                        REPORT_OPENAI_DEPLOYMENT
-                                    </code>{" "}
-                                    in the backend environment to enable the physiometric consultative report.
-                                </p>
                             </div>
                         )}
                     </div>
@@ -671,7 +700,11 @@ export function TestGenerator() {
                                 }`}
                             >
                                 {msg.content ? (
-                                    <p className="whitespace-pre-line leading-relaxed">{msg.content}</p>
+                                    msg.role === "assistant" ? (
+                                        <Markdown>{msg.content}</Markdown>
+                                    ) : (
+                                        <p className="whitespace-pre-line leading-relaxed">{msg.content}</p>
+                                    )
                                 ) : (
                                     <p className="text-xs italic text-[color:var(--ciq-text-muted)]">
                                         No content returned — check KB documents are uploaded and indexed.
