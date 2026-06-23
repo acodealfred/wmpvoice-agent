@@ -1,11 +1,14 @@
 # Stage 1: Build the Vite app
 FROM node:20-slim AS build-stage
-
-# Set the working directory inside the container
-COPY frontend ./
-
 WORKDIR /frontend
-RUN npm install
+
+# Install dependencies first so this layer is cached across deploys and only
+# re-runs when package.json / package-lock.json change (not on every source edit).
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Then copy the rest of the frontend and build (node_modules is .dockerignored).
+COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Serve the built app with a static file server

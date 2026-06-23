@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { KBDocument, AdminUser } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
+import { PILL, BANNER } from "@/lib/badges";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -267,12 +268,12 @@ export function AdminPanel() {
 
     // ── Render ─────────────────────────────────────────────────────────
     return (
-        <div className="space-y-6 p-6">
+        <div className="space-y-6">
             {/* ── Section: Text Size ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-2 flex items-center gap-2">
-                    <Type className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Text Size</h2>
+                    <Type className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Text Size</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
                     Scales text across the whole app. Applies instantly and is remembered on this device.
@@ -310,8 +311,8 @@ export function AdminPanel() {
             {/* ── Section: Biometric Guardrail ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-2 flex items-center gap-2">
-                    <Eye className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometric Guardrail</h2>
+                    <Eye className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometric Guardrail</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
                     When ON, the agent may only <strong>describe</strong> biometric readings and declines any interpretive, causal, predictive, or prescriptive
@@ -350,17 +351,17 @@ export function AdminPanel() {
             {/* ── Section A: KB Registration ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
-                    <ShieldCheck className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Registration</h2>
+                    <ShieldCheck className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Registration</h2>
                 </div>
 
                 <div className="mb-4 flex items-center gap-3">
                     {regStatus === "loading" && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
-                    {regStatus === "registered" && <CheckCircle2 className="h-4 w-4 text-green-400" />}
-                    {(regStatus === "unregistered" || regStatus === "error") && <XCircle className="h-4 w-4 text-amber-400" />}
+                    {regStatus === "registered" && <CheckCircle2 className="h-4 w-4 text-[color:var(--ciq-accent-green)]" />}
+                    {(regStatus === "unregistered" || regStatus === "error") && <XCircle className="h-4 w-4 text-[color:var(--ciq-accent-amber)]" />}
                     {regStatus === "unknown" && <span className="h-4 w-4" />}
                     <span
-                        className={`text-sm ${regStatus === "registered" ? "text-green-300" : regStatus === "error" ? "text-red-300" : "text-[color:var(--ciq-text-body)]"}`}
+                        className={`text-sm ${regStatus === "registered" ? "text-[color:var(--ciq-accent-green)]" : regStatus === "error" ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-text-body)]"}`}
                     >
                         {regStatus === "loading" ? "Checking registration…" : regMessage || "—"}
                     </span>
@@ -387,8 +388,8 @@ export function AdminPanel() {
             {/* ── Section B: Upload Document ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
-                    <Upload className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Upload Document</h2>
+                    <Upload className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Upload Document</h2>
                 </div>
 
                 <div className="space-y-3">
@@ -399,13 +400,13 @@ export function AdminPanel() {
                             value={uploadTitle}
                             onChange={e => setUploadTitle(e.target.value)}
                             placeholder="e.g. Company Policy 2025"
-                            className="w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+                            className="w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none"
                         />
                     </div>
                     <div>
                         <label className="mb-1 block text-xs font-medium text-[color:var(--ciq-text-muted)]">
                             File (PDF, DOCX, TXT)
-                            <span className="ml-1 text-purple-400">*</span>
+                            <span className="ml-1 text-[color:var(--ciq-accent-purple)]">*</span>
                         </label>
                         <input
                             ref={fileInputRef}
@@ -435,9 +436,7 @@ export function AdminPanel() {
                     </Button>
 
                     {uploadMsg && (
-                        <div
-                            className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${uploadMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}
-                        >
+                        <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${uploadMsg.ok ? BANNER.green : BANNER.red}`}>
                             {uploadMsg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                             {uploadMsg.text}
                         </div>
@@ -448,8 +447,8 @@ export function AdminPanel() {
             {/* ── Section C: Document List (live from Mithra) ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
-                    <Database className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Documents</h2>
+                    <Database className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Documents</h2>
                     {!docsLoading && (
                         <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs text-[color:var(--ciq-text-body)]">
                             {documents.length} file{documents.length !== 1 ? "s" : ""}
@@ -468,7 +467,7 @@ export function AdminPanel() {
                 </div>
 
                 {docsError && (
-                    <div className="mb-3 flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-2 text-sm text-red-300">
+                    <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
                         <XCircle className="h-4 w-4 shrink-0" />
                         {docsError}
                     </div>
@@ -499,7 +498,7 @@ export function AdminPanel() {
                                     <tr key={doc.paperId} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2">
                                             <div className="flex items-center gap-2">
-                                                <FileText className="h-3.5 w-3.5 shrink-0 text-purple-400" />
+                                                <FileText className="h-3.5 w-3.5 shrink-0 text-[color:var(--ciq-accent-purple)]" />
                                                 <span className="font-medium text-[color:var(--ciq-text-strong)]">{doc.title}</span>
                                             </div>
                                         </td>
@@ -512,9 +511,7 @@ export function AdminPanel() {
                                         <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 md:table-cell">
                                             <span
                                                 className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                                    doc.lifeCycleState === "active"
-                                                        ? "bg-green-900/50 text-green-300"
-                                                        : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
+                                                    doc.lifeCycleState === "active" ? PILL.green : PILL.neutral
                                                 }`}
                                             >
                                                 {doc.lifeCycleState ?? "—"}
@@ -540,9 +537,7 @@ export function AdminPanel() {
                         </table>
 
                         {deleteMsg && (
-                            <div
-                                className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}
-                            >
+                            <div className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? BANNER.green : BANNER.red}`}>
                                 {deleteMsg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                                 {deleteMsg.text}
                             </div>
@@ -558,8 +553,8 @@ export function AdminPanel() {
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <Users className="h-5 w-5 text-purple-400" />
-                        <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">User Management</h2>
+                        <Users className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                        <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">User Management</h2>
                         {!usersLoading && (
                             <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-text-body)]">
                                 {users.length}
@@ -579,7 +574,7 @@ export function AdminPanel() {
                 </div>
 
                 {usersError && (
-                    <div className="mb-3 flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-2 text-sm text-red-300">
+                    <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
                         <XCircle className="h-4 w-4 shrink-0" />
                         {usersError}
                     </div>
@@ -610,11 +605,7 @@ export function AdminPanel() {
                                         <td className="px-4 py-3 font-medium text-[color:var(--ciq-text-strong)]">{u.name}</td>
                                         <td className="px-4 py-3 text-center">
                                             <span
-                                                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                    u.session_count > 0
-                                                        ? "bg-purple-900/50 text-purple-300"
-                                                        : "bg-[color:var(--ciq-card-3)] text-[color:var(--ciq-text-muted)]"
-                                                }`}
+                                                className={`font-data rounded-full px-2 py-0.5 text-xs font-semibold ${u.session_count > 0 ? PILL.purple : PILL.neutral}`}
                                             >
                                                 {u.session_count}
                                             </span>
@@ -678,8 +669,8 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
     return (
         <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
             <div className="mb-4 flex items-center gap-2">
-                <Hash className="h-5 w-5 text-purple-400" />
-                <h2 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">Delete by Paper ID</h2>
+                <Hash className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Delete by Paper ID</h2>
             </div>
             <p className="mb-3 text-xs text-[color:var(--ciq-text-muted)]">
                 Use this to delete a document from the Knowledge Base using its Paper ID directly — useful for documents uploaded from another device or before
@@ -691,7 +682,7 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
                     value={paperId}
                     onChange={e => setPaperId(e.target.value)}
                     placeholder="Paste paper ID…"
-                    className="flex-1 rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+                    className="flex-1 rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none"
                     onKeyDown={e => e.key === "Enter" && !deleting && paperId.trim() && handleDelete()}
                 />
                 <Button variant="destructive" onClick={handleDelete} disabled={deleting || !paperId.trim()}>
@@ -699,9 +690,7 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
                 </Button>
             </div>
             {msg && (
-                <div
-                    className={`mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}
-                >
+                <div className={`mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${msg.ok ? BANNER.green : BANNER.red}`}>
                     {msg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                     {msg.text}
                 </div>

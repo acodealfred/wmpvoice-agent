@@ -565,25 +565,37 @@ function App() {
                 </div>
             </div>
 
-            {/* ── Admin Panel ── */}
+            {/* ── Admin Panel ── (same centered 8-of-12 column as the assessment) */}
             {activeTab === "admin" && (
-                <div className="flex-1 overflow-y-auto">
-                    <AdminPanel />
-                </div>
+                <main className="flex-1 overflow-y-auto p-4">
+                    <div className="grid w-full grid-cols-12 gap-4">
+                        <div className="col-span-12 lg:col-span-8 lg:col-start-3">
+                            <AdminPanel />
+                        </div>
+                    </div>
+                </main>
             )}
 
             {/* ── Test Generator ── */}
             {activeTab === "test" && (
-                <div className="flex-1 overflow-y-auto">
-                    <TestGenerator />
-                </div>
+                <main className="flex-1 overflow-y-auto p-4">
+                    <div className="grid w-full grid-cols-12 gap-4">
+                        <div className="col-span-12 lg:col-span-8 lg:col-start-3">
+                            <TestGenerator />
+                        </div>
+                    </div>
+                </main>
             )}
 
             {/* ── User History ── */}
             {activeTab === "history" && (
-                <div className="flex-1 overflow-y-auto">
-                    <UserHistory />
-                </div>
+                <main className="flex-1 overflow-y-auto p-4">
+                    <div className="grid w-full grid-cols-12 gap-4">
+                        <div className="col-span-12 lg:col-span-8 lg:col-start-3">
+                            <UserHistory />
+                        </div>
+                    </div>
+                </main>
             )}
 
             {/* ── Assessment Panel ── */}

@@ -2,18 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen, ClipboardList, ExternalLink, RefreshCw } from "lucide-react";
 import { SurveyRecord } from "@/types";
 import { apiFetch } from "@/lib/api";
-
-function riskColor(risk: string) {
-    if (risk === "Low") return "bg-green-100 text-green-800";
-    if (risk === "Moderate") return "bg-amber-100 text-amber-800";
-    return "bg-red-100 text-red-800";
-}
-
-function sentimentColor(s: string) {
-    if (s === "positive") return "text-green-600";
-    if (s === "negative") return "text-red-600";
-    return "text-amber-600";
-}
+import { Markdown } from "@/components/ui/markdown";
+import { PILL, BANNER, TEXT_TONE, riskTone, sentimentTone } from "@/lib/badges";
 
 function fmt(iso: string) {
     return new Date(iso).toLocaleString(undefined, {
@@ -43,15 +33,15 @@ function AIReportSection({ info }: { info: SsotSection }) {
         <div className="space-y-4">
             {/* Consultative agent response */}
             {info.agentResponse && (
-                <div className="rounded-lg border border-purple-100 bg-purple-50 p-4">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-600">Consultative Response</p>
-                    <p className="whitespace-pre-wrap text-sm text-[color:var(--ciq-text-strong)]">{info.agentResponse}</p>
+                <div className="rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-accent-purple)]">Consultative Response</p>
+                    <Markdown>{info.agentResponse}</Markdown>
                 </div>
             )}
 
             {/* SSoT / KB report */}
             {ssot && "error" in ssot && (
-                <div className="flex items-start gap-2 rounded-lg border border-dashed border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                <div className={`flex items-start gap-2 rounded-lg p-4 text-sm ${BANNER.amber}`}>
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>
                         <strong>KB Report failed:</strong> {ssot.error}
@@ -60,22 +50,22 @@ function AIReportSection({ info }: { info: SsotSection }) {
             )}
 
             {ssot && "answer" in ssot && ssot.answer && (
-                <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <div className="rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
                     <div className="mb-2 flex items-center gap-1.5">
-                        <BookOpen className="h-4 w-4 text-blue-600" />
-                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">AI Consultative Report</p>
+                        <BookOpen className="h-4 w-4 text-[color:var(--ciq-accent-blue)]" />
+                        <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-accent-blue)]">AI Consultative Report</p>
                     </div>
-                    <p className="whitespace-pre-wrap text-sm text-[color:var(--ciq-text-strong)]">{ssot.answer}</p>
+                    <Markdown>{ssot.answer}</Markdown>
 
                     {ssot.citations.length > 0 && (
-                        <div className="mt-3 border-t border-blue-100 pt-3">
-                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-blue-500">References</p>
+                        <div className="mt-3 border-t border-[color:var(--ciq-line)] pt-3">
+                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">References</p>
                             <ul className="space-y-1">
                                 {ssot.citations.map((c, i) => (
-                                    <li key={i} className="flex items-center gap-1.5 text-xs text-blue-700">
+                                    <li key={i} className="flex items-center gap-1.5 text-xs text-[color:var(--ciq-accent-blue)]">
                                         <ExternalLink className="h-3 w-3 shrink-0" />
                                         {c.paperTitle}
-                                        {c.paperPage > 0 && <span className="text-blue-400">p.{c.paperPage}</span>}
+                                        {c.paperPage > 0 && <span className="text-[color:var(--ciq-text-muted)]">p.{c.paperPage}</span>}
                                     </li>
                                 ))}
                             </ul>
@@ -109,14 +99,16 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                     </div>
                     {report && (
                         <>
-                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${riskColor(report.riskLevel)}`}>{report.riskLevel} Risk</span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${PILL[riskTone(report.riskLevel)]}`}>
+                                {report.riskLevel} Risk
+                            </span>
                             <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
-                                Score: <strong>{report.totalScore}</strong>
+                                Score: <strong className="font-data">{report.totalScore}</strong>
                             </span>
                         </>
                     )}
                     {info?.ssotReport && !("error" in info.ssotReport) && info.ssotReport.answer && (
-                        <span className="flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-600">
+                        <span className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${PILL.blue}`}>
                             <BookOpen className="h-3 w-3" /> AI Report
                         </span>
                     )}
@@ -133,29 +125,23 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                 <div className="space-y-6 border-t border-[color:var(--ciq-line)] px-5 py-5">
                     {/* Technical summary */}
                     {report && (
-                        <div className="rounded-lg bg-purple-50 p-4">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-600">Burnout Summary</p>
+                        <div className="rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-accent-purple)]">Burnout Summary</p>
                             <div className="flex flex-wrap gap-6 text-sm">
                                 <div>
                                     <span className="text-[color:var(--ciq-text-muted)]">Total Score </span>
-                                    <strong className="text-[color:var(--ciq-text-strong)]">{report.totalScore}</strong>
+                                    <strong className="font-data text-[color:var(--ciq-text-strong)]">{report.totalScore}</strong>
                                 </div>
                                 <div>
                                     <span className="text-[color:var(--ciq-text-muted)]">Risk Level </span>
-                                    <span
-                                        className={`font-semibold ${
-                                            report.riskLevel === "Low" ? "text-green-700" : report.riskLevel === "Moderate" ? "text-amber-700" : "text-red-700"
-                                        }`}
-                                    >
-                                        {report.riskLevel}
-                                    </span>
+                                    <span className={`font-semibold ${TEXT_TONE[riskTone(report.riskLevel)]}`}>{report.riskLevel}</span>
                                 </div>
                             </div>
                             {Object.keys(report.domainTotals).length > 0 && (
                                 <div className="mt-3 flex flex-wrap gap-3">
                                     {Object.entries(report.domainTotals).map(([domain, score]) => (
-                                        <span key={domain} className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs text-purple-800">
-                                            {domain}: {score}
+                                        <span key={domain} className={`rounded-full px-2.5 py-0.5 text-xs ${PILL.purple}`}>
+                                            {domain}: <span className="font-data">{score}</span>
                                         </span>
                                     ))}
                                 </div>
@@ -186,12 +172,14 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                                         {Object.entries(survey).map(([qid, r], i) => (
                                             <tr key={qid} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
                                                 <td className="px-3 py-2 font-medium text-[color:var(--ciq-text-strong)]">{r.domain || qid}</td>
-                                                <td className="px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">{r.score}</td>
-                                                <td className={`hidden px-3 py-2 capitalize sm:table-cell ${sentimentColor(r.voiceSentiment)}`}>
+                                                <td className="font-data px-3 py-2 text-center font-semibold text-[color:var(--ciq-text-strong)]">{r.score}</td>
+                                                <td className={`hidden px-3 py-2 capitalize sm:table-cell ${TEXT_TONE[sentimentTone(r.voiceSentiment)]}`}>
                                                     {r.voiceSentiment}
                                                 </td>
                                                 <td className="hidden px-3 py-2 md:table-cell">
-                                                    <span className={r.blinkRateChange >= 0 ? "text-red-600" : "text-green-600"}>
+                                                    <span
+                                                        className={`font-data ${r.blinkRateChange >= 0 ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-accent-green)]"}`}
+                                                    >
                                                         {r.blinkRateChange >= 0 ? "+" : ""}
                                                         {r.blinkRateChange.toFixed(1)}%
                                                     </span>
@@ -251,10 +239,10 @@ export function UserHistory() {
     }, [fetchSessions]);
 
     return (
-        <div className="p-6">
+        <div>
             <div className="mb-5 flex items-center justify-between">
                 <div>
-                    <h2 className="text-lg font-bold text-[color:var(--ciq-text-strong)]">Session History</h2>
+                    <h2 className="font-display text-xl font-bold text-[color:var(--ciq-text-strong)]">Session History</h2>
                     <p className="text-sm text-[color:var(--ciq-text-muted)]">Your completed burnout assessments</p>
                 </div>
                 <button
@@ -275,7 +263,7 @@ export function UserHistory() {
             )}
 
             {error && (
-                <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm ${BANNER.red}`}>
                     <AlertCircle className="h-4 w-4 shrink-0" />
                     {error}
                 </div>
