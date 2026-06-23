@@ -177,7 +177,7 @@ function App() {
 
     // Baseline is loaded from localStorage by useBiometrics hook itself
 
-    const { startSession, reconnect, addUserAudio, inputAudioBufferClear } = useRealTime({
+    const { startSession, requestGreeting, reconnect, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         sessionId,
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
         onWebSocketClose: () => console.log("WebSocket connection closed"),
@@ -370,7 +370,10 @@ function App() {
         baselineNeedsSaveRef.current = false;
     }, [setBaseline, clearBaseline]);
 
-    // Persist a freshly recorded baseline to the DB once it completes (DB-miss path only).
+    // Once a fresh 30s baseline finishes recording (DB-miss path only): persist it, then
+    // open the warm-up → survey gate on the backend and re-send session.update so the agent
+    // delivers its bridge line and begins the questions. Returning users (injected baseline)
+    // never enter this branch — they start unlocked server-side, so no transition is fired.
     useEffect(() => {
         if (baselineSessionStatus === "completed" && baselineData && baselineNeedsSaveRef.current) {
             baselineNeedsSaveRef.current = false;
@@ -379,8 +382,16 @@ function App() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ pupilSize: baselineData.pupilSize, blinkRate: baselineData.blinkRate })
             }).catch(err => console.warn("[App] Failed to persist baseline:", err));
+
+            apiFetch("/survey-phase", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sessionId, phase: "survey" })
+            })
+                .then(() => refreshSession())
+                .catch(err => console.warn("[App] Failed to unlock survey phase:", err));
         }
-    }, [baselineSessionStatus, baselineData]);
+    }, [baselineSessionStatus, baselineData, sessionId, refreshSession]);
 
     // Primary toggle: start / stop / resume. It never resets — a stopped survey
     // (mid-way) is left untouched so pressing it again resumes, and after completion
@@ -388,11 +399,18 @@ function App() {
     // is the dedicated "Start New Survey" button's job (onStartNewSurvey).
     const onStartListening = async () => {
         if (isRecording) return;
-        await resolveBaseline();
-        startSession();
-        await startAudioRecording();
-        resetAudioPlayer();
         setIsRecording(true);
+        // Open the session, arm playback and ask the agent to greet IMMEDIATELY, so its
+        // opening line is already generating while the baseline fetch and mic init run in
+        // parallel below. The agent doesn't need the mic to talk, and the survey phase is
+        // resolved server-side at connect — so neither await needs to block the greeting.
+        startSession();
+        resetAudioPlayer();
+        requestGreeting();
+        // Now finish arming input: load the baseline (decides if the 30s recording runs)
+        // and start the mic so the user can answer.
+        await resolveBaseline();
+        await startAudioRecording();
     };
 
     const onStopListening = async () => {
@@ -429,12 +447,16 @@ function App() {
         resetAssessmentState();
         setAssessmentComplete(false);
 
-        await resolveBaseline();
+        setIsRecording(true);
         reconnect();
         startSession();
-        await startAudioRecording();
         resetAudioPlayer();
-        setIsRecording(true);
+        // Arm the greeting now (deferred until the reconnect's session.created, since the
+        // socket is mid-reopen here) so the agent opens the fresh conversation the instant
+        // the session is ready, rather than after the baseline fetch and mic init below.
+        requestGreeting();
+        await resolveBaseline();
+        await startAudioRecording();
     };
 
     // Called by DetailedReport once POST /analyze-report has resolved (report

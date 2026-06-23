@@ -33,6 +33,7 @@ from ciq.realtime.routes import (
     clear_conversation_state,
     get_session,
     set_biometric_guardrail,
+    set_survey_phase,
     set_survey_type,
     update_biometrics,
     update_stress_state,
@@ -80,6 +81,7 @@ async def create_app():
     app.router.add_post("/admin/biometric-guardrail", set_biometric_guardrail)
     app.router.add_post("/clear-conversation", clear_conversation_state)
     app.router.add_post("/update-stress", update_stress_state)
+    app.router.add_post("/survey-phase", set_survey_phase)
     app.router.add_get("/session", get_session)
 
     # ── Reports ───────────────────────────────────────────────────────────

@@ -1,11 +1,16 @@
 import json
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
 
 DB_PATH = Path(__file__).parent / "data" / "ciq.db"
+
+# A stored baseline is considered valid for this long after it was recorded.
+# Enforced at the DB level (see get_user_baseline) so an expired baseline is
+# indistinguishable from a missing one and forces a fresh 30s recording.
+BASELINE_TTL_HOURS = 12
 
 
 @asynccontextmanager
@@ -216,11 +221,19 @@ async def get_user_survey_records(user_id: str) -> list[dict]:
 
 
 async def get_user_baseline(user_id: str) -> dict | None:
-    """Return the user's calibrated baseline, or None if not recorded yet."""
+    """Return the user's calibrated baseline if it is still within the TTL, else None.
+
+    The 12-hour TTL is enforced here (DB level) by filtering on updated_at — the
+    moment the row was last (re)recorded — so an expired baseline is returned as
+    None, indistinguishable from a missing one, forcing a fresh recording. ISO-8601
+    timestamps compare correctly as strings since they all share datetime.isoformat().
+    """
+    cutoff = (datetime.utcnow() - timedelta(hours=BASELINE_TTL_HOURS)).isoformat()
     async with _open_db() as db:
         async with db.execute(
-            "SELECT pupil_size, blink_rate, updated_at FROM user_baselines WHERE user_id = ?",
-            (user_id,),
+            "SELECT pupil_size, blink_rate, updated_at FROM user_baselines "
+            "WHERE user_id = ? AND updated_at > ?",
+            (user_id, cutoff),
         ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None

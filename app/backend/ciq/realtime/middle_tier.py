@@ -118,6 +118,10 @@ class RTMiddleTier:
     def clear_conversation_state_for_session(self, session_id: str) -> None:
         self._store.get_or_create(session_id).reset_for_new_survey()
 
+    def unlock_survey_for_session(self, session_id: str) -> None:
+        """Open the warm-up → survey gate (called when the 30s baseline completes)."""
+        self._store.get_or_create(session_id).unlock_survey()
+
     # ------------------------------------------------------------------
     # Feature wiring
     # ------------------------------------------------------------------
@@ -741,6 +745,35 @@ class RTMiddleTier:
                     code=1011, message=b"Failed to connect to realtime endpoint"
                 )
 
+    async def _resolve_survey_phase(self, sess, request: web.Request) -> None:
+        """Decide the starting survey phase for a fresh connection from the stored baseline.
+
+        A valid (non-expired, TTL enforced in db.get_user_baseline) baseline means a
+        returning user: skip the 30s recording and start unlocked in the "survey" phase
+        with a brief welcome-back warm-up. Otherwise start gated in "warmup" so the agent
+        makes small talk while a fresh baseline records. Only called on the first
+        connection of a session — reconnects must keep whatever phase was reached.
+        """
+        auth = request.get("auth_session")
+        user_id = auth.get("user_id") if auth else None
+        baseline = None
+        if user_id:
+            try:
+                from db import get_user_baseline
+                baseline = await get_user_baseline(user_id)
+            except Exception as e:
+                logger.warning("[RTMT] Baseline lookup failed for phase resolution: %s", e)
+        if baseline:
+            sess.survey_phase = "survey"
+            sess.is_returning_user = True
+        else:
+            sess.survey_phase = "warmup"
+            sess.is_returning_user = False
+        logger.info(
+            "[RTMT] Survey phase resolved: %s (returning=%s, session=%s)",
+            sess.survey_phase, sess.is_returning_user, sess.session_id,
+        )
+
     async def _websocket_handler(self, request: web.Request):
         session_id = request.rel_url.query.get("session_id") or str(uuid.uuid4())
         sess = self._store.get_or_create(session_id)
@@ -750,6 +783,8 @@ class RTMiddleTier:
             logger.info("[RTMT] Session reconnected: %s (connection #%d)", session_id, sess.connection_count)
         else:
             logger.info("[RTMT] New session connected: %s", session_id)
+            if self.enable_survey_mode:
+                await self._resolve_survey_phase(sess, request)
 
         # Set context var — inherited by both gather tasks in _forward_messages
         token = set_active_session(sess)

@@ -96,6 +96,31 @@ async def clear_conversation_state(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def set_survey_phase(request):
+    """POST /survey-phase — open the warm-up → survey gate for a session.
+
+    Called by the frontend the moment the 30s biometric baseline finishes recording, so
+    the agent stops making small talk, delivers its bridge line and begins the questions.
+    The frontend follows this with a session.update so the new instructions take effect.
+    """
+    try:
+        rtmt = request.app.get("rtmt")
+        if not rtmt:
+            return web.json_response({"error": "Service not available"}, status=503)
+        data = await request.json()
+        session_id = data.get("session_id", "")
+        phase = data.get("phase", "survey")
+        if not session_id:
+            return web.json_response({"error": "session_id is required"}, status=400)
+        if phase != "survey":
+            return web.json_response({"error": "Only phase 'survey' may be set"}, status=400)
+        rtmt.unlock_survey_for_session(session_id)
+        return web.json_response({"success": True, "survey_phase": "survey"})
+    except Exception as e:
+        logger.error(f"Error setting survey phase: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def update_biometrics(request):
     """POST /biometrics — update current biometric data for survey response capture."""
     try:

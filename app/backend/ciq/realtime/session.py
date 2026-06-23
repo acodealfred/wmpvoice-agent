@@ -18,6 +18,7 @@ _MAX_HISTORY_SIZE = 50
 
 _VALID_STRESS_STATES = ("stressed", "relaxed", "normal")
 _VALID_CONVERSATION_STATES = ("active", "report_delivered", "qa_mode")
+_VALID_SURVEY_PHASES = ("warmup", "survey")
 
 
 @dataclass
@@ -42,6 +43,14 @@ class SessionState:
     report_context: str | None = None
     last_agent_response_type: str | None = None
 
+    # Pre-survey gate. "warmup" → the agent makes neutral small talk while the 30s
+    # biometric baseline records and the survey questions are NOT available to it;
+    # "survey" → the questions are unlocked. Resolved at WS connect from the user's
+    # stored baseline (see RTMiddleTier._resolve_survey_phase): a valid (non-expired)
+    # baseline means a returning user who skips recording and starts in "survey".
+    survey_phase: str = "warmup"
+    is_returning_user: bool = False
+
     # Voice response latency: time between the agent finishing a turn (e.g. asking
     # a survey question) and the user starting to speak their answer.
     last_agent_turn_end_at: float | None = None
@@ -63,6 +72,11 @@ class SessionState:
         if report_context is not None:
             self.report_context = report_context
         logger.info(f"[RTMT] ★ Conversation state set to: {state} (session={self.session_id})")
+
+    def unlock_survey(self) -> None:
+        """Open the warm-up → survey gate. Fired when the 30s baseline completes."""
+        self.survey_phase = "survey"
+        logger.info("[RTMT] ★ Survey phase unlocked (session=%s)", self.session_id)
 
     def clear_conversation_state(self) -> None:
         self.conversation_state = "active"
@@ -90,6 +104,10 @@ class SessionState:
         self.current_gaze_position = "Center"
         self.stress_state = "normal"
         self.connection_count = 0
+        # Back to the gated warm-up phase; the next WS connect re-resolves whether
+        # this is a returning user (valid baseline) and may move it straight to "survey".
+        self.survey_phase = "warmup"
+        self.is_returning_user = False
         logger.info("[RTMT] ★ Session fully reset for new survey (session=%s)", self.session_id)
 
     # ── biometric history ────────────────────────────────────────────────────

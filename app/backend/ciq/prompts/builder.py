@@ -228,17 +228,61 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
     return "\n".join(parts)
 
 
-def survey_instructions(survey_config: dict) -> str:
-    """Build the survey script the agent must follow exactly."""
+def warmup_instructions() -> str:
+    """Warm-up phase script: neutral small talk while the 30s baseline records.
+
+    Injected ONLY while ``survey_phase == "warmup"`` (a fresh / expired baseline). The
+    survey questions are deliberately withheld here — the agent has no questions to ask
+    and must NOT start the assessment. The warm-up → survey transition is NOT the agent's
+    decision; it fires when the 30s baseline completes (frontend unlocks the phase and
+    re-sends session.update), after which survey_instructions takes over.
+    """
+    return """WARM-UP PHASE — light small talk only (follow exactly):
+- We are quietly getting set up in the background. Your ONLY job right now is to keep the
+  user relaxed and naturally talking with brief, friendly small talk.
+- Open with a short, warm greeting and ONE easy small-talk question.
+- Stay on neutral, low-effort topics ONLY: the weather, their weekend or plans, coffee or
+  tea, their surroundings or where they're sitting — something light and pleasant.
+- STRICTLY AVOID anything about work, their job, stress, pressure, mood, feelings, energy,
+  sleep, health, or how they're coping. Those topics must wait until later.
+- Keep it to one short exchange at a time: warmly acknowledge what they say, then ask
+  another light question if the conversation lulls. Keep your turns to one or two sentences.
+- Do NOT mention surveys, questions, assessments, scoring, burnout, or that anything is
+  being recorded or calibrated.
+- Do NOT start the assessment or ask any assessment question yet — you do not have those
+  questions available. Simply keep the friendly chat going until you are told to continue."""
+
+
+def survey_instructions(survey_config: dict, is_returning_user: bool = False) -> str:
+    """Build the survey script the agent must follow exactly.
+
+    The OPENING is phase-aware: by the time this is injected the warm-up has already
+    happened, so the agent transitions in with a short bridge line rather than a fresh
+    greeting. A returning user (skipped the 30s recording) gets a brief inline welcome +
+    one small-talk question first; a first-time user (just finished warm-up) only bridges.
+    """
     config = survey_config
     questions = config.get("questions", [])
+
+    if is_returning_user:
+        opening = f"""OPENING (returning user — skipped recording):
+1. Greet warmly: "Hello, welcome back!"
+2. Ask ONE short, neutral small-talk question (weather, weekend, coffee/tea, surroundings —
+   never work, stress, mood, or health) and acknowledge their reply in one sentence.
+3. Then give a short bridge line, e.g. "lovely — if you're ready, I'd like to ask a few quick
+   questions about how work's been feeling." Then go to Step 1."""
+    else:
+        opening = f"""OPENING (you have just been making small talk with the user):
+1. Do NOT greet the user again as if meeting them for the first time — you were just chatting.
+2. Give ONE short, warm bridge line, e.g. "nice chatting — if you're ready, I'd like to ask a
+   few quick questions about how work's been feeling." Then go to Step 1."""
 
     # Each question on its own line: question text first, then the ID for the tool call on a
     # SEPARATE line so the agent cannot confuse "ask this text" with "call tool now".
     question_blocks = []
     for i, q in enumerate(questions):
         question_blocks.append(
-            f'Step {i + 1}/{len(questions)}: Say — "{q["prompt"]}\n'
+            f'Step {i + 1}/{len(questions)}: Ask the question — "{q["prompt"]}\n'
             f'  Then WAIT for the user to answer. Once they answer, call record_survey_response with question_id="{q["id"]}".'
         )
     questions_script = "\n\n".join(question_blocks)
@@ -247,20 +291,31 @@ def survey_instructions(survey_config: dict) -> str:
 
 Your only job is to deliver this {len(questions)}-question check-in, then share the result.
 
-OPENING:
-1. Greet the user in one short sentence.
-2. Say: "I'd like to run a quick {len(questions)}-question wellbeing check-in. Shall we start?"
-3. Wait for confirmation. If yes → go to Step 1. If no → ask once more, then respect refusal.
+{opening}
 
 SURVEY STEPS (do these in order, one at a time):
 
 {questions_script}
 
+HOW TO ASK EACH QUESTION (conversational, not an interrogation):
+- Briefly and neutrally acknowledge the user's previous answer in a few words ("thanks for
+  sharing that", "got it"). Do NOT evaluate, heap praise, or interpret what they said.
+- Optionally add ONE short bridge sentence connecting to the next topic.
+- Ask the CURRENT step's question. You may phrase it naturally and warmly, but you MUST keep
+  its original meaning and MUST NOT change what it is measuring.
+- If the answer is vague or doesn't map to a score, ask AT MOST ONE short clarifying follow-up,
+  then record it and move on. Never ask more than one follow-up for a question.
+
 STRICT RULES:
-- Speak ONLY the question text shown in each step. Do NOT add words, rephrase, or ask follow-up questions.
-- Do NOT call record_survey_response when ASKING a question — only call it AFTER the user has ANSWERED.
-- Do NOT use any burnout knowledge from your training. Use ONLY the questions listed above.
-- If the user goes off-topic, say: "Let's finish the check-in first." and repeat the current step's question.
+- Work through the questions in the given order, ONE at a time. Only ever handle the CURRENT
+  step's question — never skip ahead, reorder, combine, or invent questions.
+- Use ONLY the questions listed above. Do NOT use any burnout knowledge from your training to
+  add, substitute, or expand the questions.
+- Do NOT call record_survey_response when ASKING — only AFTER the user has answered (and after
+  your single optional clarifying follow-up, if you used one).
+- Do NOT call record_survey_response for a question_id you have already recorded.
+- If the user goes off-topic, gently steer back: "Let's stay with this one for a moment —" and
+  re-ask the current step's question.
 
 AFTER ALL {len(questions)} ANSWERS:
 - Do NOT calculate the score yourself. Call query_survey_results with query_type="burnout_score".
@@ -294,7 +349,14 @@ def build_session_instructions(
     (only while active) → conversation-state grounding → reconnect → stress adaptation.
     """
     base_instructions = base_message or ""
-    extra = ""
+    # Force English. The agent opens the conversation proactively (response.create) before
+    # the user has said anything, so it has no language cue to anchor on and may otherwise
+    # greet in another language. Pin it up front so it applies to every phase.
+    extra = (
+        "\n\nLANGUAGE: Speak and respond in English (US) by default, including your very "
+        "first greeting. Even if the user speaks in another language, keep replying in "
+        "English UNLESS they explicitly ask you to switch languages — only then switch.\n"
+    )
 
     if enable_meta_intent:
         extra += meta_intent_instructions(meta_intent_config)
@@ -308,9 +370,14 @@ def build_session_instructions(
 
     # Inject the survey script ONLY while actively running a survey. Once a report
     # has been delivered the session moves to report_delivered/qa_mode and must NOT
-    # see the survey steps again.
+    # see the survey steps again. While still in the warm-up phase the questions are
+    # gated out entirely — the agent gets the small-talk script instead, until the
+    # 30s baseline completes and unlocks survey_phase.
     if enable_survey and sess.conversation_state == "active":
-        extra += "\n\n" + survey_instructions(survey_config)
+        if sess.survey_phase == "warmup":
+            extra += "\n\n" + warmup_instructions()
+        else:
+            extra += "\n\n" + survey_instructions(survey_config, sess.is_returning_user)
 
     state_instructions = conversation_state_instructions(sess)
     if state_instructions:
