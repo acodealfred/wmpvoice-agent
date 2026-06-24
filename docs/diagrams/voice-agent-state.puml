@@ -1,0 +1,37 @@
+' CIQ Voice Agent — current runtime behavior (phase/state machine)
+' Render with any PlantUML tool (plantuml.com, VS Code PlantUML extension).
+@startuml ciq-voice-agent-state
+title CIQ Voice Agent — Phase & Conversation State
+
+[*] --> Warmup : new session, no/expired baseline
+[*] --> Survey  : returning user (valid baseline)
+
+state Warmup {
+  Warmup : agent makes neutral small talk
+  Warmup : 30s biometric baseline records
+}
+Warmup --> Survey : baseline complete\n-> /survey-phase unlock + session.update
+
+state Survey {
+  Survey : asks BAT/CBT questions
+  Survey : record_survey_response per answer
+}
+Survey --> ReportDelivered : all questions answered\n-> /analyze-report (deterministic SSOT)
+
+state ReportDelivered {
+  ReportDelivered : report context seeded
+  ReportDelivered : on-demand AI reports available
+}
+ReportDelivered --> QAMode : post-report guardrail reconnect\n(strict report-only Q&A)
+
+QAMode --> Warmup : Start New Survey -> reset_for_new_survey
+ReportDelivered --> Warmup : Start New Survey -> reset_for_new_survey
+Survey --> Warmup : Start New Survey -> reset_for_new_survey
+
+note right of Warmup
+  Reconnect (dropped socket) keeps the
+  reached phase and injects resume context
+  instead of greeting fresh.
+end note
+
+@enduml
