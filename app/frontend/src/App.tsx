@@ -65,6 +65,10 @@ function App() {
     // clean reconnect so the agent answers follow-ups strictly from the saved report
     // (wipes Azure's survey conversation memory) without cutting off its spoken result.
     const pendingGuardrailResetRef = useRef(false);
+    // Raised while a reset reconnect is in flight (Start New Survey / post-report hard reset).
+    // Drops stale response.audio.delta chunks from the OLD turn so the agent doesn't keep
+    // speaking the previous sentence over the fresh session. Lifted on the next session.created.
+    const suppressAgentAudioRef = useRef(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [surveyTypeConfig, setSurveyTypeConfig] = useState<SurveyTypeConfig | null>(null);
     const [enableBiometrics, setEnableBiometrics] = useState(true);
@@ -189,11 +193,18 @@ function App() {
             if (pendingGuardrailResetRef.current) {
                 pendingGuardrailResetRef.current = false;
                 console.log("[App] Report saved — reconnecting for strict report-only Q&A");
+                suppressAgentAudioRef.current = true;
                 reconnect();
             }
         },
         onReceivedResponseAudioDelta: message => {
+            // Ignore audio from the old session while a reset reconnect is settling.
+            if (suppressAgentAudioRef.current) return;
             isRecording && playAudio(message.delta);
+        },
+        onReceivedSessionReady: () => {
+            // Fresh session is live — let the new agent be heard again.
+            suppressAgentAudioRef.current = false;
         },
         onReceivedInputAudioBufferSpeechStarted: () => {
             stopAudioPlayer();
@@ -426,9 +437,17 @@ function App() {
     // conversation_state and the reconnect counter), wipes the UI, then forces a clean
     // realtime reconnect so the agent has no memory of the previous survey.
     const onStartNewSurvey = async () => {
+        // Silence the agent the instant the button is pressed — window.confirm() blocks the
+        // JS main thread, but already-buffered speech keeps playing on the audio thread
+        // underneath the dialog. Flushing the player here "pauses" the agent while the user
+        // decides, instead of letting it talk over the confirmation prompt.
+        stopAudioPlayer();
         if (!window.confirm("This discards the current assessment and starts a fresh survey. Continue?")) {
             return;
         }
+        // Guard against the old turn's audio bleeding into the new session during the
+        // reconnect below; lifted on the fresh session.created (onReceivedSessionReady).
+        suppressAgentAudioRef.current = true;
         if (isRecording) {
             await stopAudioRecording();
             stopAudioPlayer();
@@ -447,15 +466,22 @@ function App() {
         resetAssessmentState();
         setAssessmentComplete(false);
 
+        // Settle the baseline decision BEFORE we start recording. resolveBaseline either
+        // injects a stored baseline (status → "completed", the 30s recording is skipped) or
+        // clears it (status → "idle", recording runs). It must run first so the auto-start
+        // effect fires deterministically on the resolved status instead of racing it — and
+        // so it agrees with the phase the backend resolves from the same baseline on the
+        // fresh connection below (DB hit → returning-user "survey"; miss → "warmup").
+        await resolveBaseline();
+
         setIsRecording(true);
         reconnect();
         startSession();
         resetAudioPlayer();
         // Arm the greeting now (deferred until the reconnect's session.created, since the
         // socket is mid-reopen here) so the agent opens the fresh conversation the instant
-        // the session is ready, rather than after the baseline fetch and mic init below.
+        // the session is ready.
         requestGreeting();
-        await resolveBaseline();
         await startAudioRecording();
     };
 
@@ -476,9 +502,16 @@ function App() {
         startBaselineSession();
     }, [startBaselineSession]);
 
-    const handleRerecordBaseline = useCallback(() => {
-        // Drop the server copy too, and arm a save so the new recording replaces it.
-        apiFetch("/baseline", { method: "DELETE" }).catch(err => console.warn("[App] Failed to clear server baseline:", err));
+    const handleRerecordBaseline = useCallback(async () => {
+        // Drop the server copy too, and arm a save so the new recording replaces it. Awaited
+        // so the delete is durable before any subsequent Start-New-Survey reads the baseline
+        // (both the frontend resolveBaseline GET and the backend phase resolution) — otherwise
+        // a stale baseline would be read and the fresh 30s recording skipped.
+        try {
+            await apiFetch("/baseline", { method: "DELETE" });
+        } catch (err) {
+            console.warn("[App] Failed to clear server baseline:", err);
+        }
         baselineNeedsSaveRef.current = true;
         clearBaseline();
     }, [clearBaseline]);
@@ -524,6 +557,22 @@ function App() {
     const surveyInProgress = surveyCompleted > 0 && !assessmentComplete;
     // There is an assessment worth discarding/resetting.
     const hasAssessment = surveyCompleted > 0 || assessmentComplete;
+
+    // Single source of truth for the always-visible baseline card's state:
+    //  • recording — the 30s capture is running
+    //  • recorded  — a valid baseline exists
+    //  • needed    — conversation is live but no baseline yet (prompt to record/skip)
+    //  • none      — idle, no baseline (recorded on the next conversation start)
+    // Note: a "completed" status without baselineData means capture finished with no usable
+    // samples (e.g. no face) — surface that as "none" so the user can record again.
+    const baselineState: "recording" | "recorded" | "needed" | "none" =
+        baselineSessionStatus === "collecting"
+            ? "recording"
+            : baselineSessionStatus === "completed" && baselineData
+              ? "recorded"
+              : isRecording && enableBiometrics
+                ? "needed"
+                : "none";
 
     if (authState === "checking") {
         return (
@@ -766,29 +815,105 @@ function App() {
                                         <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometrics &amp; Sentiment</h2>
                                     </div>
                                     <div className="flex-1 space-y-4 overflow-y-auto p-4">
-                                        {/* Baseline Recorded — pinned to the top so it stays above the live feed,
-                                            even after the conversation is stopped. */}
-                                        {baselineSessionStatus === "completed" && baselineData && (
-                                            <div className="rounded-lg border border-[rgba(64,212,136,0.25)] bg-[rgba(64,212,136,0.06)] p-2">
-                                                <div className="flex items-center justify-between">
-                                                    <p className="text-xs font-medium text-[color:var(--ciq-accent-green)]">Baseline Recorded</p>
-                                                    <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 px-2 text-[10px]">
+                                        {/* Biometric Baseline — always visible; its inner content
+                                            reflects baselineState (recorded / recording / needed / none). */}
+                                        <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">
+                                                    Biometric Baseline
+                                                </p>
+                                                <span
+                                                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
+                                                        baselineState === "recorded"
+                                                            ? "text-[color:var(--ciq-accent-green)]"
+                                                            : baselineState === "recording"
+                                                              ? "text-[color:var(--ciq-accent-blue)]"
+                                                              : baselineState === "needed"
+                                                                ? "text-[color:var(--ciq-accent-amber)]"
+                                                                : "text-[color:var(--ciq-text-60)]"
+                                                    }`}
+                                                >
+                                                    {baselineState === "recorded"
+                                                        ? "RECORDED"
+                                                        : baselineState === "recording"
+                                                          ? "RECORDING"
+                                                          : baselineState === "needed"
+                                                            ? "REQUIRED"
+                                                            : "NOT SET"}
+                                                </span>
+                                            </div>
+
+                                            {/* Recorded — show captured values + rerecord */}
+                                            {baselineState === "recorded" && baselineData && (
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-4 text-[11px]">
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="text-[color:var(--ciq-text-68)]">Pupil:</span>
+                                                            <span className="font-data font-semibold text-[color:var(--ciq-text-strong)]">
+                                                                {baselineData.pupilSize.toFixed(1)} mm
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="text-[color:var(--ciq-text-68)]">Blink:</span>
+                                                            <span className="font-data font-semibold text-[color:var(--ciq-text-strong)]">
+                                                                {baselineData.blinkRate.toFixed(1)}/min
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 shrink-0 px-2 text-[10px]">
                                                         <RotateCcw className="mr-1 h-3 w-3" />
                                                         Rerecord
                                                     </Button>
                                                 </div>
-                                                <div className="mt-1 flex items-center gap-3 text-[10px]">
-                                                    <div className="flex items-center gap-1">
-                                                        <span className="text-[color:var(--ciq-text-68)]">Pupil:</span>
-                                                        <span className="text-[color:var(--ciq-text-strong)]">{baselineData.pupilSize.toFixed(1)} mm</span>
+                                            )}
+
+                                            {/* Recording — 30s progress */}
+                                            {baselineState === "recording" && (
+                                                <div>
+                                                    <div className="mb-2 flex items-center gap-2">
+                                                        <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-accent-blue)]" />
+                                                        <span className="text-xs text-[color:var(--ciq-accent-blue)]">
+                                                            Hold still and look at the camera…
+                                                        </span>
                                                     </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <span className="text-[color:var(--ciq-text-68)]">Blink:</span>
-                                                        <span className="text-[color:var(--ciq-text-strong)]">{baselineData.blinkRate.toFixed(1)}/min</span>
+                                                    <div className="h-2 w-full rounded-full bg-[color:var(--ciq-track)]">
+                                                        <div
+                                                            className="h-2 rounded-full bg-blue-500 transition-all duration-100"
+                                                            style={{ width: `${baselineProgress}%` }}
+                                                        />
+                                                    </div>
+                                                    <p className="mt-1.5 text-[11px] text-[color:var(--ciq-text-60)]">
+                                                        {Math.round((baselineProgress / 100) * 30)} / 30 seconds
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {/* Needed — conversation live, prompt to record or skip */}
+                                            {baselineState === "needed" && (
+                                                <div>
+                                                    <p className="mb-3 text-xs text-[color:var(--ciq-text-86)]">
+                                                        Record a 30-second baseline of your pupil size and blink rate so changes during the
+                                                        conversation can be measured.
+                                                    </p>
+                                                    <div className="flex gap-2">
+                                                        <Button onClick={handleStartBaselineSession} size="sm" className="flex-1">
+                                                            <Play className="mr-2 h-4 w-4" />
+                                                            Start Baseline (30s)
+                                                        </Button>
+                                                        <Button onClick={handleProceedWithoutBaseline} size="sm" variant="outline">
+                                                            Skip
+                                                        </Button>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        )}
+                                            )}
+
+                                            {/* None — idle, no baseline yet */}
+                                            {baselineState === "none" && (
+                                                <p className="text-xs text-[color:var(--ciq-text-60)]">
+                                                    No baseline recorded yet. It will be captured for 30 seconds when you start the conversation.
+                                                </p>
+                                            )}
+                                        </div>
 
                                         {/* Idle state — keeps the panel feeling alive before signals arrive */}
                                         {!isRecording && (
@@ -796,47 +921,6 @@ function App() {
                                                 <Activity className="h-7 w-7 text-[color:var(--ciq-text-40)]" />
                                                 <p className="text-sm font-medium text-[color:var(--ciq-text-68)]">Biometric stream idle</p>
                                                 <p className="text-xs text-[color:var(--ciq-text-40)]">Start the conversation to capture live signals</p>
-                                            </div>
-                                        )}
-
-                                        {/* Baseline Prompt UI */}
-                                        {isRecording && baselineSessionStatus === "idle" && enableBiometrics && (
-                                            <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
-                                                <h3 className="text-md mb-2 font-semibold text-[color:var(--ciq-text-strong)]">
-                                                    Baseline Measurement Required
-                                                </h3>
-                                                <p className="mb-4 text-sm text-[color:var(--ciq-text-strong)]">
-                                                    To measure biometric changes during conversation, we need to record a baseline measurement first. Please
-                                                    look at the camera for 30 seconds while we record your baseline pupil size and blink rate.
-                                                </p>
-                                                <div className="flex gap-2">
-                                                    <Button onClick={handleStartBaselineSession} size="sm" className="flex-1">
-                                                        <Play className="mr-2 h-4 w-4" />
-                                                        Start Baseline (30s)
-                                                    </Button>
-                                                    <Button onClick={handleProceedWithoutBaseline} size="sm" variant="outline">
-                                                        Skip
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Baseline Recording Progress */}
-                                        {baselineSessionStatus === "collecting" && (
-                                            <div className="mb-4 rounded-lg border border-[rgba(116,212,255,0.25)] bg-[rgba(116,212,255,0.06)] p-4">
-                                                <div className="mb-3 flex items-center justify-center">
-                                                    <Loader2 className="mr-2 h-6 w-6 animate-spin text-[color:var(--ciq-accent-blue)]" />
-                                                    <span className="text-[color:var(--ciq-accent-blue)]">Recording baseline...</span>
-                                                </div>
-                                                <div className="h-2 w-full rounded-full bg-[color:var(--ciq-track)]">
-                                                    <div
-                                                        className="h-2 rounded-full bg-blue-500 transition-all duration-100"
-                                                        style={{ width: `${baselineProgress}%` }}
-                                                    />
-                                                </div>
-                                                <p className="mt-2 text-center text-sm text-[color:var(--ciq-text-68)]">
-                                                    {Math.round((baselineProgress / 100) * 30)} / 30 seconds
-                                                </p>
                                             </div>
                                         )}
 

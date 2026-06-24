@@ -202,7 +202,13 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
     }, []);
 
     const startBaselineSession = useCallback(() => {
-        if (baselineSessionStatus === "collecting") return;
+        // Always cancel any in-flight recording timer first so an explicit (re)start is
+        // reliable — including recovering from a session that was stopped mid-recording,
+        // which previously left the status stuck on "collecting" and made this a no-op.
+        if (baselineTimerRef.current) {
+            clearInterval(baselineTimerRef.current);
+            baselineTimerRef.current = null;
+        }
 
         clearBaseline();
         console.log("[Biometrics] Starting baseline session with duration:", baselineDuration, "seconds");
@@ -229,7 +235,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 completeBaselineSession();
             }
         }, 100);
-    }, [baselineDuration, baselineSessionStatus, isAnalyzing]);
+    }, [baselineDuration, isAnalyzing]);
 
     const completeBaselineSession = useCallback(() => {
         if (baselineTimerRef.current) {
@@ -256,6 +262,14 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             currentSmoothedBlinkRateRef.current = avgBlinkRate;
             setBaselineData(newBaseline);
             saveBaselineToFile(newBaseline);
+            console.log("[Biometrics] Baseline captured:", newBaseline, `(${pupilSamples.length} pupil samples)`);
+        } else {
+            // No usable samples (e.g. face not detected / out of frame for the full 30s).
+            // Leave baselineData null so the card falls back to a re-recordable state.
+            console.warn(
+                "[Biometrics] Baseline capture produced no usable data — face not detected? " +
+                    `pupilSamples=${pupilSamples.length}, avgPupil=${avgPupilSize.toFixed(2)}, avgBlink=${avgBlinkRate.toFixed(2)}`
+            );
         }
 
         setBaselineSessionStatus("completed");

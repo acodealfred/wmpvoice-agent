@@ -38,6 +38,9 @@ type Parameters = {
     onReceivedSentimentUpdate?: (message: SentimentUpdate) => void;
     onReceivedSurveyUpdate?: (message: SurveyUpdate) => void;
     onReceivedSurveyBiometricUpdate?: (message: SurveyBiometricUpdate) => void;
+    // Fired every time Azure signals session.created (initial connect AND each reconnect).
+    // Lets the caller know the fresh session is live — e.g. to lift a reset audio guard.
+    onReceivedSessionReady?: () => void;
     onReceivedError?: (message: Message) => void;
 };
 
@@ -61,6 +64,7 @@ export default function useRealTime({
     onReceivedSentimentUpdate,
     onReceivedSurveyUpdate,
     onReceivedSurveyBiometricUpdate,
+    onReceivedSessionReady,
     onReceivedError
 }: Parameters) {
     const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
@@ -106,7 +110,13 @@ export default function useRealTime({
         onClose: () => onWebSocketClose?.(),
         onError: event => onWebSocketError?.(event),
         onMessage: event => onMessageReceived(event),
-        shouldReconnect: () => true
+        shouldReconnect: () => true,
+        // The library default is 5000ms — far too slow for our intentional reset reconnects
+        // (Start New Survey / post-report hard reset), which manifested as a ~5s silence
+        // before the fresh agent spoke. Reopen almost immediately, backing off only if a
+        // genuine network drop keeps failing.
+        reconnectInterval: (attempt: number) => Math.min(250 * 2 ** attempt, 5000),
+        reconnectAttempts: 20
     });
 
     // Send response.create so the agent produces an opening turn (greeting + warm-up).
@@ -205,6 +215,9 @@ export default function useRealTime({
                 // where startSession ran while the socket was mid-reconnect). A no-op unless
                 // startSession armed it, so genuine reconnects stay silent.
                 maybeSendGreeting();
+                // The fresh session is live: any audio from here on belongs to the new
+                // conversation, so the caller can lift its reset audio guard.
+                onReceivedSessionReady?.();
                 break;
             case "response.done":
                 onReceivedResponseDone?.(message as ResponseDone);
