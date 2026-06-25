@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
 import { apiFetch } from "@/lib/api";
+import { blinkBandLevel, pupilBandLevel } from "@/lib/bands";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
 import {
@@ -279,17 +280,20 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
               : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-body)]";
 
     const blinkBand = (changePct: number): { label: string; color: string } => {
-        const mag = Math.abs(changePct);
-        if (mag <= 15) return { label: "Normal", color: "bg-green-100 text-green-700" };
+        const level = blinkBandLevel(changePct);
+        if (level === "Normal") return { label: "Normal", color: "bg-green-100 text-green-700" };
         const arrow = changePct > 0 ? "↑" : "↓";
-        if (mag <= 40) return { label: `Elevated ${arrow}`, color: "bg-yellow-100 text-yellow-700" };
-        return { label: `High ${arrow}`, color: "bg-red-100 text-red-700" };
+        return level === "Elevated"
+            ? { label: `Elevated ${arrow}`, color: "bg-yellow-100 text-yellow-700" }
+            : { label: `High ${arrow}`, color: "bg-red-100 text-red-700" };
     };
 
     const pupilBand = (mmChange?: number | null): { label: string; color: string } => {
-        if (mmChange == null) return { label: "—", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
-        if (mmChange <= 0.1) return { label: "Low", color: "bg-green-100 text-green-700" };
-        if (mmChange <= 0.3) return { label: "Medium", color: "bg-yellow-100 text-yellow-700" };
+        const level = pupilBandLevel(mmChange);
+        if (level === "Unknown")
+            return { label: "—", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
+        if (level === "Low") return { label: "Low", color: "bg-green-100 text-green-700" };
+        if (level === "Medium") return { label: "Medium", color: "bg-yellow-100 text-yellow-700" };
         return { label: "High", color: "bg-red-100 text-red-700" };
     };
 
