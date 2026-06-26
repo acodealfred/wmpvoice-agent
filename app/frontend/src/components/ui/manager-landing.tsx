@@ -10,6 +10,17 @@ interface AssessmentNode {
     maxScore: number | null;
 }
 
+interface Department {
+    name: string;
+    eligible: number;
+    completed: number;
+    participationPct: number;
+    riskCounts: { Low: number; Moderate: number; High: number };
+    atRiskPct: number;
+    dominantRisk: string;
+    avgScore: number | null;
+}
+
 interface OverviewData {
     totalGuests: number;
     participants: number;
@@ -17,10 +28,12 @@ interface OverviewData {
     riskCounts: { Low: number; Moderate: number; High: number };
     recentAssessments: AssessmentNode[];
     nodes: AssessmentNode[];
+    departments: Department[];
 }
 
 // ── risk → colour helpers (shared by cards + 3D scene) ─────────────────
-const RISK_HEX: Record<string, number> = { Low: 0x19c993, Moderate: 0xf0bd54, High: 0xff7088 };
+// Neon-leaning hexes for the 3D scene; the cards keep the softer theme vars.
+const RISK_HEX: Record<string, number> = { Low: 0x2bf5b0, Moderate: 0xffcc4d, High: 0xff4d7d };
 const RISK_VAR: Record<string, string> = { Low: "var(--green)", Moderate: "var(--amber)", High: "var(--rose)" };
 function riskHex(level: string): number { return RISK_HEX[level] ?? 0x54a7dd; }
 function riskVar(level: string): string { return RISK_VAR[level] ?? "var(--cyan)"; }
@@ -46,20 +59,20 @@ const MAP_THEME: Record<ThemeMode, {
 }> = {
     // Bluish digital-twin look (the dashboard's signature)
     ocean: {
-        bg: 0x071622, fog: 0x071622, fogD: 0.014, amb: 0x6fa8cc, ambI: 0.5, key: 0xbfe6ff, keyI: 0.95,
-        rim: 0x25b5ad, rimI: 0.55, grid1: 0x2f6f8c, gridFine: 0x3f8fb0, plate: 0x081d2c, plateO: 0.9,
-        body: 0x103247, bodyMetal: 0.6, bodyRough: 0.3, accent: 0x0c2638, emI: 0.14,
+        bg: 0x040d16, fog: 0x05111d, fogD: 0.01, amb: 0x6fa8cc, ambI: 0.55, key: 0xbfe6ff, keyI: 1.1,
+        rim: 0x16e0d6, rimI: 0.85, grid1: 0x1f7fb0, gridFine: 0x35d6ff, plate: 0x06141f, plateO: 0.92,
+        body: 0x0e2436, bodyMetal: 0.7, bodyRough: 0.22, accent: 0x0a1f30, emI: 0.55,
     },
     // Green-tinted dark, matching the app's existing dark mode
     dark: {
-        bg: 0x0d1411, fog: 0x0d1411, fogD: 0.014, amb: 0x88b0a0, ambI: 0.5, key: 0xd8f0e4, keyI: 0.95,
-        rim: 0x3fae8a, rimI: 0.5, grid1: 0x2a5244, gridFine: 0x376b57, plate: 0x11211b, plateO: 0.85,
-        body: 0x182634, bodyMetal: 0.5, bodyRough: 0.35, accent: 0x101c26, emI: 0.14,
+        bg: 0x080d0b, fog: 0x0a120e, fogD: 0.01, amb: 0x88b0a0, ambI: 0.55, key: 0xd8f0e4, keyI: 1.1,
+        rim: 0x39f5b0, rimI: 0.8, grid1: 0x1f7a5c, gridFine: 0x36f0a8, plate: 0x0c1813, plateO: 0.9,
+        body: 0x12241c, bodyMetal: 0.65, bodyRough: 0.25, accent: 0x0c1a14, emI: 0.55,
     },
     light: {
-        bg: 0xe9f2fb, fog: 0xe9f2fb, fogD: 0.009, amb: 0xffffff, ambI: 0.78, key: 0xffffff, keyI: 1.0,
-        rim: 0x7fb4d6, rimI: 0.4, grid1: 0x9cc1dc, gridFine: 0x8fb6d6, plate: 0xdfeaf6, plateO: 0.55,
-        body: 0xdce8f4, bodyMetal: 0.2, bodyRough: 0.55, accent: 0xc3d6e6, emI: 0.1,
+        bg: 0xe9f2fb, fog: 0xe9f2fb, fogD: 0.008, amb: 0xffffff, ambI: 0.85, key: 0xffffff, keyI: 1.1,
+        rim: 0x35c8e0, rimI: 0.5, grid1: 0x7fb4dc, gridFine: 0x35a6d6, plate: 0xdfeaf6, plateO: 0.55,
+        body: 0xc9dcef, bodyMetal: 0.35, bodyRough: 0.4, accent: 0xb9d0e6, emI: 0.32,
     },
 };
 
@@ -98,7 +111,6 @@ export function ManagerLanding({ theme }: Props) {
         const mount = mountRef.current;
         if (!mount || !data) return;
 
-        const nodes = data.nodes ?? [];
         const W = mount.clientWidth || 1;
         const H = mount.clientHeight || 1;
 
@@ -228,29 +240,44 @@ export function ManagerLanding({ theme }: Props) {
             g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r);
             g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
         }
-        function makeLabel(text: string) {
-            const cv = document.createElement("canvas"); cv.width = 512; cv.height = 128;
+        function makeLabel(text: string, accent: number) {
+            const cv = document.createElement("canvas"); cv.width = 640; cv.height = 160;
             const g = cv.getContext("2d")!;
-            g.fillStyle = "rgba(8,26,40,0.82)"; roundRect(g, 6, 34, 500, 60, 16); g.fill();
-            g.strokeStyle = "rgba(84,167,221,0.5)"; g.lineWidth = 2; roundRect(g, 6, 34, 500, 60, 16); g.stroke();
-            g.font = "700 40px Inter, sans-serif"; g.fillStyle = "#dCEFFb"; g.textBaseline = "middle"; g.textAlign = "center";
-            g.fillText(text, 256, 66);
+            const hex = "#" + accent.toString(16).padStart(6, "0");
+            g.fillStyle = "rgba(6,18,28,0.88)"; roundRect(g, 8, 40, 624, 80, 22); g.fill();
+            g.strokeStyle = hex; g.lineWidth = 4; roundRect(g, 8, 40, 624, 80, 22); g.stroke();
+            // accent glow underline
+            g.shadowColor = hex; g.shadowBlur = 18;
+            g.font = "800 56px Inter, sans-serif"; g.fillStyle = "#eaf6ff";
+            g.textBaseline = "middle"; g.textAlign = "center";
+            g.fillText(text, 320, 84);
             const tex = new THREE.CanvasTexture(cv);
-            const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-            spr.scale.set(8, 2, 1); return spr;
+            const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+            spr.scale.set(15, 3.75, 1); return spr;
         }
 
-        // ── lay out one building per assessment, on a centred grid ───────
-        interface B { node: AssessmentNode; x: number; z: number; topY: number; ring: THREE.Mesh; reg: Reg; col: number }
+        // Soft white radial texture, tinted per building for a neon ground-glow.
+        const glowCv = document.createElement("canvas"); glowCv.width = glowCv.height = 128;
+        const gg = glowCv.getContext("2d")!;
+        const grad = gg.createRadialGradient(64, 64, 0, 64, 64, 64);
+        grad.addColorStop(0, "rgba(255,255,255,1)");
+        grad.addColorStop(0.35, "rgba(255,255,255,0.4)");
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+        gg.fillStyle = grad; gg.fillRect(0, 0, 128, 128);
+        const glowTex = new THREE.CanvasTexture(glowCv);
+
+        // ── One building per department, laid out on a centred grid ──────
+        interface B { dept: Department; x: number; z: number; topY: number; ring: THREE.Mesh; glow: THREE.Mesh; reg: Reg; col: number }
         const buildings: B[] = [];
         const pickables: THREE.Mesh[] = [];
-        const n = nodes.length;
+        const depts = data.departments ?? [];
+        const n = depts.length;
         const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
         const rowsN = Math.max(1, Math.ceil(n / cols));
-        const spacing = 26;
+        const spacing = 24;
 
-        nodes.forEach((node, i) => {
-            const col = riskHex(node.riskLevel);
+        depts.forEach((dept, i) => {
+            const col = riskHex(dept.dominantRisk);
             const cx = (i % cols - (cols - 1) / 2) * spacing;
             const cz = (Math.floor(i / cols) - (rowsN - 1) / 2) * spacing;
             const group = new THREE.Group();
@@ -258,15 +285,22 @@ export function ManagerLanding({ theme }: Props) {
             group.rotation.y = (i % 5) * 0.12 - 0.24;
             const R: Reg = { bodies: [], edges: [] };
             const topY = ARCH[ARCH_KEYS[i % ARCH_KEYS.length]](group, col, pickables, R);
-            const b: B = { node, x: cx, z: cz, topY, reg: R, col, ring: null as unknown as THREE.Mesh };
+            const b: B = { dept, x: cx, z: cz, topY, reg: R, col, ring: null as unknown as THREE.Mesh, glow: null as unknown as THREE.Mesh };
             R.bodies.forEach(m => { (m.userData as { b: B }).b = b; });
 
-            const ring = new THREE.Mesh(new THREE.RingGeometry(9, 9.5, 56),
-                new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
-            ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; group.add(ring); b.ring = ring;
+            // Neon ground-glow pool (additive — reads as bloom on the dark plate).
+            const glow = new THREE.Mesh(
+                new THREE.PlaneGeometry(40, 40),
+                new THREE.MeshBasicMaterial({ map: glowTex, color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85 }),
+            );
+            glow.rotation.x = -Math.PI / 2; glow.position.y = 0.05; group.add(glow); b.glow = glow;
 
-            const pl = new THREE.PointLight(col, 0.6, 34); pl.position.set(0, topY * 0.6, 0); group.add(pl);
-            const lbl = makeLabel(`S${i + 1}`); lbl.position.set(0, topY + 2.6, 0); group.add(lbl);
+            const ring = new THREE.Mesh(new THREE.RingGeometry(9, 9.6, 64),
+                new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+            ring.rotation.x = -Math.PI / 2; ring.position.y = 0.08; group.add(ring); b.ring = ring;
+
+            const pl = new THREE.PointLight(col, 1.3, 46); pl.position.set(0, topY * 0.6, 0); group.add(pl);
+            const lbl = makeLabel(dept.name, col); lbl.position.set(0, topY + 4, 0); group.add(lbl);
             scene.add(group);
             buildings.push(b);
         });
@@ -306,10 +340,10 @@ export function ManagerLanding({ theme }: Props) {
         applyThemeRef.current = applyMapTheme;
 
         // ── orbit camera (auto-spin + drag), zoom via buttons ────────────
-        const target = new THREE.Vector3(0, 6, 0);
-        let theta = 0.7, phi = 1.0;
-        let radius = Math.min(180, Math.max(58, spacing * Math.max(cols, rowsN) * 0.85 + 36));
-        const minR = 36, maxR = 220, minPhi = 0.18, maxPhi = 1.5;
+        const target = new THREE.Vector3(0, 8, 0);
+        let theta = 0.7, phi = 1.02;
+        let radius = Math.min(130, Math.max(46, spacing * Math.max(cols, rowsN) * 0.62 + 26));
+        const minR = 32, maxR = 180, minPhi = 0.18, maxPhi = 1.5;
         function applyCam() {
             camera.position.x = target.x + radius * Math.sin(phi) * Math.cos(theta);
             camera.position.y = target.y + radius * Math.cos(phi);
@@ -365,27 +399,27 @@ export function ManagerLanding({ theme }: Props) {
             }
             setAllDim(false);
         }
-        function selectBuilding(b: B, idx: number) {
+        function selectBuilding(b: B) {
             clearSelect(); selected = b; setAllDim(true);
             b.reg.bodies.forEach(m => ((m.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.72));
             b.reg.edges.forEach(e => ((e.material as THREE.Material).opacity = 1));
             if (!holo) return;
+            const d = b.dept;
             const hex = "#" + b.col.toString(16).padStart(6, "0");
-            const score = b.node.totalScore;
-            const max = b.node.maxScore;
-            const meter = max && score != null ? Math.round((score / max) * 100)
-                : b.node.riskLevel === "High" ? 85 : b.node.riskLevel === "Moderate" ? 55 : 25;
             holo.style.setProperty("--hc", hex);
-            (holo.querySelector(".ml-tag") as HTMLElement).textContent = `${b.node.riskLevel} risk`;
-            (holo.querySelector("h2") as HTMLElement).textContent = `Subject S${idx + 1}`;
-            (holo.querySelector(".ml-hsub") as HTMLElement).textContent = "Anonymised assessment · no PII";
+            (holo.querySelector(".ml-tag") as HTMLElement).textContent = `${d.dominantRisk} risk`;
+            (holo.querySelector("h2") as HTMLElement).textContent = d.name;
+            (holo.querySelector(".ml-hsub") as HTMLElement).textContent = "Department · aggregate, de-identified";
             const cells = holo.querySelectorAll(".ml-cell .ml-cv");
-            (cells[0] as HTMLElement).textContent = b.node.riskLevel;
-            (cells[1] as HTMLElement).textContent = score != null ? `${score}${max ? "/" + max : ""}` : "—";
-            (cells[2] as HTMLElement).textContent = formatDate(b.node.updated_at);
-            (holo.querySelector(".ml-meter i") as HTMLElement).style.width = meter + "%";
+            (cells[0] as HTMLElement).textContent = `${d.participationPct}%`;
+            (cells[1] as HTMLElement).textContent = `${d.atRiskPct}%`;
+            (cells[2] as HTMLElement).textContent = `${d.completed}/${d.eligible}`;
+            (holo.querySelectorAll(".ml-cell .ml-ck")[0] as HTMLElement).textContent = "Participation";
+            (holo.querySelectorAll(".ml-cell .ml-ck")[1] as HTMLElement).textContent = "At-Risk";
+            (holo.querySelectorAll(".ml-cell .ml-ck")[2] as HTMLElement).textContent = "Assessed";
+            (holo.querySelector(".ml-meter i") as HTMLElement).style.width = d.participationPct + "%";
             (holo.querySelector(".ml-desc") as HTMLElement).textContent =
-                `Burnout assessment in the ${b.node.riskLevel} band. Aggregate, de-identified signal — no individual transcripts or biometrics.`;
+                `${d.completed} of ${d.eligible} staff assessed · ${d.atRiskPct}% in Moderate/High burnout${d.avgScore != null ? ` · avg score ${d.avgScore}` : ""}.`;
             holo.classList.add("show");
             positionHolo();
         }
@@ -396,8 +430,7 @@ export function ManagerLanding({ theme }: Props) {
             toNdc(e); ray.setFromCamera(mouse, camera);
             const hit = ray.intersectObjects(pickables, false)[0];
             if (hit && (hit.object.userData as { b?: B }).b) {
-                const b = (hit.object.userData as { b: B }).b;
-                selectBuilding(b, buildings.indexOf(b));
+                selectBuilding((hit.object.userData as { b: B }).b);
             } else if (selected) { closeHolo(); }
         };
         dom.addEventListener("click", clickHandler);
@@ -434,10 +467,10 @@ export function ManagerLanding({ theme }: Props) {
             const t = clock.getElapsedTime();
             if (auto) { theta += 0.0022; applyCam(); }
             buildings.forEach((b, i) => {
-                const pulse = 0.4 + Math.sin(t * 1.5 + i) * 0.16;
-                if (selected === b) (b.ring.material as THREE.Material).opacity = 0.85;
-                else if (selected) (b.ring.material as THREE.Material).opacity = 0.15;
-                else (b.ring.material as THREE.Material).opacity = pulse;
+                const pulse = 0.5 + Math.sin(t * 1.5 + i) * 0.2;
+                if (selected === b) { (b.ring.material as THREE.Material).opacity = 0.95; (b.glow.material as THREE.Material).opacity = 1; }
+                else if (selected) { (b.ring.material as THREE.Material).opacity = 0.12; (b.glow.material as THREE.Material).opacity = 0.3; }
+                else { (b.ring.material as THREE.Material).opacity = pulse; (b.glow.material as THREE.Material).opacity = 0.6 + Math.sin(t * 1.2 + i) * 0.2; }
             });
             motes.children.forEach(m => {
                 const mm = m as THREE.Mesh;
@@ -465,6 +498,7 @@ export function ManagerLanding({ theme }: Props) {
             closeBtn?.removeEventListener("click", closeFn);
             applyThemeRef.current = undefined;
             zoomRef.current = undefined;
+            glowTex.dispose();
             renderer.dispose();
             scene.traverse(obj => {
                 const any = obj as THREE.Mesh;
@@ -487,7 +521,10 @@ export function ManagerLanding({ theme }: Props) {
     const riskTotal = rc.Low + rc.Moderate + rc.High;
     const atRiskPct = riskTotal > 0 ? Math.round((atRisk / riskTotal) * 100) : 0;
     const maxBand = Math.max(1, rc.Low, rc.Moderate, rc.High);
-    const isEmpty = !data || (data.nodes?.length ?? 0) === 0;
+    const departments = data?.departments ?? [];
+    const isEmpty = departments.length === 0;
+    // Departments with the weakest participation first — the "coverage gaps".
+    const coverageGaps = [...departments].sort((a, b) => a.participationPct - b.participationPct);
 
     const donutR = 50, donutCirc = 2 * Math.PI * donutR;
     const donutDash = (participation / 100) * donutCirc;
@@ -501,10 +538,6 @@ export function ManagerLanding({ theme }: Props) {
 
     return (
         <div className={`ml${theme === "light" ? " ml-light" : theme === "dark" ? " ml-dark" : ""}`}>
-            {/* Three.js campus canvas */}
-            <div ref={mountRef} className="ml-canvas" />
-            <div className="ml-fade" />
-
             {/* Holographic detail card (filled imperatively on building click) */}
             <div ref={holoRef} className="ml-holo">
                 <div className="ml-holo-card">
@@ -530,8 +563,13 @@ export function ManagerLanding({ theme }: Props) {
                 </div>
             )}
 
-            {/* Content overlay */}
-            <div className="ml-overlay">
+            {/* Scroll container — cards scroll over the sticky campus canvas */}
+            <div className="ml-scroll">
+                {/* Three.js campus canvas (sticky full-frame background) */}
+                <div ref={mountRef} className="ml-canvas" />
+
+                {/* Content overlay (transparent; drags fall through to the canvas) */}
+                <div className="ml-overlay">
                 <section className="ml-hero">
                     <div className="ml-map-head">
                         <div>
@@ -560,7 +598,7 @@ export function ManagerLanding({ theme }: Props) {
                     )}
                 </section>
 
-                <div className="ml-scroll">
+                <div className="ml-cards">
                     <div className="ml-grid">
                         {/* Where to Focus */}
                         <div className="ml-card ml-pad ml-span12">
@@ -601,7 +639,7 @@ export function ManagerLanding({ theme }: Props) {
                         </div>
 
                         {/* Risk distribution */}
-                        <div className="ml-card ml-pad ml-span6">
+                        <div className="ml-card ml-pad ml-span4">
                             <div className="ml-sec-h">
                                 <h2>Risk Distribution</h2>
                                 <span className="ml-badge ml-b-muted">{riskTotal} assessed</span>
@@ -623,7 +661,7 @@ export function ManagerLanding({ theme }: Props) {
                         </div>
 
                         {/* Participation donut */}
-                        <div className="ml-card ml-pad ml-span6">
+                        <div className="ml-card ml-pad ml-span4">
                             <div className="ml-sec-h"><h2>Participation</h2><span className="ml-badge ml-b-cyan">Took vs not</span></div>
                             <div className="ml-donut-wrap">
                                 <div className="ml-donut" style={{ position: "relative" }}>
@@ -645,6 +683,25 @@ export function ManagerLanding({ theme }: Props) {
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Coverage gaps — departments by participation (lowest first) */}
+                        <div className="ml-card ml-pad ml-span4">
+                            <div className="ml-sec-h"><h2>Coverage Gaps</h2><span className="ml-badge ml-b-amber">Nudge</span></div>
+                            {coverageGaps.length === 0 ? (
+                                <p style={{ color: "var(--muted)", fontSize: 13 }}>No department data.</p>
+                            ) : (
+                                <div className="ml-gap-i">
+                                    {coverageGaps.map(d => (
+                                        <div className="ml-gap-row" key={d.name}>
+                                            <span className="ml-nm">{d.name}</span>
+                                            <span className={`ml-vv${d.participationPct >= 75 ? " ok" : ""}`}>
+                                                {d.participationPct}% · {d.completed}/{d.eligible}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         {/* Recent assessments */}
@@ -679,6 +736,7 @@ export function ManagerLanding({ theme }: Props) {
                         Grouped, anonymised signals only — never personal reports, biometrics, transcripts or identities.
                         Risk levels come from the deterministic BAT scoring pipeline. A wellness tool; it does not diagnose, treat or prescribe.
                     </p>
+                </div>
                 </div>
             </div>
         </div>

@@ -46,19 +46,24 @@ async def init_db() -> None:
                 name          TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 role          TEXT NOT NULL DEFAULT 'guest',
+                department    TEXT,
+                is_demo       INTEGER NOT NULL DEFAULT 0,
                 created_at    TEXT NOT NULL
             )
         """)
 
-        # Migration for databases created before the role column existed.
+        # Migrations for databases created before a column existed.
         # CREATE TABLE IF NOT EXISTS won't add a column to an existing table, so
-        # add it explicitly and ignore the "duplicate column" error on re-run.
-        try:
-            await db.execute(
-                "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'guest'"
-            )
-        except aiosqlite.OperationalError:
-            pass  # column already present
+        # add each explicitly and ignore the "duplicate column" error on re-run.
+        for stmt in (
+            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'guest'",
+            "ALTER TABLE users ADD COLUMN department TEXT",
+            "ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                await db.execute(stmt)
+            except aiosqlite.OperationalError:
+                pass  # column already present
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 session_token   TEXT PRIMARY KEY,
@@ -86,9 +91,16 @@ async def init_db() -> None:
                 updated_at       TEXT NOT NULL,
                 survey_results   TEXT,
                 technical_report TEXT,
-                prompt_info      TEXT
+                prompt_info      TEXT,
+                is_demo          INTEGER NOT NULL DEFAULT 0
             )
         """)
+        try:
+            await db.execute(
+                "ALTER TABLE survey_records ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0"
+            )
+        except aiosqlite.OperationalError:
+            pass  # column already present
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_survey_records_user
             ON survey_records(user_id, created_at DESC)

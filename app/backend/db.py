@@ -331,6 +331,21 @@ async def get_manager_overview() -> dict:
         ) as cur:
             rows = await cur.fetchall()
 
+        # Eligible staff per department (drives participation denominators).
+        async with db.execute(
+            "SELECT department AS dept, COUNT(*) AS n FROM users "
+            "WHERE department IS NOT NULL AND department != '' GROUP BY department"
+        ) as cur:
+            dept_eligible = {r["dept"]: r["n"] for r in await cur.fetchall()}
+
+        # Per-department assessments (joined so the dept comes from the user).
+        async with db.execute(
+            "SELECT u.department AS dept, sr.user_id AS uid, sr.technical_report AS tr "
+            "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
+            "WHERE u.department IS NOT NULL AND u.department != ''"
+        ) as cur:
+            dept_rows = await cur.fetchall()
+
     risk_counts: dict[str, int] = {"Low": 0, "Moderate": 0, "High": 0}
     # Every parsed assessment, anonymised (no user_id / name / transcript). Drives
     # both the "Recent Assessments" card and the 3D campus (one building per node).
@@ -358,6 +373,50 @@ async def get_manager_overview() -> dict:
             "maxScore": report.get("maxScore"),
         })
 
+    # ── Per-department aggregation (each becomes a building in the campus) ──
+    dept_acc: dict[str, dict] = {}
+    for r in dept_rows:
+        d = dept_acc.setdefault(r["dept"], {
+            "completed_users": set(), "Low": 0, "Moderate": 0, "High": 0,
+            "score_sum": 0.0, "score_n": 0,
+        })
+        d["completed_users"].add(r["uid"])
+        try:
+            rep = json.loads(r["tr"]) if r["tr"] else {}
+        except Exception:
+            rep = {}
+        risk = _norm_risk(rep.get("riskLevel") or rep.get("risk_level") or "")
+        if risk:
+            d[risk] += 1
+        score = rep.get("totalScore")
+        if isinstance(score, (int, float)):
+            d["score_sum"] += score
+            d["score_n"] += 1
+
+    departments: list[dict] = []
+    for name in sorted(set(list(dept_eligible) + list(dept_acc))):
+        a = dept_acc.get(name, {"completed_users": set(), "Low": 0, "Moderate": 0, "High": 0, "score_sum": 0.0, "score_n": 0})
+        eligible = dept_eligible.get(name, len(a["completed_users"]))
+        completed = len(a["completed_users"])
+        rc = {"Low": a["Low"], "Moderate": a["Moderate"], "High": a["High"]}
+        assessed = rc["Low"] + rc["Moderate"] + rc["High"]
+        # Dominant risk = the largest band; ties break toward the more severe band
+        # (iterate ascending severity with >= so a later, more severe band wins).
+        dominant, best = "Low", -1
+        for band in ("Low", "Moderate", "High"):
+            if rc[band] >= best:
+                best, dominant = rc[band], band
+        departments.append({
+            "name": name,
+            "eligible": eligible,
+            "completed": completed,
+            "participationPct": round(completed / eligible * 100) if eligible else 0,
+            "riskCounts": rc,
+            "atRiskPct": round((rc["Moderate"] + rc["High"]) / assessed * 100) if assessed else 0,
+            "dominantRisk": dominant if assessed else "—",
+            "avgScore": round(a["score_sum"] / a["score_n"], 1) if a["score_n"] else None,
+        })
+
     return {
         "totalGuests": total_guests,
         "participants": participants,
@@ -366,4 +425,5 @@ async def get_manager_overview() -> dict:
         # Most-recent first; card slices the first 10, campus uses up to 24.
         "recentAssessments": nodes[:10],
         "nodes": nodes[:24],
+        "departments": departments,
     }

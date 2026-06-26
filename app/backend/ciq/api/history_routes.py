@@ -4,6 +4,7 @@ import json
 from aiohttp import web
 
 from db import get_all_users_with_session_info, get_manager_overview, get_user_survey_records
+from demo_data import clear_demo_data, demo_data_status, seed_demo_data
 
 
 async def admin_list_users(request: web.Request) -> web.Response:
@@ -16,6 +17,22 @@ async def manager_overview(request: web.Request) -> web.Response:
     """GET /manager/overview — aggregate stats for the manager dashboard."""
     data = await get_manager_overview()
     return web.json_response(data)
+
+
+async def get_demo_data(request: web.Request) -> web.Response:
+    """GET /admin/demo-data — whether demo data is currently seeded."""
+    return web.json_response(await demo_data_status())
+
+
+async def set_demo_data(request: web.Request) -> web.Response:
+    """POST /admin/demo-data {enabled: bool} — seed or wipe demo data."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    enabled = bool(body.get("enabled"))
+    status = await (seed_demo_data() if enabled else clear_demo_data())
+    return web.json_response(status)
 
 
 async def user_sessions_history(request: web.Request) -> web.Response:

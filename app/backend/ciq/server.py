@@ -11,7 +11,13 @@ from biometric_interpreter import analyze_stress
 from db_init import init_db
 
 from ciq.api.baseline_routes import clear_baseline, get_baseline, save_baseline
-from ciq.api.history_routes import admin_list_users, manager_overview, user_sessions_history
+from ciq.api.history_routes import (
+    admin_list_users,
+    get_demo_data,
+    manager_overview,
+    set_demo_data,
+    user_sessions_history,
+)
 from ciq.api.meta_routes import get_config, get_version
 from ciq.biometrics.routes import analyze_face
 from ciq.bootstrap import build_rtmt
@@ -96,6 +102,8 @@ async def create_app():
     app.router.add_post("/baseline", save_baseline)
     app.router.add_delete("/baseline", clear_baseline)
     app.router.add_get("/admin/users", admin_list_users)
+    app.router.add_get("/admin/demo-data", get_demo_data)
+    app.router.add_post("/admin/demo-data", set_demo_data)
     app.router.add_get("/manager/overview", manager_overview)
 
     # ── Mithra Knowledge Base admin proxy routes ──────────────────────────

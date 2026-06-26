@@ -195,6 +195,41 @@ export function AdminPanel() {
         }
     }, [guardrailEnabled]);
 
+    // ── Demo data (E2E) ───────────────────────────────────────────────
+    const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
+    const [demoCounts, setDemoCounts] = useState<{ userCount: number; surveyCount: number }>({ userCount: 0, surveyCount: 0 });
+    const [demoSaving, setDemoSaving] = useState(false);
+    const [demoError, setDemoError] = useState<string | null>(null);
+
+    useEffect(() => {
+        apiFetch("/admin/demo-data", { credentials: "same-origin" })
+            .then(r => (r.ok ? r.json() : Promise.reject()))
+            .then(d => { setDemoEnabled(!!d.enabled); setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 }); })
+            .catch(() => setDemoEnabled(null));
+    }, []);
+
+    const toggleDemo = useCallback(async () => {
+        if (demoEnabled === null || demoSaving) return;
+        const next = !demoEnabled;
+        setDemoError(null);
+        setDemoSaving(true);
+        try {
+            const resp = await apiFetch("/admin/demo-data", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: next }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const d = await resp.json();
+            setDemoEnabled(!!d.enabled);
+            setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 });
+        } catch (err) {
+            setDemoError(err instanceof Error ? `Couldn't update (${err.message})` : "Couldn't update");
+        } finally {
+            setDemoSaving(false);
+        }
+    }, [demoEnabled, demoSaving]);
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -345,6 +380,51 @@ export function AdminPanel() {
                 {guardrailError && <p className="mt-2 text-xs text-red-500">{guardrailError}</p>}
                 <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
                     Takes effect on new conversations — toggle, then Stop and Start the conversation to apply.
+                </p>
+            </div>
+
+            {/* ── Demo Data (E2E) ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <Database className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Demo Data (E2E)</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    When ON, the database is seeded with six departments of synthetic staff and burnout assessments so the
+                    Manager dashboard can be demoed end-to-end. When OFF, <strong>all</strong> seeded demo data is deleted and the
+                    app shows real data only. Real users and real assessments are never touched.
+                </p>
+                <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
+                        {demoEnabled === null
+                            ? "Loading…"
+                            : demoEnabled
+                                ? `Demo data is ON — ${demoCounts.userCount} staff · ${demoCounts.surveyCount} assessments`
+                                : "Demo data is OFF (real data only)"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        {demoSaving && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={demoEnabled === true}
+                            disabled={demoEnabled === null || demoSaving}
+                            onClick={toggleDemo}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                demoEnabled ? "bg-green-500" : "bg-[color:var(--ciq-card-3)]"
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    demoEnabled ? "translate-x-6" : "translate-x-1"
+                                }`}
+                            />
+                        </button>
+                    </div>
+                </div>
+                {demoError && <p className="mt-2 text-xs text-red-500">{demoError}</p>}
+                <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
+                    Seeding may take a moment. Refresh the Manager dashboard after toggling to see the change.
                 </p>
             </div>
 
