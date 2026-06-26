@@ -1,0 +1,686 @@
+import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { apiFetch } from "@/lib/api";
+import "./manager-landing.css";
+
+interface AssessmentNode {
+    updated_at: string;
+    riskLevel: string;
+    totalScore: number | null;
+    maxScore: number | null;
+}
+
+interface OverviewData {
+    totalGuests: number;
+    participants: number;
+    surveysCompleted: number;
+    riskCounts: { Low: number; Moderate: number; High: number };
+    recentAssessments: AssessmentNode[];
+    nodes: AssessmentNode[];
+}
+
+// ── risk → colour helpers (shared by cards + 3D scene) ─────────────────
+const RISK_HEX: Record<string, number> = { Low: 0x19c993, Moderate: 0xf0bd54, High: 0xff7088 };
+const RISK_VAR: Record<string, string> = { Low: "var(--green)", Moderate: "var(--amber)", High: "var(--rose)" };
+function riskHex(level: string): number { return RISK_HEX[level] ?? 0x54a7dd; }
+function riskVar(level: string): string { return RISK_VAR[level] ?? "var(--cyan)"; }
+function riskFill(level: string): string {
+    if (level === "High") return "ml-rfill-high";
+    if (level === "Moderate") return "ml-rfill-mod";
+    return "ml-rfill-low";
+}
+function formatDate(iso: string): string {
+    try {
+        return new Date(iso).toLocaleDateString(undefined, {
+            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+        });
+    } catch { return iso; }
+}
+
+// ── per-theme palette for the 3D map (one per app colour mode) ─────────
+type ThemeMode = "light" | "dark" | "ocean";
+const MAP_THEME: Record<ThemeMode, {
+    bg: number; fog: number; fogD: number; amb: number; ambI: number; key: number; keyI: number;
+    rim: number; rimI: number; grid1: number; gridFine: number; plate: number; plateO: number;
+    body: number; bodyMetal: number; bodyRough: number; accent: number; emI: number;
+}> = {
+    // Bluish digital-twin look (the dashboard's signature)
+    ocean: {
+        bg: 0x071622, fog: 0x071622, fogD: 0.014, amb: 0x6fa8cc, ambI: 0.5, key: 0xbfe6ff, keyI: 0.95,
+        rim: 0x25b5ad, rimI: 0.55, grid1: 0x2f6f8c, gridFine: 0x3f8fb0, plate: 0x081d2c, plateO: 0.9,
+        body: 0x103247, bodyMetal: 0.6, bodyRough: 0.3, accent: 0x0c2638, emI: 0.14,
+    },
+    // Green-tinted dark, matching the app's existing dark mode
+    dark: {
+        bg: 0x0d1411, fog: 0x0d1411, fogD: 0.014, amb: 0x88b0a0, ambI: 0.5, key: 0xd8f0e4, keyI: 0.95,
+        rim: 0x3fae8a, rimI: 0.5, grid1: 0x2a5244, gridFine: 0x376b57, plate: 0x11211b, plateO: 0.85,
+        body: 0x182634, bodyMetal: 0.5, bodyRough: 0.35, accent: 0x101c26, emI: 0.14,
+    },
+    light: {
+        bg: 0xe9f2fb, fog: 0xe9f2fb, fogD: 0.009, amb: 0xffffff, ambI: 0.78, key: 0xffffff, keyI: 1.0,
+        rim: 0x7fb4d6, rimI: 0.4, grid1: 0x9cc1dc, gridFine: 0x8fb6d6, plate: 0xdfeaf6, plateO: 0.55,
+        body: 0xdce8f4, bodyMetal: 0.2, bodyRough: 0.55, accent: 0xc3d6e6, emI: 0.1,
+    },
+};
+
+interface Props {
+    theme: ThemeMode;
+}
+
+export function ManagerLanding({ theme }: Props) {
+    const mountRef = useRef<HTMLDivElement>(null);
+    const holoRef = useRef<HTMLDivElement>(null);
+    const [data, setData] = useState<OverviewData | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    // Bridges so the imperative Three.js code can read the latest theme and the
+    // React zoom buttons can call into the scene, without rebuilding the scene.
+    const themeRef = useRef(theme);
+    const applyThemeRef = useRef<(t: ThemeMode) => void>();
+    const zoomRef = useRef<(delta: number) => void>();
+
+    // ── Fetch overview data ─────────────────────────────────────────────
+    useEffect(() => {
+        apiFetch("/manager/overview", { credentials: "same-origin" })
+            .then(r => r.json())
+            .then((d: OverviewData) => { setData(d); setLoading(false); })
+            .catch(() => setLoading(false));
+    }, []);
+
+    // ── Push theme changes into the live scene (no rebuild) ──────────────
+    useEffect(() => {
+        themeRef.current = theme;
+        applyThemeRef.current?.(theme);
+    }, [theme]);
+
+    // ── Build the 3D campus once data has loaded ─────────────────────────
+    useEffect(() => {
+        const mount = mountRef.current;
+        if (!mount || !data) return;
+
+        const nodes = data.nodes ?? [];
+        const W = mount.clientWidth || 1;
+        const H = mount.clientHeight || 1;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(W, H);
+        const dom = renderer.domElement;
+        dom.style.display = "block";
+        mount.appendChild(dom);
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 600);
+
+        const amb = new THREE.AmbientLight(0x6fa8cc, 0.5); scene.add(amb);
+        const key = new THREE.DirectionalLight(0xbfe6ff, 0.95); key.position.set(22, 40, 16); scene.add(key);
+        const rim = new THREE.DirectionalLight(0x25b5ad, 0.55); rim.position.set(-24, 12, -20); scene.add(rim);
+
+        // ground
+        const grid = new THREE.GridHelper(220, 90, 0x2f6f8c, 0x16384a) as THREE.GridHelper;
+        (grid.material as THREE.Material).transparent = true; (grid.material as THREE.Material).opacity = 0.3; scene.add(grid);
+        const plate = new THREE.Mesh(
+            new THREE.CircleGeometry(110, 80),
+            new THREE.MeshBasicMaterial({ color: 0x081d2c, transparent: true, opacity: 0.9 }),
+        );
+        plate.rotation.x = -Math.PI / 2; plate.position.y = -0.02; scene.add(plate);
+
+        let curTheme: ThemeMode = themeRef.current;
+        const accentMats: THREE.MeshStandardMaterial[] = [];
+
+        function bodyMat(col: number) {
+            const T = MAP_THEME[curTheme];
+            return new THREE.MeshStandardMaterial({
+                color: T.body, metalness: T.bodyMetal, roughness: T.bodyRough,
+                emissive: new THREE.Color(col), emissiveIntensity: T.emI, transparent: true, opacity: 0.95,
+            });
+        }
+        function edgeMat(col: number, op: number) { return new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op }); }
+        function accentMat(opts: THREE.MeshStandardMaterialParameters) {
+            const m = new THREE.MeshStandardMaterial(Object.assign({ color: MAP_THEME[curTheme].accent }, opts));
+            accentMats.push(m); return m;
+        }
+
+        interface Reg { bodies: THREE.Mesh[]; edges: THREE.LineSegments[] }
+
+        function addMass(group: THREE.Group, col: number, w: number, h: number, d: number, x: number, y: number, z: number, pick: THREE.Mesh[], R: Reg) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const m = new THREE.Mesh(geo, bodyMat(col)); m.position.set(x, y + h / 2, z);
+            group.add(m); pick.push(m); R.bodies.push(m);
+            const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat(col, 0.85));
+            e.position.copy(m.position); group.add(e); R.edges.push(e);
+            return m;
+        }
+        function addFloorLines(group: THREE.Group, col: number, w: number, d: number, baseY: number, topY: number, x: number, z: number, step: number) {
+            const lineMat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.22 });
+            const hw = w / 2 + 0.02, hd = d / 2 + 0.02;
+            for (let y = baseY + step; y < topY - 0.3; y += step) {
+                const g = new THREE.BufferGeometry();
+                const pts = [-hw, y, -hd, hw, y, -hd, hw, y, -hd, hw, y, hd, hw, y, hd, -hw, y, hd, -hw, y, hd, -hw, y, -hd];
+                g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+                const seg = new THREE.LineSegments(g, lineMat); seg.position.set(x, 0, z); group.add(seg);
+            }
+        }
+
+        // ── archetype builders (return top Y for label placement) ────────
+        const ARCH: Record<string, (g: THREE.Group, col: number, P: THREE.Mesh[], R: Reg) => number> = {
+            hospital(group, col, P, R) {
+                addMass(group, col, 14, 4, 12, 0, 0, 0, P, R); addFloorLines(group, col, 14, 12, 0, 4, 0, 0, 2);
+                addMass(group, col, 9, 16, 7, 0, 4, -0.5, P, R); addFloorLines(group, col, 9, 7, 4, 20, 0, -0.5, 2.2);
+                addMass(group, col, 5, 9, 5, 5.5, 4, 3, P, R); addFloorLines(group, col, 5, 5, 4, 13, 5.5, 3, 2.2);
+                const heli = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 0.4, 28),
+                    accentMat({ metalness: 0.4, roughness: 0.6, emissive: new THREE.Color(col), emissiveIntensity: 0.25 }));
+                heli.position.set(0, 20.2, -0.5); group.add(heli);
+                const hring = new THREE.Mesh(new THREE.RingGeometry(1.7, 2.0, 28),
+                    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+                hring.rotation.x = -Math.PI / 2; hring.position.set(0, 20.42, -0.5); group.add(hring);
+                return 20.6;
+            },
+            emergency(group, col, P, R) {
+                addMass(group, col, 11, 7, 9, 0, 0, 0, P, R); addFloorLines(group, col, 11, 9, 0, 7, 0, 0, 2.2);
+                addMass(group, col, 7, 4, 6, -1.5, 7, -1, P, R);
+                const canopy = new THREE.Mesh(new THREE.BoxGeometry(9, 0.4, 4),
+                    accentMat({ metalness: 0.5, roughness: 0.4, emissive: new THREE.Color(col), emissiveIntensity: 0.3 }));
+                canopy.position.set(0, 3.4, 7.2); group.add(canopy);
+                [-3.6, 3.6].forEach(px => {
+                    const pil = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 3.4, 10), accentMat({ metalness: 0.6, roughness: 0.4 }));
+                    pil.position.set(px, 1.7, 8.8); group.add(pil);
+                });
+                const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.2, 3), new THREE.MeshBasicMaterial({ color: col }));
+                crossV.position.set(0, 7.12, 1); group.add(crossV);
+                const crossH = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 0.7), new THREE.MeshBasicMaterial({ color: col }));
+                crossH.position.set(0, 7.12, 1); group.add(crossH);
+                return 11.4;
+            },
+            pavilion(group, col, P, R) {
+                addMass(group, col, 14, 4.5, 9, 0, 0, 0, P, R); addFloorLines(group, col, 14, 9, 0, 4.5, 0, 0, 1.6);
+                for (let i = -2; i <= 2; i++) {
+                    const tooth = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 9), bodyMat(col));
+                    tooth.position.set(i * 2.6, 5.3, 0); tooth.rotation.z = 0.5; group.add(tooth); P.push(tooth); R.bodies.push(tooth);
+                    const te = new THREE.LineSegments(new THREE.EdgesGeometry(tooth.geometry), edgeMat(col, 0.7));
+                    te.position.copy(tooth.position); te.rotation.copy(tooth.rotation); group.add(te); R.edges.push(te);
+                }
+                return 6.6;
+            },
+            tower(group, col, P, R) {
+                addMass(group, col, 7, 8, 7, 0, 0, 0, P, R); addFloorLines(group, col, 7, 7, 0, 8, 0, 0, 2);
+                addMass(group, col, 5.6, 7, 5.6, 0, 8, 0, P, R); addFloorLines(group, col, 5.6, 5.6, 8, 15, 0, 0, 2);
+                addMass(group, col, 4.2, 6, 4.2, 0, 15, 0, P, R); addFloorLines(group, col, 4.2, 4.2, 15, 21, 0, 0, 2);
+                const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4, 8), new THREE.MeshBasicMaterial({ color: col }));
+                mast.position.set(0, 25, 0); group.add(mast);
+                return 27;
+            },
+            curve(group, col, P, R) {
+                const tiers: [number, number, number][] = [[6, 3, 0], [5, 3, 3], [4, 3, 6], [3, 2.4, 9]];
+                tiers.forEach(([r, h, y]) => {
+                    const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.4, h, 40, 1, false, 0, Math.PI * 1.35), bodyMat(col));
+                    t.position.set(0, y + h / 2, 0); t.rotation.y = -0.5; group.add(t); P.push(t); R.bodies.push(t);
+                    const e = new THREE.LineSegments(new THREE.EdgesGeometry(t.geometry), edgeMat(col, 0.5));
+                    e.position.copy(t.position); e.rotation.copy(t.rotation); group.add(e); R.edges.push(e);
+                });
+                return 11.6;
+            },
+        };
+        const ARCH_KEYS = ["hospital", "emergency", "pavilion", "tower", "curve"];
+
+        // ── label sprite ─────────────────────────────────────────────────
+        function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+            g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r);
+            g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+        }
+        function makeLabel(text: string) {
+            const cv = document.createElement("canvas"); cv.width = 512; cv.height = 128;
+            const g = cv.getContext("2d")!;
+            g.fillStyle = "rgba(8,26,40,0.82)"; roundRect(g, 6, 34, 500, 60, 16); g.fill();
+            g.strokeStyle = "rgba(84,167,221,0.5)"; g.lineWidth = 2; roundRect(g, 6, 34, 500, 60, 16); g.stroke();
+            g.font = "700 40px Inter, sans-serif"; g.fillStyle = "#dCEFFb"; g.textBaseline = "middle"; g.textAlign = "center";
+            g.fillText(text, 256, 66);
+            const tex = new THREE.CanvasTexture(cv);
+            const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+            spr.scale.set(8, 2, 1); return spr;
+        }
+
+        // ── lay out one building per assessment, on a centred grid ───────
+        interface B { node: AssessmentNode; x: number; z: number; topY: number; ring: THREE.Mesh; reg: Reg; col: number }
+        const buildings: B[] = [];
+        const pickables: THREE.Mesh[] = [];
+        const n = nodes.length;
+        const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
+        const rowsN = Math.max(1, Math.ceil(n / cols));
+        const spacing = 26;
+
+        nodes.forEach((node, i) => {
+            const col = riskHex(node.riskLevel);
+            const cx = (i % cols - (cols - 1) / 2) * spacing;
+            const cz = (Math.floor(i / cols) - (rowsN - 1) / 2) * spacing;
+            const group = new THREE.Group();
+            group.position.set(cx, 0, cz);
+            group.rotation.y = (i % 5) * 0.12 - 0.24;
+            const R: Reg = { bodies: [], edges: [] };
+            const topY = ARCH[ARCH_KEYS[i % ARCH_KEYS.length]](group, col, pickables, R);
+            const b: B = { node, x: cx, z: cz, topY, reg: R, col, ring: null as unknown as THREE.Mesh };
+            R.bodies.forEach(m => { (m.userData as { b: B }).b = b; });
+
+            const ring = new THREE.Mesh(new THREE.RingGeometry(9, 9.5, 56),
+                new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
+            ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; group.add(ring); b.ring = ring;
+
+            const pl = new THREE.PointLight(col, 0.6, 34); pl.position.set(0, topY * 0.6, 0); group.add(pl);
+            const lbl = makeLabel(`S${i + 1}`); lbl.position.set(0, topY + 2.6, 0); group.add(lbl);
+            scene.add(group);
+            buildings.push(b);
+        });
+
+        // floating data motes
+        const motes = new THREE.Group();
+        for (let i = 0; i < 90; i++) {
+            const m = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 6),
+                new THREE.MeshBasicMaterial({ color: 0x54a7dd, transparent: true, opacity: 0.5 }));
+            m.position.set((Math.random() - 0.5) * 120, Math.random() * 26 + 1, (Math.random() - 0.5) * 120);
+            (m.userData as { sp: number }).sp = 0.2 + Math.random() * 0.5; motes.add(m);
+        }
+        scene.add(motes);
+
+        // ── theme application ────────────────────────────────────────────
+        function applyMapTheme(name: ThemeMode) {
+            curTheme = name;
+            const T = MAP_THEME[curTheme];
+            scene.background = new THREE.Color(T.bg);
+            scene.fog = new THREE.FogExp2(T.fog, T.fogD);
+            amb.color.setHex(T.amb); amb.intensity = T.ambI;
+            key.color.setHex(T.key); key.intensity = T.keyI;
+            rim.color.setHex(T.rim); rim.intensity = T.rimI;
+            (grid.material as THREE.LineBasicMaterial).color.setHex(T.grid1);
+            (grid.material as THREE.Material).opacity = curTheme === "light" ? 0.5 : 0.3;
+            (plate.material as THREE.MeshBasicMaterial).color.setHex(T.plate);
+            (plate.material as THREE.Material).opacity = T.plateO;
+            buildings.forEach(b => {
+                b.reg.bodies.forEach(m => {
+                    const mat = m.material as THREE.MeshStandardMaterial;
+                    mat.color.setHex(T.body); mat.metalness = T.bodyMetal; mat.roughness = T.bodyRough;
+                    if (selected !== b) mat.emissiveIntensity = T.emI;
+                });
+            });
+            accentMats.forEach(m => m.color.setHex(T.accent));
+        }
+        applyThemeRef.current = applyMapTheme;
+
+        // ── orbit camera (auto-spin + drag), zoom via buttons ────────────
+        const target = new THREE.Vector3(0, 6, 0);
+        let theta = 0.7, phi = 1.0;
+        let radius = Math.min(180, Math.max(58, spacing * Math.max(cols, rowsN) * 0.85 + 36));
+        const minR = 36, maxR = 220, minPhi = 0.18, maxPhi = 1.5;
+        function applyCam() {
+            camera.position.x = target.x + radius * Math.sin(phi) * Math.cos(theta);
+            camera.position.y = target.y + radius * Math.cos(phi);
+            camera.position.z = target.z + radius * Math.sin(phi) * Math.sin(theta);
+            camera.lookAt(target);
+        }
+        applyCam();
+
+        let dragging = false, lastX = 0, lastY = 0, moved = 0, auto = true;
+        let idle: ReturnType<typeof setTimeout> | null = null;
+        function pauseAuto() { auto = false; if (idle) clearTimeout(idle); idle = setTimeout(() => { auto = true; }, 2600); }
+        function onDown(x: number, y: number) { dragging = true; lastX = x; lastY = y; moved = 0; auto = false; if (idle) clearTimeout(idle); }
+        function onMove(x: number, y: number) {
+            if (!dragging) return;
+            const dx = x - lastX, dy = y - lastY; lastX = x; lastY = y; moved += Math.abs(dx) + Math.abs(dy);
+            theta -= dx * 0.005; phi = Math.max(minPhi, Math.min(maxPhi, phi - dy * 0.005)); applyCam();
+        }
+        function onUp() { if (dragging) { dragging = false; pauseAuto(); } }
+        const mdown = (e: MouseEvent) => onDown(e.clientX, e.clientY);
+        const mmove = (e: MouseEvent) => onMove(e.clientX, e.clientY);
+        dom.addEventListener("mousedown", mdown);
+        window.addEventListener("mousemove", mmove);
+        window.addEventListener("mouseup", onUp);
+        dom.addEventListener("touchstart", e => onDown(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+        dom.addEventListener("touchmove", e => onMove(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+        dom.addEventListener("touchend", onUp);
+
+        zoomRef.current = (delta: number) => { radius = Math.max(minR, Math.min(maxR, radius + delta)); applyCam(); pauseAuto(); };
+
+        // ── picking + holo card ──────────────────────────────────────────
+        const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+        let selected: B | null = null;
+        const holo = holoRef.current;
+
+        function toNdc(e: MouseEvent) {
+            const rect = dom.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        }
+        function setAllDim(dim: boolean) {
+            buildings.forEach(b => {
+                if (b === selected) return;
+                b.reg.bodies.forEach(m => ((m.material as THREE.MeshStandardMaterial).emissiveIntensity = dim ? 0.05 : MAP_THEME[curTheme].emI));
+                b.reg.edges.forEach(e => ((e.material as THREE.Material).opacity = dim ? 0.28 : 0.85));
+                (b.ring.material as THREE.Material).opacity = dim ? 0.15 : 0.45;
+            });
+        }
+        function clearSelect() {
+            if (selected) {
+                selected.reg.bodies.forEach(m => ((m.material as THREE.MeshStandardMaterial).emissiveIntensity = MAP_THEME[curTheme].emI));
+                selected.reg.edges.forEach(e => ((e.material as THREE.Material).opacity = 0.85));
+                selected = null;
+            }
+            setAllDim(false);
+        }
+        function selectBuilding(b: B, idx: number) {
+            clearSelect(); selected = b; setAllDim(true);
+            b.reg.bodies.forEach(m => ((m.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.72));
+            b.reg.edges.forEach(e => ((e.material as THREE.Material).opacity = 1));
+            if (!holo) return;
+            const hex = "#" + b.col.toString(16).padStart(6, "0");
+            const score = b.node.totalScore;
+            const max = b.node.maxScore;
+            const meter = max && score != null ? Math.round((score / max) * 100)
+                : b.node.riskLevel === "High" ? 85 : b.node.riskLevel === "Moderate" ? 55 : 25;
+            holo.style.setProperty("--hc", hex);
+            (holo.querySelector(".ml-tag") as HTMLElement).textContent = `${b.node.riskLevel} risk`;
+            (holo.querySelector("h2") as HTMLElement).textContent = `Subject S${idx + 1}`;
+            (holo.querySelector(".ml-hsub") as HTMLElement).textContent = "Anonymised assessment · no PII";
+            const cells = holo.querySelectorAll(".ml-cell .ml-cv");
+            (cells[0] as HTMLElement).textContent = b.node.riskLevel;
+            (cells[1] as HTMLElement).textContent = score != null ? `${score}${max ? "/" + max : ""}` : "—";
+            (cells[2] as HTMLElement).textContent = formatDate(b.node.updated_at);
+            (holo.querySelector(".ml-meter i") as HTMLElement).style.width = meter + "%";
+            (holo.querySelector(".ml-desc") as HTMLElement).textContent =
+                `Burnout assessment in the ${b.node.riskLevel} band. Aggregate, de-identified signal — no individual transcripts or biometrics.`;
+            holo.classList.add("show");
+            positionHolo();
+        }
+        function closeHolo() { holo?.classList.remove("show"); clearSelect(); }
+
+        const clickHandler = (e: MouseEvent) => {
+            if (moved >= 6) return;
+            toNdc(e); ray.setFromCamera(mouse, camera);
+            const hit = ray.intersectObjects(pickables, false)[0];
+            if (hit && (hit.object.userData as { b?: B }).b) {
+                const b = (hit.object.userData as { b: B }).b;
+                selectBuilding(b, buildings.indexOf(b));
+            } else if (selected) { closeHolo(); }
+        };
+        dom.addEventListener("click", clickHandler);
+        const hoverHandler = (e: MouseEvent) => {
+            if (dragging) { dom.style.cursor = "grabbing"; return; }
+            toNdc(e); ray.setFromCamera(mouse, camera);
+            dom.style.cursor = ray.intersectObjects(pickables, false)[0] ? "pointer" : "grab";
+        };
+        dom.addEventListener("mousemove", hoverHandler);
+        const closeBtn = holo?.querySelector(".ml-close") as HTMLElement | null;
+        const closeFn = (e: Event) => { e.stopPropagation(); closeHolo(); };
+        closeBtn?.addEventListener("click", closeFn);
+
+        const proj = new THREE.Vector3();
+        function positionHolo() {
+            if (!selected || !holo) return;
+            proj.set(selected.x, selected.topY + 1, selected.z); proj.project(camera);
+            if (proj.z > 1) { holo.style.opacity = "0"; return; }
+            holo.style.opacity = "1";
+            const cw = mount!.clientWidth, ch = mount!.clientHeight;
+            const bx = (proj.x * 0.5 + 0.5) * cw, by = (-proj.y * 0.5 + 0.5) * ch;
+            const cx = cw / 2, cy = ch * 0.42, bias = 0.82;
+            let px = bx + (cx - bx) * bias, py = by + (cy - by) * bias;
+            px = Math.max(150, Math.min(cw - 150, px));
+            py = Math.max(150, Math.min(ch - 150, py));
+            holo.style.left = px + "px"; holo.style.top = py + "px";
+        }
+
+        // ── render loop ──────────────────────────────────────────────────
+        const clock = new THREE.Clock();
+        let raf = 0;
+        function animate() {
+            raf = requestAnimationFrame(animate);
+            const t = clock.getElapsedTime();
+            if (auto) { theta += 0.0022; applyCam(); }
+            buildings.forEach((b, i) => {
+                const pulse = 0.4 + Math.sin(t * 1.5 + i) * 0.16;
+                if (selected === b) (b.ring.material as THREE.Material).opacity = 0.85;
+                else if (selected) (b.ring.material as THREE.Material).opacity = 0.15;
+                else (b.ring.material as THREE.Material).opacity = pulse;
+            });
+            motes.children.forEach(m => {
+                const mm = m as THREE.Mesh;
+                mm.position.y += (mm.userData as { sp: number }).sp * 0.01;
+                if (mm.position.y > 28) mm.position.y = 1;
+                (mm.material as THREE.Material).opacity = 0.3 + Math.sin(t * 2 + mm.position.x) * 0.25;
+            });
+            if (selected) positionHolo();
+            renderer.render(scene, camera);
+        }
+        applyMapTheme(themeRef.current);
+        animate();
+
+        const onResize = () => {
+            const nW = mount.clientWidth, nH = mount.clientHeight;
+            camera.aspect = nW / nH; camera.updateProjectionMatrix(); renderer.setSize(nW, nH);
+        };
+        window.addEventListener("resize", onResize);
+
+        return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener("resize", onResize);
+            window.removeEventListener("mousemove", mmove);
+            window.removeEventListener("mouseup", onUp);
+            closeBtn?.removeEventListener("click", closeFn);
+            applyThemeRef.current = undefined;
+            zoomRef.current = undefined;
+            renderer.dispose();
+            scene.traverse(obj => {
+                const any = obj as THREE.Mesh;
+                if (any.geometry) any.geometry.dispose();
+                const mat = (any as THREE.Mesh).material;
+                if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+                else if (mat) (mat as THREE.Material).dispose();
+            });
+            if (mount.contains(dom)) mount.removeChild(dom);
+        };
+    }, [data]);
+
+    // ── derived stats for the cards ──────────────────────────────────────
+    const total = data?.totalGuests ?? 0;
+    const done = data?.surveysCompleted ?? 0;
+    const participants = data?.participants ?? 0;
+    const participation = total > 0 ? Math.round((participants / total) * 100) : 0;
+    const rc = data?.riskCounts ?? { Low: 0, Moderate: 0, High: 0 };
+    const atRisk = rc.High + rc.Moderate;
+    const riskTotal = rc.Low + rc.Moderate + rc.High;
+    const atRiskPct = riskTotal > 0 ? Math.round((atRisk / riskTotal) * 100) : 0;
+    const maxBand = Math.max(1, rc.Low, rc.Moderate, rc.High);
+    const isEmpty = !data || (data.nodes?.length ?? 0) === 0;
+
+    const donutR = 50, donutCirc = 2 * Math.PI * donutR;
+    const donutDash = (participation / 100) * donutCirc;
+
+    // "Where to Focus" derived purely from real risk/participation numbers
+    const focus: { title: string; detail: string }[] = [];
+    if (rc.High > 0) focus.push({ title: "Prioritise High-risk outreach", detail: `${rc.High} ${rc.High === 1 ? "person is" : "people are"} in the High burnout band — schedule check-ins first.` });
+    if (rc.Moderate > 0) focus.push({ title: "Monitor Moderate-risk staff", detail: `${rc.Moderate} ${rc.Moderate === 1 ? "person sits" : "people sit"} in the Moderate band — watch for escalation.` });
+    if (total > participants) focus.push({ title: "Lift participation", detail: `${total - participants} of ${total} staff have not completed an assessment yet.` });
+    if (focus.length === 0) focus.push({ title: riskTotal > 0 ? "All assessed staff are Low-risk" : "Awaiting first assessment", detail: riskTotal > 0 ? "No Moderate or High burnout detected in current data." : "Encourage staff to complete the voice assessment to populate this view." });
+
+    return (
+        <div className={`ml${theme === "light" ? " ml-light" : theme === "dark" ? " ml-dark" : ""}`}>
+            {/* Three.js campus canvas */}
+            <div ref={mountRef} className="ml-canvas" />
+            <div className="ml-fade" />
+
+            {/* Holographic detail card (filled imperatively on building click) */}
+            <div ref={holoRef} className="ml-holo">
+                <div className="ml-holo-card">
+                    <div className="ml-close">×</div>
+                    <span className="ml-tag">—</span>
+                    <h2>—</h2>
+                    <p className="ml-hsub">—</p>
+                    <div className="ml-stats">
+                        <div className="ml-cell"><span className="ml-ck">Risk</span><span className="ml-cv">—</span></div>
+                        <div className="ml-cell"><span className="ml-ck">Score</span><span className="ml-cv">—</span></div>
+                        <div className="ml-cell"><span className="ml-ck">Date</span><span className="ml-cv">—</span></div>
+                    </div>
+                    <div className="ml-meter"><i style={{ width: "0%" }} /></div>
+                    <p className="ml-desc">—</p>
+                    <p className="ml-foot">Aggregate, de-identified signal — no individual reports.</p>
+                </div>
+            </div>
+
+            {loading && (
+                <div className="ml-loader">
+                    <div className="ml-ring" />
+                    <p>Initializing digital twin</p>
+                </div>
+            )}
+
+            {/* Content overlay */}
+            <div className="ml-overlay">
+                <section className="ml-hero">
+                    <div className="ml-map-head">
+                        <div>
+                            <p className="ml-eyebrow">Live Assessment Map</p>
+                            <h2>Wellbeing across the organisation</h2>
+                        </div>
+                        <span className="ml-badge ml-b-cyan">Interactive · click a building</span>
+                    </div>
+                    <div className="ml-map-controls">
+                        <div className="ml-map-legend">
+                            <span><i style={{ background: "var(--green)", color: "var(--green)" }} />Low</span>
+                            <span><i style={{ background: "var(--amber)", color: "var(--amber)" }} />Moderate</span>
+                            <span><i style={{ background: "var(--rose)", color: "var(--rose)" }} />High</span>
+                        </div>
+                        <div className="ml-zoom-controls">
+                            <span className="ml-drag-note">Drag to rotate</span>
+                            <button className="ml-zoom-btn" aria-label="Zoom out" onClick={() => zoomRef.current?.(14)}>−</button>
+                            <button className="ml-zoom-btn" aria-label="Zoom in" onClick={() => zoomRef.current?.(-14)}>+</button>
+                        </div>
+                    </div>
+                    {isEmpty && !loading && (
+                        <div style={{ position: "absolute", left: "50%", top: "42%", transform: "translate(-50%,-50%)", textAlign: "center", pointerEvents: "none" }}>
+                            <p style={{ color: "var(--bright)", fontSize: 18, fontWeight: 700, margin: 0 }}>Awaiting first assessment</p>
+                            <p style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0 0" }}>Buildings appear here as staff complete the voice assessment.</p>
+                        </div>
+                    )}
+                </section>
+
+                <div className="ml-scroll">
+                    <div className="ml-grid">
+                        {/* Where to Focus */}
+                        <div className="ml-card ml-pad ml-span12">
+                            <div className="ml-sec-h">
+                                <h2>Where to Focus</h2>
+                                <span className="ml-badge ml-b-amber">Actions · aggregate</span>
+                            </div>
+                            <div className="ml-focus-grid">
+                                {focus.map((f, i) => (
+                                    <div className="ml-act" key={i}>
+                                        <div className="ml-n">{i + 1}</div>
+                                        <div><b>{f.title}</b><span>{f.detail}</span></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* KPI strip */}
+                        <div className="ml-card ml-kpi">
+                            <p className="ml-k">Total Staff</p>
+                            <p className="ml-v">{total}<small> users</small></p>
+                            <p className="ml-t">Guest accounts in system</p>
+                        </div>
+                        <div className="ml-card ml-kpi ml-accent">
+                            <p className="ml-k">Surveys Completed</p>
+                            <p className="ml-v">{done}</p>
+                            <p className="ml-t">Total assessment runs</p>
+                        </div>
+                        <div className="ml-card ml-kpi">
+                            <p className="ml-k">At-Risk Share</p>
+                            <p className="ml-v" style={{ color: atRisk > 0 ? "var(--rose)" : "var(--green)" }}>{atRiskPct}<small>%</small></p>
+                            <p className="ml-t">{atRisk} of {riskTotal} · mod + high</p>
+                        </div>
+                        <div className="ml-card ml-kpi">
+                            <p className="ml-k">Participation</p>
+                            <p className="ml-v">{participation}<small>%</small></p>
+                            <p className="ml-t">{participants} of {total} staff assessed</p>
+                        </div>
+
+                        {/* Risk distribution */}
+                        <div className="ml-card ml-pad ml-span6">
+                            <div className="ml-sec-h">
+                                <h2>Risk Distribution</h2>
+                                <span className="ml-badge ml-b-muted">{riskTotal} assessed</span>
+                            </div>
+                            {(["High", "Moderate", "Low"] as const).map(level => {
+                                const count = rc[level];
+                                const widthPct = Math.round((count / maxBand) * 100);
+                                const sharePct = riskTotal > 0 ? Math.round((count / riskTotal) * 100) : 0;
+                                return (
+                                    <div className="ml-risk" key={level}>
+                                        <label>{level}</label>
+                                        <div className="ml-rtrack">
+                                            <div className={`ml-rfill ${riskFill(level)}`} style={{ width: `${widthPct}%` }} />
+                                        </div>
+                                        <b>{count} <small>{sharePct}%</small></b>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Participation donut */}
+                        <div className="ml-card ml-pad ml-span6">
+                            <div className="ml-sec-h"><h2>Participation</h2><span className="ml-badge ml-b-cyan">Took vs not</span></div>
+                            <div className="ml-donut-wrap">
+                                <div className="ml-donut" style={{ position: "relative" }}>
+                                    <svg width="112" height="112" viewBox="0 0 112 112" style={{ display: "block" }}>
+                                        <circle cx="56" cy="56" r={donutR} fill="none" stroke="rgba(84,167,221,.14)" strokeWidth="10" />
+                                        <circle cx="56" cy="56" r={donutR} fill="none"
+                                            stroke={participation >= 75 ? "var(--green)" : participation >= 40 ? "var(--amber)" : "var(--rose)"}
+                                            strokeWidth="10" strokeDasharray={`${donutDash} ${donutCirc}`} strokeLinecap="round" transform="rotate(-90 56 56)" />
+                                    </svg>
+                                    <div className="ml-inner" style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)" }}>
+                                        <b>{participation}%</b><span>completed</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <p className="ml-pcov"><b>{participants}</b> of <b>{total}</b> staff have completed at least one assessment.</p>
+                                    <div className="ml-leg">
+                                        <span><i style={{ background: "var(--green)" }} />Assessed</span>
+                                        <span><i style={{ background: "rgba(255,112,136,.4)" }} />Not yet</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Recent assessments */}
+                        <div className="ml-card ml-pad ml-span12">
+                            <div className="ml-sec-h">
+                                <h2>Recent Assessments</h2>
+                                <span className="ml-badge ml-b-muted">latest {data?.recentAssessments.length ?? 0}</span>
+                            </div>
+                            {!data || data.recentAssessments.length === 0 ? (
+                                <p style={{ color: "var(--muted)", fontSize: 13 }}>No assessments recorded yet.</p>
+                            ) : (
+                                <div style={{ display: "flex", flexDirection: "column" }}>
+                                    {data.recentAssessments.map((a, i) => (
+                                        <div key={i} className="ml-act">
+                                            <div className="ml-n" style={{
+                                                background: `color-mix(in srgb, ${riskVar(a.riskLevel)} 14%, transparent)`,
+                                                color: riskVar(a.riskLevel),
+                                                border: `1px solid color-mix(in srgb, ${riskVar(a.riskLevel)} 30%, transparent)`,
+                                            }}>{i + 1}</div>
+                                            <div>
+                                                <b>{a.riskLevel} Risk</b>
+                                                <span>Score: {a.totalScore ?? "—"}{a.maxScore ? `/${a.maxScore}` : ""} &nbsp;·&nbsp; {formatDate(a.updated_at)}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <p className="ml-note">
+                        Grouped, anonymised signals only — never personal reports, biometrics, transcripts or identities.
+                        Risk levels come from the deterministic BAT scoring pipeline. A wellness tool; it does not diagnose, treat or prescribe.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+}

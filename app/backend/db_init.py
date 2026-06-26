@@ -24,6 +24,8 @@ SEED_USERS = [
     ("guest1", "sys123", "guest"),
     ("guest2", "sys123", "guest"),
     ("guest3", "sys123", "guest"),
+    ("manager1", "sys123", "manager"),
+    ("manager2", "sys123", "manager"),
 ]
 
 

@@ -204,6 +204,44 @@ body {
     --ciq-glass-shadow: 0 30px 100px rgba(0, 0, 0, 0.42), inset 0 1px 1px rgba(255, 255, 255, 0.2), inset 0 -1px 1px rgba(255, 255, 255, 0.06);
 }
 
+/* Ocean — a deep blue dark theme (matches the manager dashboard's digital twin) */
+[data-theme="ocean"] {
+    --ciq-page-from: #071622;
+    --ciq-page-to: #05111b;
+    --ciq-text-strong: #eaf6ff;
+    --ciq-text-86: rgba(220, 239, 251, 0.9);
+    --ciq-text-68: rgba(220, 239, 251, 0.78);
+    --ciq-text-60: rgba(220, 239, 251, 0.7);
+    --ciq-text-46: rgba(220, 239, 251, 0.56);
+    --ciq-text-40: rgba(220, 239, 251, 0.5);
+    --ciq-tile: rgba(84, 167, 221, 0.1);
+    --ciq-tile-strong: rgba(84, 167, 221, 0.18);
+    --ciq-hover: rgba(84, 167, 221, 0.26);
+    --ciq-track: rgba(84, 167, 221, 0.18);
+    --ciq-divider: rgba(84, 167, 221, 0.2);
+    --ciq-border: rgba(84, 167, 221, 0.28);
+    --ciq-header-bg: rgba(7, 22, 34, 0.4);
+    --ciq-accent-green: #19c993;
+    --ciq-accent-red: #ff7088;
+    --ciq-accent-amber: #f0bd54;
+    --ciq-accent-purple: #9cc2ff;
+    --ciq-accent-blue: #54a7dd;
+    --ciq-logo-filter: none;
+    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
+    --ciq-card: #0a2336;
+    --ciq-card-2: #0c2a40;
+    --ciq-card-3: #103247;
+    --ciq-text-body: #cfe4f3;
+    --ciq-text-muted: #7fa6c0;
+    --ciq-text-faint: #5d7e98;
+    --ciq-line: #173347;
+    --ciq-glass-border: rgba(84, 167, 221, 0.18);
+    --ciq-glass-grad-1: rgba(84, 167, 221, 0.12);
+    --ciq-glass-grad-2: rgba(84, 167, 221, 0.04);
+    --ciq-glass-base: rgba(7, 22, 34, 0.5);
+    --ciq-glass-shadow: 0 30px 100px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.12), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
+}
+
 .ciq-page {
     background: linear-gradient(135deg, var(--ciq-page-from), var(--ciq-page-to));
 }

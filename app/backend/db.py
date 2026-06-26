@@ -302,3 +302,68 @@ async def get_all_users_with_session_info() -> list[dict]:
         """) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+
+async def get_manager_overview() -> dict:
+    """Aggregate stats for the manager dashboard.
+
+    Returns participant counts, survey completion counts, and risk-level
+    distribution derived from the stored technical_report JSON blobs.
+    """
+    async with _open_db() as db:
+        # Guest users are the assessed population; exclude admins/managers.
+        async with db.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE role = 'guest'"
+        ) as cur:
+            row = await cur.fetchone()
+            total_guests = row["n"] if row else 0
+
+        async with db.execute(
+            "SELECT COUNT(DISTINCT user_id) AS n FROM survey_records"
+        ) as cur:
+            row = await cur.fetchone()
+            participants = row["n"] if row else 0
+
+        # Pull all technical_report blobs to tally risk levels.
+        async with db.execute(
+            "SELECT technical_report, updated_at FROM survey_records "
+            "WHERE technical_report IS NOT NULL ORDER BY updated_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+
+    risk_counts: dict[str, int] = {"Low": 0, "Moderate": 0, "High": 0}
+    # Every parsed assessment, anonymised (no user_id / name / transcript). Drives
+    # both the "Recent Assessments" card and the 3D campus (one building per node).
+    nodes: list[dict] = []
+
+    def _norm_risk(raw: str) -> str | None:
+        for key in risk_counts:
+            if raw.lower() == key.lower():
+                return key
+        return None
+
+    for r in rows:
+        try:
+            report = json.loads(r["technical_report"])
+        except Exception:
+            continue
+        raw_risk = report.get("riskLevel") or report.get("risk_level") or ""
+        risk = _norm_risk(raw_risk)
+        if risk:
+            risk_counts[risk] += 1
+        nodes.append({
+            "updated_at": r["updated_at"],
+            "riskLevel": risk or "—",
+            "totalScore": report.get("totalScore"),
+            "maxScore": report.get("maxScore"),
+        })
+
+    return {
+        "totalGuests": total_guests,
+        "participants": participants,
+        "surveysCompleted": len(rows),
+        "riskCounts": risk_counts,
+        # Most-recent first; card slices the first 10, campus uses up to 24.
+        "recentAssessments": nodes[:10],
+        "nodes": nodes[:24],
+    }

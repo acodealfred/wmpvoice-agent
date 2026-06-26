@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon, Activity, Maximize2, Minimize2, Bot, Video } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon, Droplets, Check, ChevronDown, Activity, Maximize2, Minimize2, Bot, Video } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,6 +14,7 @@ const DetailedReport = lazy(() => import("@/components/ui/detailed-report").then
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { UserHistory } from "@/components/ui/user-history";
+import { ManagerLanding } from "@/components/ui/manager-landing";
 import { Button } from "@/components/ui/button";
 import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
 import { applyFontScale, getFontScale } from "@/lib/fontScale";
@@ -28,17 +29,26 @@ import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, Biome
 import logo from "./assets/logo.png";
 
 const NAV_TABS = [
-    { id: "assessment", label: "Assessment", adminOnly: false },
-    { id: "admin", label: "Admin", adminOnly: true },
-    { id: "test", label: "Test Generator", adminOnly: true },
-    { id: "history", label: "History", adminOnly: false }
+    { id: "dashboard",  label: "Dashboard",      adminOnly: false, managerOnly: true  },
+    { id: "assessment", label: "Assessment",      adminOnly: false, managerOnly: false },
+    { id: "admin",      label: "Admin",           adminOnly: true,  managerOnly: false },
+    { id: "test",       label: "Test Generator",  adminOnly: true,  managerOnly: false },
+    { id: "history",    label: "History",         adminOnly: false, managerOnly: false },
 ] as const;
 
+type ThemeMode = "light" | "dark" | "ocean";
+const THEME_OPTIONS: { id: ThemeMode; label: string; icon: typeof Sun }[] = [
+    { id: "light", label: "Light", icon: Sun },
+    { id: "dark", label: "Dark", icon: Moon },
+    { id: "ocean", label: "Ocean", icon: Droplets },
+];
+
 function App() {
-    const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const [theme, setTheme] = useState<"light" | "dark" | "ocean">(() => {
         const saved = localStorage.getItem("ciq-theme");
-        return saved === "dark" ? "dark" : "light";
+        return saved === "dark" || saved === "ocean" ? saved : "light";
     });
+    const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const [authState, setAuthState] = useState<AuthState>("checking");
     const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
     // Session ID starts as a local UUID and is replaced with the server-issued one on login
@@ -46,8 +56,9 @@ function App() {
     // Identifies a single survey run. A fresh id is minted for every new assessment so
     // each survey is persisted as its own history record instead of overwriting the last.
     const [surveyRunId, setSurveyRunId] = useState<string>(() => crypto.randomUUID());
-    const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test" | "history">("assessment");
+    const [activeTab, setActiveTab] = useState<"dashboard" | "assessment" | "admin" | "test" | "history">("assessment");
     const isAdmin = currentUser?.role === "admin";
+    const isManager = currentUser?.role === "manager";
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
@@ -101,8 +112,9 @@ function App() {
     // Apply the active theme to <html> (drives the CSS theme tokens) and persist it.
     useEffect(() => {
         document.documentElement.setAttribute("data-theme", theme);
-        // Also toggle the shadcn `.dark` class so Button/Card primitives follow the theme.
-        document.documentElement.classList.toggle("dark", theme === "dark");
+        // Toggle the shadcn `.dark` class for any dark-ish theme so Button/Card
+        // primitives follow along (both "dark" and "ocean" are dark surfaces).
+        document.documentElement.classList.toggle("dark", theme !== "light");
         localStorage.setItem("ciq-theme", theme);
     }, [theme]);
 
@@ -135,19 +147,19 @@ function App() {
         return () => setAuthExpiredHandler(null);
     }, []);
 
-    // Defensive: if the active tab is admin-only and the current user is not an
-    // admin (e.g. a guest logs in while an admin tab was selected), fall back.
+    // Defensive: fall back to a permitted tab when the current role can't see the active one.
     useEffect(() => {
         const tab = NAV_TABS.find(t => t.id === activeTab);
-        if (tab?.adminOnly && !isAdmin) {
-            setActiveTab("assessment");
-        }
-    }, [activeTab, isAdmin]);
+        if (!tab) return;
+        if (tab.adminOnly && !isAdmin) setActiveTab("assessment");
+        else if (tab.managerOnly && !isManager) setActiveTab("assessment");
+    }, [activeTab, isAdmin, isManager]);
 
     const handleLogin = useCallback((user: AuthUser) => {
         setCurrentUser(user);
         setSessionId(user.session_id);
         setAuthState("authenticated");
+        if (user.role === "manager") setActiveTab("dashboard");
     }, []);
 
     const handleLogout = useCallback(async () => {
@@ -610,7 +622,7 @@ function App() {
                     </div>
                     <div className="flex items-center gap-3">
                         <nav className="flex items-center gap-1">
-                            {NAV_TABS.filter(tab => !tab.adminOnly || isAdmin).map(tab => (
+                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager)).map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
@@ -625,14 +637,56 @@ function App() {
                                 </button>
                             ))}
                         </nav>
-                        <button
-                            onClick={() => setTheme(prev => (prev === "light" ? "dark" : "light"))}
-                            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-                            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-                            className="flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)]"
-                        >
-                            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-                        </button>
+                        <div className="relative">
+                            {(() => {
+                                const ActiveIcon = THEME_OPTIONS.find(o => o.id === theme)?.icon ?? Sun;
+                                return (
+                                    <button
+                                        onClick={() => setThemeMenuOpen(o => !o)}
+                                        aria-label="Change color theme"
+                                        aria-haspopup="menu"
+                                        aria-expanded={themeMenuOpen}
+                                        title="Change color theme"
+                                        className="flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--ciq-tile-strong)] px-2.5 text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)]"
+                                    >
+                                        <ActiveIcon className="h-4 w-4" />
+                                        <ChevronDown className={`h-3 w-3 transition-transform ${themeMenuOpen ? "rotate-180" : ""}`} />
+                                    </button>
+                                );
+                            })()}
+                            {themeMenuOpen && (
+                                <>
+                                    {/* click-away backdrop */}
+                                    <div className="fixed inset-0 z-40" onClick={() => setThemeMenuOpen(false)} />
+                                    <div
+                                        role="menu"
+                                        className="absolute right-0 z-50 mt-2 w-36 overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-card)] p-1 shadow-[var(--ciq-glass-shadow)]"
+                                    >
+                                        {THEME_OPTIONS.map(opt => {
+                                            const Icon = opt.icon;
+                                            const active = theme === opt.id;
+                                            return (
+                                                <button
+                                                    key={opt.id}
+                                                    role="menuitemradio"
+                                                    aria-checked={active}
+                                                    onClick={() => { setTheme(opt.id); setThemeMenuOpen(false); }}
+                                                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs transition-colors ${
+                                                        active
+                                                            ? "bg-[color:var(--ciq-tile-strong)] font-semibold text-[color:var(--ciq-text-strong)]"
+                                                            : "font-medium text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-tile)]"
+                                                    }`}
+                                                >
+                                                    <Icon className="h-4 w-4" />
+                                                    <span className="flex-1">{opt.label}</span>
+                                                    {active && <Check className="h-3.5 w-3.5" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            )}
+                        </div>
                         <div className="flex items-center gap-2 border-l border-[color:var(--ciq-divider)] pl-3">
                             <span className="text-xs text-[color:var(--ciq-text-60)]">{currentUser?.name}</span>
                             <button
@@ -645,6 +699,13 @@ function App() {
                     </div>
                 </div>
             </div>
+
+            {/* ── Manager Dashboard ── */}
+            {activeTab === "dashboard" && isManager && (
+                <main className="relative flex-1 overflow-hidden">
+                    <ManagerLanding theme={theme} />
+                </main>
+            )}
 
             {/* ── Admin Panel ── (same centered 8-of-12 column as the assessment) */}
             {/* isAdmin gates the render so a guest can never see it even if activeTab

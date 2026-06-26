@@ -3,13 +3,19 @@ import json
 
 from aiohttp import web
 
-from db import get_all_users_with_session_info, get_user_survey_records
+from db import get_all_users_with_session_info, get_manager_overview, get_user_survey_records
 
 
 async def admin_list_users(request: web.Request) -> web.Response:
     """GET /admin/users — list all users with session stats."""
     users = await get_all_users_with_session_info()
     return web.json_response({"users": users})
+
+
+async def manager_overview(request: web.Request) -> web.Response:
+    """GET /manager/overview — aggregate stats for the manager dashboard."""
+    data = await get_manager_overview()
+    return web.json_response(data)
 
 
 async def user_sessions_history(request: web.Request) -> web.Response:
