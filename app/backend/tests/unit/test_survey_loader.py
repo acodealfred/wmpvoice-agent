@@ -68,6 +68,13 @@ def test_summary_all_high_burnout():
     assert s["interpretation"] == TEST["interpretation"]["high"]
 
 
+
+
+
+
+
+
+
 def test_summary_all_low_burnout():
     # q1,q2,q4 low (1); q3,q5 reverse answered high (5 → effective 1). Total = 5 → Low.
     snaps = [_snap("q1", 1), _snap("q2", 1), _snap("q3", 5), _snap("q4", 1), _snap("q5", 5)]

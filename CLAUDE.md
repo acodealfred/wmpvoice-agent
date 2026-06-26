@@ -62,7 +62,8 @@ ENABLE_SURVEY_MODE=true          # switches to burnout-specialist persona + surv
 ENABLE_BIOMETRIC_GUARDRAIL=true  # default for the descriptive-only biometric guardrail
                                  # (agent declines interpret/predict/prescribe on biometrics).
                                  # Runtime-togglable from the Admin tab via POST /admin/biometric-guardrail.
-                                 # NOTE: that endpoint is auth-gated only (no admin role) — not a hardened boundary.
+                                 # NOTE: like all /admin/* routes, this requires the "admin" role
+                                 # (enforced in auth_middleware); guests get 403.
 ```
 
 **AWS Rekognition (face emotion analysis):**

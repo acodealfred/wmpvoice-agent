@@ -17,6 +17,11 @@ logger = logging.getLogger("voicerag")
 _PUBLIC_PATHS = {"/login", "/logout", "/config", "/"}
 _PUBLIC_PREFIXES = ("/static/", "/assets/")
 
+# Paths under these prefixes require the "admin" role, not just a valid session.
+# /admin/* is the admin namespace; /kb/chats is the Test Generator's chat API,
+# which is an admin-only feature (its tab is hidden from guests in the UI).
+_ADMIN_PREFIXES = ("/admin/", "/kb/chats")
+
 SESSION_MAX_AGE = 4 * 3600  # 4 hours, matching RTMiddleTier TTL
 
 
@@ -46,6 +51,13 @@ async def auth_middleware(request: web.Request, handler):
     request["auth_session"] = session
     request["session_token"] = token
 
+    # Role gate: admin-only paths reject a valid guest session with 403
+    # (authenticated but not allowed), distinct from the 401s above.
+    if any(path.startswith(p) for p in _ADMIN_PREFIXES) and session.get("role") != "admin":
+        logger.warning("[Auth] 403 non-admin (role=%s) on %s %s",
+                       session.get("role"), request.method, request.path)
+        return web.json_response({"error": "Forbidden"}, status=403)
+
     return await handler(request)
 
 
@@ -72,7 +84,7 @@ async def login(request: web.Request) -> web.Response:
 
     response = web.json_response({
         "ok": True,
-        "user": {"user_id": user["user_id"], "name": user["name"]},
+        "user": {"user_id": user["user_id"], "name": user["name"], "role": user["role"]},
         "session_id": session_id,
     })
     response.set_cookie(
@@ -104,4 +116,5 @@ async def me(request: web.Request) -> web.Response:
     return web.json_response({
         "user_id": session["user_id"],
         "session_id": session["session_id"],
+        "role": session.get("role"),
     })

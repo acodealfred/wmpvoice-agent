@@ -32,16 +32,25 @@ async def _open_db():
 async def get_user_by_name(name: str) -> dict | None:
     async with _open_db() as db:
         async with db.execute(
-            "SELECT user_id, name, password_hash FROM users WHERE name = ?", (name,)
+            "SELECT user_id, name, password_hash, role FROM users WHERE name = ?", (name,)
         ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None
 
 
 async def get_session_by_token(token: str) -> dict | None:
+    """Return the session joined with its owner's role.
+
+    The role is needed by auth_middleware on every request to gate /admin/*
+    routes, so it is joined in here rather than fetched separately.
+    """
     async with _open_db() as db:
         async with db.execute(
-            "SELECT * FROM user_sessions WHERE session_token = ?", (token,)
+            """SELECT s.*, u.role AS role
+               FROM user_sessions s
+               JOIN users u ON u.user_id = s.user_id
+               WHERE s.session_token = ?""",
+            (token,),
         ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None

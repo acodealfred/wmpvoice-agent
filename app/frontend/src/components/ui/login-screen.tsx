@@ -31,7 +31,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             onLogin({
                 user_id: data.user.user_id,
                 name: data.user.name,
-                session_id: data.session_id
+                session_id: data.session_id,
+                role: data.user.role
             });
         } catch {
             setError("Network error. Please try again.");

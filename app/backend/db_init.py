@@ -12,10 +12,18 @@ from db import DB_PATH
 
 logger = logging.getLogger("voicerag")
 
+# (name, password, role). role is "admin" or "guest". Admins can reach the
+# /admin/* routes; guests are blocked from them by auth_middleware.
 SEED_USERS = [
-    ("system1", "sys123"),
-    ("system2", "sys123"),
-    ("system3", "sys123"),
+    ("system1", "sys123", "admin"),
+    ("system2", "sys123", "admin"),
+    ("system3", "sys123", "admin"),
+    ("admin1", "sys123", "admin"),
+    ("admin2", "sys123", "admin"),
+    ("admin3", "sys123", "admin"),
+    ("guest1", "sys123", "guest"),
+    ("guest2", "sys123", "guest"),
+    ("guest3", "sys123", "guest"),
 ]
 
 
@@ -35,9 +43,20 @@ async def init_db() -> None:
                 user_id       TEXT PRIMARY KEY,
                 name          TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
+                role          TEXT NOT NULL DEFAULT 'guest',
                 created_at    TEXT NOT NULL
             )
         """)
+
+        # Migration for databases created before the role column existed.
+        # CREATE TABLE IF NOT EXISTS won't add a column to an existing table, so
+        # add it explicitly and ignore the "duplicate column" error on re-run.
+        try:
+            await db.execute(
+                "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'guest'"
+            )
+        except aiosqlite.OperationalError:
+            pass  # column already present
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 session_token   TEXT PRIMARY KEY,
@@ -87,13 +106,18 @@ async def init_db() -> None:
         """)
 
         now = datetime.utcnow().isoformat()
-        for name, password in SEED_USERS:
+        for name, password, role in SEED_USERS:
             user_id = str(uuid.uuid4())
             password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
             await db.execute(
-                """INSERT OR IGNORE INTO users (user_id, name, password_hash, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                (user_id, name, password_hash, now),
+                """INSERT OR IGNORE INTO users (user_id, name, password_hash, role, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (user_id, name, password_hash, role, now),
+            )
+            # Keep an existing seed account's role in sync if it predates roles.
+            await db.execute(
+                "UPDATE users SET role = ? WHERE name = ?",
+                (role, name),
             )
 
         await db.commit()

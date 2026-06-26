@@ -243,10 +243,13 @@ export type SurveyTypeConfig = {
     availableSurveyTypes: string[];
 };
 
+export type UserRole = "admin" | "guest";
+
 export type AuthUser = {
     user_id: string;
     name: string;
     session_id: string;
+    role: UserRole;
 };
 
 export type AuthState = "checking" | "unauthenticated" | "authenticated";

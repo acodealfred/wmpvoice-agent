@@ -28,10 +28,10 @@ import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, Biome
 import logo from "./assets/logo.png";
 
 const NAV_TABS = [
-    { id: "assessment", label: "Assessment" },
-    { id: "admin", label: "Admin" },
-    { id: "test", label: "Test Generator" },
-    { id: "history", label: "History" }
+    { id: "assessment", label: "Assessment", adminOnly: false },
+    { id: "admin", label: "Admin", adminOnly: true },
+    { id: "test", label: "Test Generator", adminOnly: true },
+    { id: "history", label: "History", adminOnly: false }
 ] as const;
 
 function App() {
@@ -47,6 +47,7 @@ function App() {
     // each survey is persisted as its own history record instead of overwriting the last.
     const [surveyRunId, setSurveyRunId] = useState<string>(() => crypto.randomUUID());
     const [activeTab, setActiveTab] = useState<"assessment" | "admin" | "test" | "history">("assessment");
+    const isAdmin = currentUser?.role === "admin";
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
@@ -115,7 +116,7 @@ function App() {
         fetch("/me", { credentials: "same-origin" })
             .then(r => (r.ok ? r.json() : Promise.reject()))
             .then(data => {
-                setCurrentUser({ user_id: data.user_id, name: "", session_id: data.session_id });
+                setCurrentUser({ user_id: data.user_id, name: "", session_id: data.session_id, role: data.role });
                 setSessionId(data.session_id);
                 setAuthState("authenticated");
             })
@@ -133,6 +134,15 @@ function App() {
         });
         return () => setAuthExpiredHandler(null);
     }, []);
+
+    // Defensive: if the active tab is admin-only and the current user is not an
+    // admin (e.g. a guest logs in while an admin tab was selected), fall back.
+    useEffect(() => {
+        const tab = NAV_TABS.find(t => t.id === activeTab);
+        if (tab?.adminOnly && !isAdmin) {
+            setActiveTab("assessment");
+        }
+    }, [activeTab, isAdmin]);
 
     const handleLogin = useCallback((user: AuthUser) => {
         setCurrentUser(user);
@@ -600,7 +610,7 @@ function App() {
                     </div>
                     <div className="flex items-center gap-3">
                         <nav className="flex items-center gap-1">
-                            {NAV_TABS.map(tab => (
+                            {NAV_TABS.filter(tab => !tab.adminOnly || isAdmin).map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
@@ -637,7 +647,9 @@ function App() {
             </div>
 
             {/* ── Admin Panel ── (same centered 8-of-12 column as the assessment) */}
-            {activeTab === "admin" && (
+            {/* isAdmin gates the render so a guest can never see it even if activeTab
+                is forced to "admin"; the backend 403s on /admin/* regardless. */}
+            {activeTab === "admin" && isAdmin && (
                 <main className="flex-1 overflow-y-auto p-4">
                     <div className="grid w-full grid-cols-12 gap-4">
                         <div className="col-span-12 lg:col-span-8 lg:col-start-3">
@@ -647,8 +659,8 @@ function App() {
                 </main>
             )}
 
-            {/* ── Test Generator ── */}
-            {activeTab === "test" && (
+            {/* ── Test Generator ── (admin-only, like the Admin panel) */}
+            {activeTab === "test" && isAdmin && (
                 <main className="flex-1 overflow-y-auto p-4">
                     <div className="grid w-full grid-cols-12 gap-4">
                         <div className="col-span-12 lg:col-span-8 lg:col-start-3">
