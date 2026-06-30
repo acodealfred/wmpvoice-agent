@@ -28,6 +28,8 @@ import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, Biome
 
 import logo from "./assets/logo.png";
 
+// `managerOnly` tabs are the management views: visible to managers and admins
+// (admins are a superset role), but never to guests.
 const NAV_TABS = [
     { id: "dashboard",  label: "Dashboard",      adminOnly: false, managerOnly: true  },
     { id: "assessment", label: "Assessment",      adminOnly: false, managerOnly: false },
@@ -152,7 +154,7 @@ function App() {
         const tab = NAV_TABS.find(t => t.id === activeTab);
         if (!tab) return;
         if (tab.adminOnly && !isAdmin) setActiveTab("assessment");
-        else if (tab.managerOnly && !isManager) setActiveTab("assessment");
+        else if (tab.managerOnly && !isManager && !isAdmin) setActiveTab("assessment");
     }, [activeTab, isAdmin, isManager]);
 
     const handleLogin = useCallback((user: AuthUser) => {
@@ -622,7 +624,7 @@ function App() {
                     </div>
                     <div className="flex items-center gap-3">
                         <nav className="flex items-center gap-1">
-                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager)).map(tab => (
+                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin)).map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
@@ -701,7 +703,7 @@ function App() {
             </div>
 
             {/* ── Manager Dashboard ── */}
-            {activeTab === "dashboard" && isManager && (
+            {activeTab === "dashboard" && (isManager || isAdmin) && (
                 <main className="relative flex-1 overflow-hidden">
                     <ManagerLanding theme={theme} />
                 </main>
