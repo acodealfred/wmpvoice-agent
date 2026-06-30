@@ -3,7 +3,12 @@ import json
 
 from aiohttp import web
 
-from db import get_all_users_with_session_info, get_manager_overview, get_user_survey_records
+from db import (
+    get_all_users_with_session_info,
+    get_manager_analytics,
+    get_manager_overview,
+    get_user_survey_records,
+)
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
 
 
@@ -16,6 +21,25 @@ async def admin_list_users(request: web.Request) -> web.Response:
 async def manager_overview(request: web.Request) -> web.Response:
     """GET /manager/overview — aggregate stats for the manager dashboard."""
     data = await get_manager_overview()
+    return web.json_response(data)
+
+
+async def manager_analytics(request: web.Request) -> web.Response:
+    """GET /manager/analytics — filterable, grouped assessment analytics.
+
+    Query params (all optional): department, shift, jobTitle, risk, from, to
+    (ISO dates), and groupBy (department | shift | jobTitle).
+    """
+    q = request.query
+    data = await get_manager_analytics(
+        department=q.get("department") or None,
+        shift=q.get("shift") or None,
+        job_title=q.get("jobTitle") or None,
+        risk=q.get("risk") or None,
+        date_from=q.get("from") or None,
+        date_to=q.get("to") or None,
+        group_by=q.get("groupBy") or "department",
+    )
     return web.json_response(data)
 
 

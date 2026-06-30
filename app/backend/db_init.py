@@ -47,6 +47,8 @@ async def init_db() -> None:
                 password_hash TEXT NOT NULL,
                 role          TEXT NOT NULL DEFAULT 'guest',
                 department    TEXT,
+                shift         TEXT,
+                job_title     TEXT,
                 is_demo       INTEGER NOT NULL DEFAULT 0,
                 created_at    TEXT NOT NULL
             )
@@ -58,6 +60,8 @@ async def init_db() -> None:
         for stmt in (
             "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'guest'",
             "ALTER TABLE users ADD COLUMN department TEXT",
+            "ALTER TABLE users ADD COLUMN shift TEXT",
+            "ALTER TABLE users ADD COLUMN job_title TEXT",
             "ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
         ):
             try:

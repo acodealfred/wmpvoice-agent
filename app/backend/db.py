@@ -427,3 +427,144 @@ async def get_manager_overview() -> dict:
         "nodes": nodes[:24],
         "departments": departments,
     }
+
+
+# Dimensions the analytics view can group by / filter on. Maps the public key
+# used by the frontend to the users-table column it reads from.
+_ANALYTICS_DIMS = {"department": "department", "shift": "shift", "jobTitle": "job_title"}
+_RISK_BANDS = ("Low", "Moderate", "High")
+
+
+def _monday_of(iso: str) -> str | None:
+    """Return the ISO date (YYYY-MM-DD) of the Monday starting the week of `iso`."""
+    try:
+        d = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return None
+    monday = d.date() - timedelta(days=d.weekday())
+    return monday.isoformat()
+
+
+async def get_manager_analytics(
+    department: str | None = None,
+    shift: str | None = None,
+    job_title: str | None = None,
+    risk: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    group_by: str = "department",
+) -> dict:
+    """Filterable assessment analytics for the manager dashboard.
+
+    Returns one bar-chart series (counts + risk mix per group of the chosen
+    dimension) plus an at-risk%-over-time trend, both honouring every filter.
+    All output is aggregate and de-identified — no user_id, name or transcript.
+    """
+    group_col = _ANALYTICS_DIMS.get(group_by, "department")
+
+    def _norm_risk(raw: str) -> str | None:
+        for key in _RISK_BANDS:
+            if raw.lower() == key.lower():
+                return key
+        return None
+
+    async with _open_db() as db:
+        # Every assessment joined to its author's attributes. Anonymous beyond
+        # the three grouping dimensions; the report blob is parsed in Python.
+        async with db.execute(
+            "SELECT u.department AS department, u.shift AS shift, u.job_title AS job_title, "
+            "       sr.technical_report AS tr, sr.updated_at AS updated_at "
+            "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
+            "WHERE sr.technical_report IS NOT NULL"
+        ) as cur:
+            rows = await cur.fetchall()
+
+        # Distinct values across all guest staff drive the filter dropdowns, so
+        # the options stay stable regardless of the currently applied filters.
+        async with db.execute(
+            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'guest'"
+        ) as cur:
+            opt_rows = await cur.fetchall()
+
+    filter_options = {"department": set(), "shift": set(), "jobTitle": set()}
+    for r in opt_rows:
+        if r["department"]:
+            filter_options["department"].add(r["department"])
+        if r["shift"]:
+            filter_options["shift"].add(r["shift"])
+        if r["job_title"]:
+            filter_options["jobTitle"].add(r["job_title"])
+
+    # ── Apply filters, then accumulate groups + weekly trend ───────────────
+    groups: dict[str, dict] = {}
+    trend_acc: dict[str, dict] = {}
+    total_assessed = 0
+    risk_totals = {"Low": 0, "Moderate": 0, "High": 0}
+
+    for r in rows:
+        if department and r["department"] != department:
+            continue
+        if shift and r["shift"] != shift:
+            continue
+        if job_title and r["job_title"] != job_title:
+            continue
+        day = (r["updated_at"] or "")[:10]
+        if date_from and day and day < date_from:
+            continue
+        if date_to and day and day > date_to:
+            continue
+        try:
+            report = json.loads(r["tr"]) if r["tr"] else {}
+        except Exception:
+            report = {}
+        band = _norm_risk(report.get("riskLevel") or report.get("risk_level") or "")
+        if not band:
+            continue
+        if risk and band != risk:
+            continue
+
+        key = r[group_col] or "Unassigned"
+        g = groups.setdefault(key, {"key": key, "Low": 0, "Moderate": 0, "High": 0})
+        g[band] += 1
+        total_assessed += 1
+        risk_totals[band] += 1
+
+        week = _monday_of(r["updated_at"])
+        if week:
+            t = trend_acc.setdefault(week, {"atRisk": 0, "assessed": 0})
+            t["assessed"] += 1
+            if band in ("Moderate", "High"):
+                t["atRisk"] += 1
+
+    group_list = []
+    for g in groups.values():
+        total = g["Low"] + g["Moderate"] + g["High"]
+        at_risk = g["Moderate"] + g["High"]
+        group_list.append({
+            "key": g["key"],
+            "total": total,
+            "riskCounts": {"Low": g["Low"], "Moderate": g["Moderate"], "High": g["High"]},
+            "atRiskPct": round(at_risk / total * 100) if total else 0,
+        })
+    # Most at-risk groups first — the dashboard reads top-down as a priority list.
+    group_list.sort(key=lambda x: (-x["atRiskPct"], -x["total"], x["key"]))
+
+    trend = [
+        {
+            "date": week,
+            "assessed": t["assessed"],
+            "atRiskPct": round(t["atRisk"] / t["assessed"] * 100) if t["assessed"] else 0,
+        }
+        for week, t in sorted(trend_acc.items())
+    ]
+
+    at_risk_total = risk_totals["Moderate"] + risk_totals["High"]
+    return {
+        "groupBy": group_by,
+        "groups": group_list,
+        "trend": trend,
+        "riskTotals": risk_totals,
+        "totalAssessed": total_assessed,
+        "atRiskPct": round(at_risk_total / total_assessed * 100) if total_assessed else 0,
+        "filterOptions": {k: sorted(v) for k, v in filter_options.items()},
+    }

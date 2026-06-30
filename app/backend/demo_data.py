@@ -25,8 +25,33 @@ DEPARTMENTS = [
     {"name": "Outpatients", "staff": 14, "participation": 0.85, "risk": (0.65, 0.25, 0.10)},
     {"name": "Pediatrics",  "staff": 9,  "participation": 0.78, "risk": (0.55, 0.30, 0.15)},
     {"name": "Surgery",     "staff": 11, "participation": 0.60, "risk": (0.40, 0.35, 0.25)},
-    {"name": "Night Shift", "staff": 8,  "participation": 0.50, "risk": (0.25, 0.35, 0.40)},
+    {"name": "Critical Care", "staff": 8, "participation": 0.50, "risk": (0.25, 0.35, 0.40)},
 ]
+
+# Rotating shifts assigned per staff member. Night/Evening staff skew slightly
+# more burnt-out, so the High band is multiplied by the shift's risk factor —
+# this makes the Shift filter tell a real story in the dashboard. Shifts are
+# assigned round-robin so every shift is guaranteed to appear among the
+# completed assessments (so selecting any Shift filter always returns data).
+SHIFTS = ["Day", "Evening", "Night"]
+_SHIFT_RISK_MULT = {"Day": 0.85, "Evening": 1.0, "Night": 1.4}
+
+# Assessment age buckets (days-ago ranges), one per Period filter option. Every
+# completed assessment is placed in a bucket round-robin so each Period range
+# ("Last 30 days", "Last 90 days", "Last 12 months", "All time") returns data
+# and the counts grow as the window widens.
+_AGE_BUCKETS = [(1, 27), (34, 85), (100, 350), (380, 690)]
+
+# Department-appropriate job titles (the Job Title filter dimension).
+JOB_TITLES = {
+    "Emergency":     ["ER Physician", "ER Nurse", "Paramedic", "Triage Nurse"],
+    "ICU":           ["Intensivist", "ICU Nurse", "Respiratory Therapist"],
+    "Outpatients":   ["Physician", "Clinic Nurse", "Medical Assistant", "Receptionist"],
+    "Pediatrics":    ["Pediatrician", "Pediatric Nurse", "Child Life Specialist"],
+    "Surgery":       ["Surgeon", "Anaesthetist", "Scrub Nurse", "Surgical Tech"],
+    "Critical Care": ["Charge Nurse", "Critical Care Nurse", "Orderly"],
+}
+_DEFAULT_TITLES = ["Physician", "Nurse", "Technician", "Administrator"]
 
 _DEMO_PASSWORD = "demo123"
 _MAX_SCORE = 33  # BAT-style ceiling; Low ≤12, Moderate ≤22, High >22
@@ -75,21 +100,36 @@ async def seed_demo_data() -> dict:
     now = datetime.utcnow()
     user_rows: list[tuple] = []
     survey_rows: list[tuple] = []
+    completed_idx = 0  # global counter, drives the round-robin Period buckets
 
     for dept in DEPARTMENTS:
         weights = dept["risk"]
+        titles = JOB_TITLES.get(dept["name"], _DEFAULT_TITLES)
         completed = round(dept["staff"] * dept["participation"])
         for i in range(dept["staff"]):
             user_id = str(uuid.uuid4())
             name = f"demo_{dept['name'].lower().replace(' ', '')}_{i + 1}"
-            created = (now - timedelta(days=random.randint(20, 120))).isoformat()
-            user_rows.append((user_id, name, pw_hash, "guest", dept["name"], 1, created))
+            # Round-robin shift + job title so every option appears among the
+            # completed assessments and every filter selection returns data.
+            shift = SHIFTS[i % len(SHIFTS)]
+            job_title = titles[i % len(titles)]
 
             # Only the "completed" share of each department has an assessment.
             if i < completed:
-                risk = random.choices(["Low", "Moderate", "High"], weights=weights)[0]
+                # Spread the assessment date across the Period buckets in turn.
+                lo, hi = _AGE_BUCKETS[completed_idx % len(_AGE_BUCKETS)]
+                completed_idx += 1
+                age_days = random.randint(lo, hi)
+                ts = (now - timedelta(days=age_days, hours=random.randint(0, 23))).isoformat()
+                # The user account is created shortly before their assessment.
+                created = (now - timedelta(days=age_days + random.randint(3, 30))).isoformat()
+
+                # Bias the High band by the shift's risk factor so night staff
+                # read as more at-risk without changing the overall department mix much.
+                w = list(weights)
+                w[2] *= _SHIFT_RISK_MULT[shift]
+                risk = random.choices(["Low", "Moderate", "High"], weights=w)[0]
                 score = _score_for(risk)
-                ts = (now - timedelta(days=random.randint(0, 45), hours=random.randint(0, 23))).isoformat()
                 report = {
                     "analysis": {},
                     "totalScore": score,
@@ -102,12 +142,17 @@ async def seed_demo_data() -> dict:
                     str(uuid.uuid4()), user_id, None, str(uuid.uuid4()), _SURVEY_TYPE,
                     ts, ts, "{}", json.dumps(report), "{}", 1,
                 ))
+            else:
+                # Staff who have not completed an assessment yet.
+                created = (now - timedelta(days=random.randint(20, 120))).isoformat()
+
+            user_rows.append((user_id, name, pw_hash, "guest", dept["name"], shift, job_title, 1, created))
 
     async with _open_db() as db:
         await db.executemany(
             """INSERT INTO users
-               (user_id, name, password_hash, role, department, is_demo, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, name, password_hash, role, department, shift, job_title, is_demo, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             user_rows,
         )
         await db.executemany(

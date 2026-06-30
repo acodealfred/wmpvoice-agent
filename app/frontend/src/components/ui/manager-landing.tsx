@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { apiFetch } from "@/lib/api";
+import { ManagerAnalytics } from "./manager-analytics";
 import "./manager-landing.css";
 
 interface AssessmentNode {
@@ -34,20 +35,11 @@ interface OverviewData {
 // ── risk → colour helpers (shared by cards + 3D scene) ─────────────────
 // Neon-leaning hexes for the 3D scene; the cards keep the softer theme vars.
 const RISK_HEX: Record<string, number> = { Low: 0x2bf5b0, Moderate: 0xffcc4d, High: 0xff4d7d };
-const RISK_VAR: Record<string, string> = { Low: "var(--green)", Moderate: "var(--amber)", High: "var(--rose)" };
 function riskHex(level: string): number { return RISK_HEX[level] ?? 0x54a7dd; }
-function riskVar(level: string): string { return RISK_VAR[level] ?? "var(--cyan)"; }
 function riskFill(level: string): string {
     if (level === "High") return "ml-rfill-high";
     if (level === "Moderate") return "ml-rfill-mod";
     return "ml-rfill-low";
-}
-function formatDate(iso: string): string {
-    try {
-        return new Date(iso).toLocaleDateString(undefined, {
-            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-        });
-    } catch { return iso; }
 }
 
 // ── per-theme palette for the 3D map (one per app colour mode) ─────────
@@ -523,8 +515,6 @@ export function ManagerLanding({ theme }: Props) {
     const maxBand = Math.max(1, rc.Low, rc.Moderate, rc.High);
     const departments = data?.departments ?? [];
     const isEmpty = departments.length === 0;
-    // Departments with the weakest participation first — the "coverage gaps".
-    const coverageGaps = [...departments].sort((a, b) => a.participationPct - b.participationPct);
 
     const donutR = 50, donutCirc = 2 * Math.PI * donutR;
     const donutDash = (participation / 100) * donutCirc;
@@ -616,28 +606,6 @@ export function ManagerLanding({ theme }: Props) {
                             </div>
                         </div>
 
-                        {/* KPI strip */}
-                        <div className="ml-card ml-kpi">
-                            <p className="ml-k">Total Staff</p>
-                            <p className="ml-v">{total}<small> users</small></p>
-                            <p className="ml-t">Guest accounts in system</p>
-                        </div>
-                        <div className="ml-card ml-kpi ml-accent">
-                            <p className="ml-k">Surveys Completed</p>
-                            <p className="ml-v">{done}</p>
-                            <p className="ml-t">Total assessment runs</p>
-                        </div>
-                        <div className="ml-card ml-kpi">
-                            <p className="ml-k">At-Risk Share</p>
-                            <p className="ml-v" style={{ color: atRisk > 0 ? "var(--rose)" : "var(--green)" }}>{atRiskPct}<small>%</small></p>
-                            <p className="ml-t">{atRisk} of {riskTotal} · mod + high</p>
-                        </div>
-                        <div className="ml-card ml-kpi">
-                            <p className="ml-k">Participation</p>
-                            <p className="ml-v">{participation}<small>%</small></p>
-                            <p className="ml-t">{participants} of {total} staff assessed</p>
-                        </div>
-
                         {/* Risk distribution */}
                         <div className="ml-card ml-pad ml-span4">
                             <div className="ml-sec-h">
@@ -685,51 +653,36 @@ export function ManagerLanding({ theme }: Props) {
                             </div>
                         </div>
 
-                        {/* Coverage gaps — departments by participation (lowest first) */}
+                        {/* Org snapshot — headline totals consolidated into one card */}
                         <div className="ml-card ml-pad ml-span4">
-                            <div className="ml-sec-h"><h2>Coverage Gaps</h2><span className="ml-badge ml-b-amber">Nudge</span></div>
-                            {coverageGaps.length === 0 ? (
-                                <p style={{ color: "var(--muted)", fontSize: 13 }}>No department data.</p>
-                            ) : (
-                                <div className="ml-gap-i">
-                                    {coverageGaps.map(d => (
-                                        <div className="ml-gap-row" key={d.name}>
-                                            <span className="ml-nm">{d.name}</span>
-                                            <span className={`ml-vv${d.participationPct >= 75 ? " ok" : ""}`}>
-                                                {d.participationPct}% · {d.completed}/{d.eligible}
-                                            </span>
-                                        </div>
-                                    ))}
+                            <div className="ml-sec-h"><h2>Org Snapshot</h2><span className="ml-badge ml-b-muted">Totals</span></div>
+                            <div className="ml-snap">
+                                <div className="ml-snap-row">
+                                    <div>
+                                        <p className="ml-snap-k">Total Staff</p>
+                                        <p className="ml-snap-t">Guest accounts in system</p>
+                                    </div>
+                                    <b className="ml-snap-v">{total}</b>
                                 </div>
-                            )}
+                                <div className="ml-snap-row">
+                                    <div>
+                                        <p className="ml-snap-k">Surveys Completed</p>
+                                        <p className="ml-snap-t">Total assessment runs</p>
+                                    </div>
+                                    <b className="ml-snap-v" style={{ color: "var(--cyan)" }}>{done}</b>
+                                </div>
+                                <div className="ml-snap-row">
+                                    <div>
+                                        <p className="ml-snap-k">At-Risk Share</p>
+                                        <p className="ml-snap-t">{atRisk} of {riskTotal} · mod + high</p>
+                                    </div>
+                                    <b className="ml-snap-v" style={{ color: atRisk > 0 ? "var(--rose)" : "var(--green)" }}>{atRiskPct}%</b>
+                                </div>
+                            </div>
                         </div>
 
-                        {/* Recent assessments */}
-                        <div className="ml-card ml-pad ml-span12">
-                            <div className="ml-sec-h">
-                                <h2>Recent Assessments</h2>
-                                <span className="ml-badge ml-b-muted">latest {data?.recentAssessments.length ?? 0}</span>
-                            </div>
-                            {!data || data.recentAssessments.length === 0 ? (
-                                <p style={{ color: "var(--muted)", fontSize: 13 }}>No assessments recorded yet.</p>
-                            ) : (
-                                <div style={{ display: "flex", flexDirection: "column" }}>
-                                    {data.recentAssessments.map((a, i) => (
-                                        <div key={i} className="ml-act">
-                                            <div className="ml-n" style={{
-                                                background: `color-mix(in srgb, ${riskVar(a.riskLevel)} 14%, transparent)`,
-                                                color: riskVar(a.riskLevel),
-                                                border: `1px solid color-mix(in srgb, ${riskVar(a.riskLevel)} 30%, transparent)`,
-                                            }}>{i + 1}</div>
-                                            <div>
-                                                <b>{a.riskLevel} Risk</b>
-                                                <span>Score: {a.totalScore ?? "—"}{a.maxScore ? `/${a.maxScore}` : ""} &nbsp;·&nbsp; {formatDate(a.updated_at)}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        {/* Assessment analytics — filterable visualization */}
+                        <ManagerAnalytics />
                     </div>
 
                     <p className="ml-note">
