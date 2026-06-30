@@ -1,0 +1,116 @@
+/* ── Guest landing — motion background + accents ──────────────────────────
+   The hero sits over a few slow-drifting colour orbs (pure CSS so they run
+   off the compositor, never the JS thread) plus a faint grid. Everything is
+   theme-aware via the CIQ accent tokens. */
+
+.gl {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Drifting aurora orbs behind the content */
+.gl-orbs {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+}
+.gl-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.55;
+    will-change: transform;
+}
+.gl-orb-1 {
+    width: 42vw;
+    height: 42vw;
+    left: -8vw;
+    top: -6vw;
+    background: radial-gradient(circle at 30% 30%, var(--ciq-accent-purple), transparent 70%);
+    animation: gl-float-1 18s ease-in-out infinite;
+}
+.gl-orb-2 {
+    width: 38vw;
+    height: 38vw;
+    right: -6vw;
+    top: 4vw;
+    background: radial-gradient(circle at 60% 40%, var(--ciq-accent-blue), transparent 70%);
+    animation: gl-float-2 22s ease-in-out infinite;
+}
+.gl-orb-3 {
+    width: 34vw;
+    height: 34vw;
+    left: 28vw;
+    bottom: -10vw;
+    background: radial-gradient(circle at 50% 50%, var(--ciq-accent-green), transparent 72%);
+    opacity: 0.4;
+    animation: gl-float-3 26s ease-in-out infinite;
+}
+
+@keyframes gl-float-1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(6vw, 5vh) scale(1.12); }
+}
+@keyframes gl-float-2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-5vw, 7vh) scale(1.08); }
+}
+@keyframes gl-float-3 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-4vw, -6vh) scale(1.15); }
+}
+
+/* Faint dotted grid overlay for depth */
+.gl-grid {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: radial-gradient(color-mix(in srgb, var(--ciq-text-strong) 14%, transparent) 1px, transparent 1px);
+    background-size: 34px 34px;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 80%);
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 80%);
+    opacity: 0.5;
+}
+
+.gl-content {
+    position: relative;
+    z-index: 1;
+}
+
+/* Animated conic ring used on stat cards */
+.gl-ring-spin {
+    animation: gl-spin 9s linear infinite;
+}
+@keyframes gl-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Pulsing glow halo behind the primary CTA */
+.gl-cta-glow {
+    position: absolute;
+    inset: -6px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, var(--ciq-accent-purple), var(--ciq-accent-blue));
+    filter: blur(16px);
+    opacity: 0.55;
+    z-index: -1;
+    animation: gl-pulse 2.8s ease-in-out infinite;
+}
+@keyframes gl-pulse {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .gl-orb,
+    .gl-ring-spin,
+    .gl-cta-glow {
+        animation: none !important;
+    }
+}

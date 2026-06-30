@@ -237,6 +237,19 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [snapshots, sessionId]);
 
+    // Once the report row is persisted, generate the consultative summary in the
+    // background so its text (prompt_info.agentResponse) is saved to history. The
+    // agent speaks a summary live, but that audio is never stored — without this
+    // the summary is lost on relogin (and the guest Home recommendations vanish).
+    // Only runs for an authenticated, persistable run; opening the tab reuses the
+    // result instead of regenerating it.
+    useEffect(() => {
+        if (analyzeData && surveyRunId && !consultText && !consultLoading && !consultError) {
+            handleGenerateConsultative();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [analyzeData, surveyRunId]);
+
     // The headline score/risk MUST come from the backend (reverse-aware, config
     // thresholds). The local `totalScore` prop is a raw sum and would be wrong for
     // surveys with reverse-scored items, so we show "Calculating…" until /analyze-report

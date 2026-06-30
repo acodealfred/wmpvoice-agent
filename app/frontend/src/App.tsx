@@ -15,6 +15,7 @@ import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
+import { GuestLanding } from "@/components/ui/guest-landing";
 import { Button } from "@/components/ui/button";
 import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
 import { applyFontScale, getFontScale } from "@/lib/fontScale";
@@ -30,12 +31,15 @@ import logo from "./assets/logo.png";
 
 // `managerOnly` tabs are the management views: visible to managers and admins
 // (admins are a superset role), but never to guests.
+// `guestOnly` is the inverse — the guest "Home" landing, shown only to plain
+// guests (managers/admins get their own dashboard instead).
 const NAV_TABS = [
-    { id: "dashboard",  label: "Dashboard",      adminOnly: false, managerOnly: true  },
-    { id: "assessment", label: "Assessment",      adminOnly: false, managerOnly: false },
-    { id: "admin",      label: "Admin",           adminOnly: true,  managerOnly: false },
-    { id: "test",       label: "Test Generator",  adminOnly: true,  managerOnly: false },
-    { id: "history",    label: "History",         adminOnly: false, managerOnly: false },
+    { id: "home",       label: "Home",            adminOnly: false, managerOnly: false, guestOnly: true  },
+    { id: "dashboard",  label: "Dashboard",      adminOnly: false, managerOnly: true,  guestOnly: false },
+    { id: "assessment", label: "Assessment",      adminOnly: false, managerOnly: false, guestOnly: false },
+    { id: "admin",      label: "Admin",           adminOnly: true,  managerOnly: false, guestOnly: false },
+    { id: "test",       label: "Test Generator",  adminOnly: true,  managerOnly: false, guestOnly: false },
+    { id: "history",    label: "History",         adminOnly: false, managerOnly: false, guestOnly: false },
 ] as const;
 
 type ThemeMode = "light" | "dark" | "ocean";
@@ -58,9 +62,11 @@ function App() {
     // Identifies a single survey run. A fresh id is minted for every new assessment so
     // each survey is persisted as its own history record instead of overwriting the last.
     const [surveyRunId, setSurveyRunId] = useState<string>(() => crypto.randomUUID());
-    const [activeTab, setActiveTab] = useState<"dashboard" | "assessment" | "admin" | "test" | "history">("assessment");
+    const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "assessment" | "admin" | "test" | "history">("assessment");
     const isAdmin = currentUser?.role === "admin";
     const isManager = currentUser?.role === "manager";
+    // Plain guests (neither admin nor manager) get the Home landing as their default.
+    const isGuest = currentUser != null && !isAdmin && !isManager;
     const [isRecording, setIsRecording] = useState(false);
     const [sentiment, setSentiment] = useState<SentimentUpdate | null>(null);
     const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([]);
@@ -133,6 +139,9 @@ function App() {
                 setCurrentUser({ user_id: data.user_id, name: "", session_id: data.session_id, role: data.role });
                 setSessionId(data.session_id);
                 setAuthState("authenticated");
+                // Land each role on its natural home view on a returning session.
+                if (data.role === "manager") setActiveTab("dashboard");
+                else if (data.role !== "admin") setActiveTab("home");
             })
             .catch(() => setAuthState("unauthenticated"));
     }, []);
@@ -155,13 +164,15 @@ function App() {
         if (!tab) return;
         if (tab.adminOnly && !isAdmin) setActiveTab("assessment");
         else if (tab.managerOnly && !isManager && !isAdmin) setActiveTab("assessment");
-    }, [activeTab, isAdmin, isManager]);
+        else if (tab.guestOnly && !isGuest) setActiveTab("assessment");
+    }, [activeTab, isAdmin, isManager, isGuest]);
 
     const handleLogin = useCallback((user: AuthUser) => {
         setCurrentUser(user);
         setSessionId(user.session_id);
         setAuthState("authenticated");
         if (user.role === "manager") setActiveTab("dashboard");
+        else if (user.role !== "admin") setActiveTab("home");
     }, []);
 
     const handleLogout = useCallback(async () => {
@@ -624,7 +635,7 @@ function App() {
                     </div>
                     <div className="flex items-center gap-3">
                         <nav className="flex items-center gap-1">
-                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin)).map(tab => (
+                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin) && (!tab.guestOnly || isGuest)).map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
@@ -701,6 +712,13 @@ function App() {
                     </div>
                 </div>
             </div>
+
+            {/* ── Guest Home / landing ── (plain guests only) */}
+            {activeTab === "home" && isGuest && (
+                <main className="relative flex-1 overflow-hidden">
+                    <GuestLanding userName={currentUser?.name} onStartAssessment={() => setActiveTab("assessment")} />
+                </main>
+            )}
 
             {/* ── Manager Dashboard ── */}
             {activeTab === "dashboard" && (isManager || isAdmin) && (
