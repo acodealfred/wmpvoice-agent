@@ -15,6 +15,12 @@ RUN npm run build
 FROM python:3.12-slim AS production-stage
 
 WORKDIR /app
+
+# Litestream: streaming SQLite replication to Azure Blob (durable persistence
+# across deployments). Pulled from the official image — single static binary,
+# no extra OS packages needed. See docs/persistence.md for the rationale.
+COPY --from=litestream/litestream:0.3.13 /usr/local/bin/litestream /usr/local/bin/litestream
+
 COPY --from=build-stage /backend/static /app/static
 COPY ./backend/ /app
 
@@ -25,4 +31,8 @@ RUN python -m pip install -r requirements.txt
 
 RUN python -m pip install gunicorn
 
-CMD ["python3", "-m", "gunicorn", "app:create_app", "-b", "0.0.0.0:8000", "--worker-class", "aiohttp.GunicornWebWorker"]
+RUN chmod +x /app/entrypoint.sh
+
+# entrypoint restores the DB from blob, then launches the app under Litestream
+# replication. With LITESTREAM_REPLICA_URL unset it just runs the app directly.
+CMD ["/app/entrypoint.sh"]

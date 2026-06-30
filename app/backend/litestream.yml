@@ -1,0 +1,11 @@
+# Litestream configuration — streaming replication of the SQLite database to
+# Azure Blob Storage so it survives container redeploys/restarts.
+#
+# The replica URL (abs://<account>@<container>/ciq) is injected via the
+# LITESTREAM_REPLICA_URL env var, set by the Container App (see infra/main.bicep).
+# Auth is via the app's user-assigned managed identity — no account keys.
+# (AZURE_CLIENT_ID is already exported to the container to select that identity.)
+dbs:
+  - path: /app/data/ciq.db
+    replicas:
+      - url: ${LITESTREAM_REPLICA_URL}

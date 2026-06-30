@@ -231,6 +231,12 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       RUNNING_IN_PRODUCTION: 'true'
       // For using managed identity to access Azure resources. See https://github.com/microsoft/azure-container-apps/issues/442
       AZURE_CLIENT_ID: acaIdentity.outputs.clientId
+      // Litestream: durable SQLite persistence across deployments. The DB lives
+      // on the container's ephemeral disk; Litestream streams its WAL to this
+      // blob container and restores it on boot. Auth is via the managed identity
+      // above (no keys). The name is the deterministic litestreamStorageName so
+      // this env doesn't depend on the storage module (avoids a deploy cycle).
+      LITESTREAM_REPLICA_URL: 'abs://${litestreamStorageName}@${litestreamContainerName}/ciq'
     }
   }
 }
@@ -378,6 +384,52 @@ module storage 'br/public:avm/res/storage/storage-account:0.9.1' = if (!empty(st
   }
 }
 
+// ── Litestream durable persistence ─────────────────────────────────────────
+// Dedicated, always-on storage account whose single private blob container
+// holds the streamed SQLite backup. The name is computed deterministically so
+// the container app's LITESTREAM_REPLICA_URL env can reference it without
+// creating a module dependency cycle (the role assignment below depends on the
+// backend identity, and the backend env would otherwise depend on this module).
+// Shared-key auth is disabled — Litestream authenticates with the backend's
+// user-assigned managed identity via the Storage Blob Data Contributor role.
+var litestreamStorageName = '${abbrs.storageStorageAccounts}ls${resourceToken}'
+var litestreamContainerName = 'litestream'
+
+module litestreamStorage 'br/public:avm/res/storage/storage-account:0.9.1' = {
+  name: 'litestream-storage'
+  params: {
+    name: litestreamStorageName
+    location: location
+    tags: tags
+    kind: 'StorageV2'
+    skuName: 'Standard_LRS'
+    publicNetworkAccess: 'Enabled'
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    networkAcls: {
+      defaultAction: 'Allow'
+      bypass: 'AzureServices'
+    }
+    blobServices: {
+      deleteRetentionPolicyEnabled: true
+      deleteRetentionPolicyDays: 7
+      containers: [
+        {
+          name: litestreamContainerName
+          publicAccess: 'None'
+        }
+      ]
+    }
+    roleAssignments: [
+      {
+        roleDefinitionIdOrName: 'Storage Blob Data Contributor'
+        principalId: acaBackend.outputs.identityPrincipalId
+        principalType: 'ServicePrincipal'
+      }
+    ]
+  }
+}
+
 // RAG features disabled - roles for search service removed
 // Roles for the backend to access other services
 module openAiRoleBackend 'core/security/role.bicep' = {
@@ -450,6 +502,10 @@ output AZURE_STORAGE_ACCOUNT string = !empty(storageAccountName) ? storage.outpu
 output AZURE_STORAGE_CONNECTION_STRING string = !empty(storageAccountName) ? 'ResourceId=/subscriptions/${subscription().subscriptionId}/resourceGroups/${resourceGroup().name}/providers/Microsoft.Storage/storageAccounts/${storage.outputs.name}' : ''
 output AZURE_STORAGE_CONTAINER string = !empty(storageAccountName) ? storageContainerName : ''
 output AZURE_STORAGE_RESOURCE_GROUP string = !empty(storageAccountName) ? resourceGroup().name : ''
+
+// Litestream durable-persistence target (SQLite backup blob container).
+output LITESTREAM_STORAGE_ACCOUNT string = litestreamStorage.outputs.name
+output LITESTREAM_REPLICA_URL string = 'abs://${litestreamStorageName}@${litestreamContainerName}/ciq'
 
 output BACKEND_URI string = acaBackend.outputs.uri
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerApps.outputs.registryLoginServer

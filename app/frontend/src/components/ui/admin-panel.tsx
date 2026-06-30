@@ -230,6 +230,30 @@ export function AdminPanel() {
         }
     }, [demoEnabled, demoSaving]);
 
+    // Explicit "clear" that wipes seeded demo rows regardless of toggle state.
+    // Hits the same endpoint with enabled:false (clear_demo_data only ever
+    // deletes is_demo=1 rows, so real data is never touched).
+    const clearDemo = useCallback(async () => {
+        if (demoSaving) return;
+        setDemoError(null);
+        setDemoSaving(true);
+        try {
+            const resp = await apiFetch("/admin/demo-data", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: false }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const d = await resp.json();
+            setDemoEnabled(!!d.enabled);
+            setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 });
+        } catch (err) {
+            setDemoError(err instanceof Error ? `Couldn't clear (${err.message})` : "Couldn't clear");
+        } finally {
+            setDemoSaving(false);
+        }
+    }, [demoSaving]);
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -402,8 +426,18 @@ export function AdminPanel() {
                                 ? `Demo data is ON — ${demoCounts.userCount} staff · ${demoCounts.surveyCount} assessments`
                                 : "Demo data is OFF (real data only)"}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                         {demoSaving && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
+                        <button
+                            type="button"
+                            disabled={demoEnabled !== true || demoSaving}
+                            onClick={clearDemo}
+                            title="Delete all seeded demo rows (real data untouched)"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-2.5 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Clear
+                        </button>
                         <button
                             type="button"
                             role="switch"
