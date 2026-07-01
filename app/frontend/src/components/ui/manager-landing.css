@@ -506,7 +506,7 @@
 /* ─── Score-trend chart + wellbeing chat (side-by-side, 6:4) ─── */
 /* The row has a DEFINITE height so the inner panels (chart body, chat log) fill
    it and scroll internally instead of growing the page. */
-.ml .ml-duo { display: flex; gap: 16px; align-items: stretch; height: 560px; }
+.ml .ml-duo { display: flex; gap: 16px; align-items: stretch; height: 616px; }
 .ml .ml-duo > .ml-chart { flex: 6; min-width: 0; }
 .ml .ml-duo > .ml-chat { flex: 4; min-width: 0; }
 .ml .ml-chart, .ml .ml-chat { display: flex; flex-direction: column; height: 100%; }

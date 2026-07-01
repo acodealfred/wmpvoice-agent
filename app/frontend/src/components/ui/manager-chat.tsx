@@ -21,43 +21,69 @@ const GREETING: Msg = {
 // Optional filter context sent with each turn so answers respect the manager's
 // current lens. Parent can pass this in later; defaults to none.
 export function ManagerChat({ filters }: { filters?: Record<string, string> }) {
-    const [messages, setMessages] = useState<Msg[]>([GREETING]);
+    const [messages, setMessages] = useState<Msg[]>([]);
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState("");
     const chatIdRef = useRef<string | null>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const greetingTimer = useRef<number | null>(null);
 
     useEffect(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
     }, [messages, status]);
 
-    // Rehydrate the most recent persisted chat on mount so the conversation
-    // survives logout/login, refreshes and tab navigation. Empty for new users.
+    const cancelGreeting = () => {
+        if (greetingTimer.current) { clearInterval(greetingTimer.current); greetingTimer.current = null; }
+    };
+
+    // Type the greeting out letter-by-letter, always finishing well under 2s
+    // (types several chars per frame for longer text so the total stays bounded).
+    const typeGreeting = () => {
+        cancelGreeting();
+        const full = GREETING.text;
+        const DURATION = 1400, TICK = 16;                       // ms
+        const perTick = Math.max(1, Math.ceil(full.length / (DURATION / TICK)));
+        let i = 0;
+        setMessages([{ role: "assistant", text: "" }]);
+        greetingTimer.current = window.setInterval(() => {
+            i = Math.min(full.length, i + perTick);
+            setMessages([{ role: "assistant", text: full.slice(0, i) }]);
+            if (i >= full.length) cancelGreeting();
+        }, TICK);
+    };
+
+    // On mount: restore the latest persisted chat (survives logout/login,
+    // refresh, tab nav), or type the greeting when there's no history.
     useEffect(() => {
         let alive = true;
         (async () => {
             try {
                 const res = await apiFetch("/manager/chats", { credentials: "same-origin" });
-                if (!res.ok) return;
-                const { chats } = await res.json();
-                if (!alive || !chats?.length) return;
-                const latest = chats[0].chat_id;
-                const r2 = await apiFetch(`/manager/chats/${latest}`, { credentials: "same-origin" });
-                if (!r2.ok || !alive) return;
-                const data = await r2.json();
-                const restored: Msg[] = (data.messages ?? []).map((m: { role: Msg["role"]; content: string; citations?: Citation[] }) => ({
-                    role: m.role, text: m.content, citations: m.citations,
-                }));
-                if (alive && restored.length) {
-                    chatIdRef.current = latest;
-                    setMessages(restored);
+                if (res.ok) {
+                    const { chats } = await res.json();
+                    if (alive && chats?.length) {
+                        const latest = chats[0].chat_id;
+                        const r2 = await apiFetch(`/manager/chats/${latest}`, { credentials: "same-origin" });
+                        if (r2.ok && alive) {
+                            const data = await r2.json();
+                            const restored: Msg[] = (data.messages ?? []).map((m: { role: Msg["role"]; content: string; citations?: Citation[] }) => ({
+                                role: m.role, text: m.content, citations: m.citations,
+                            }));
+                            if (alive && restored.length) {
+                                chatIdRef.current = latest;
+                                setMessages(restored);
+                                return;
+                            }
+                        }
+                    }
                 }
             } catch {
-                /* first-load failure is non-fatal — keep the greeting */
+                /* non-fatal — fall through to the greeting */
             }
+            if (alive) typeGreeting();
         })();
-        return () => { alive = false; };
+        return () => { alive = false; cancelGreeting(); };
     }, []);
 
     // Mutate the last (assistant) message in place as tokens stream in.
@@ -71,7 +97,7 @@ export function ManagerChat({ filters }: { filters?: Record<string, string> }) {
         chatIdRef.current = null;
         setInput("");
         setStatus("");
-        setMessages([GREETING]);
+        typeGreeting();
     };
 
     const send = async () => {
