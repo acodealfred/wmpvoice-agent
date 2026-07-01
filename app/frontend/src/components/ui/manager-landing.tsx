@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { apiFetch } from "@/lib/api";
 import { ManagerAnalytics } from "./manager-analytics";
+import { ManagerScoreTrend } from "./manager-score-trend";
+import { ManagerChat } from "./manager-chat";
 import "./manager-landing.css";
 
 interface AssessmentNode {
@@ -666,6 +668,12 @@ export function ManagerLanding({ theme }: Props) {
 
                         {/* Assessment analytics — filterable visualization */}
                         <ManagerAnalytics />
+
+                        {/* Monthly burnout trend (wide) + wellbeing chat (narrow), 6:4 */}
+                        <div className="ml-span12 ml-duo">
+                            <ManagerScoreTrend />
+                            <ManagerChat />
+                        </div>
                     </div>
 
                     <p className="ml-note">

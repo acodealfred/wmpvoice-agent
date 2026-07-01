@@ -16,6 +16,7 @@ from ciq.api.history_routes import (
     get_demo_data,
     manager_analytics,
     manager_overview,
+    manager_score_trend,
     set_demo_data,
     user_sessions_history,
 )
@@ -107,6 +108,7 @@ async def create_app():
     app.router.add_post("/admin/demo-data", set_demo_data)
     app.router.add_get("/manager/overview", manager_overview)
     app.router.add_get("/manager/analytics", manager_analytics)
+    app.router.add_get("/manager/score-trend", manager_score_trend)
 
     # ── Mithra Knowledge Base admin proxy routes ──────────────────────────
     app.router.add_get("/admin/kb/documents", admin_kb_list_documents)

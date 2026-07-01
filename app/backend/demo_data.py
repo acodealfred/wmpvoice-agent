@@ -36,11 +36,13 @@ DEPARTMENTS = [
 SHIFTS = ["Day", "Evening", "Night"]
 _SHIFT_RISK_MULT = {"Day": 0.85, "Evening": 1.0, "Night": 1.4}
 
-# Assessment age buckets (days-ago ranges), one per Period filter option. Every
-# completed assessment is placed in a bucket round-robin so each Period range
-# ("Last 30 days", "Last 90 days", "Last 12 months", "All time") returns data
-# and the counts grow as the window widens.
-_AGE_BUCKETS = [(1, 27), (34, 85), (100, 350), (380, 690)]
+# Each completed staff member has a *monthly history* of assessments rather than
+# a single one, so the trend chart and every filter/period combination has real
+# date spread. History length is randomised per person within this range (in
+# months, counting back from the current month), so recent months are densely
+# covered by everyone while older months thin out — a realistic ramp.
+_MIN_HISTORY = 8
+_MAX_HISTORY = 24
 
 # Department-appropriate job titles (the Job Title filter dimension).
 JOB_TITLES = {
@@ -74,6 +76,19 @@ def _interp(risk: str) -> str:
     }[risk]
 
 
+def _month_timestamp(base: datetime, k: int) -> str:
+    """ISO timestamp placed on a random day within the calendar month `k`
+    months before `base`. For the current month (k=0) the day never runs past
+    `base` so no assessment lands in the future."""
+    y, m = base.year, base.month - k
+    while m <= 0:
+        m += 12
+        y -= 1
+    max_day = base.day if k == 0 else 28
+    day = random.randint(1, max(1, min(28, max_day)))
+    return datetime(y, m, day, random.randint(0, 23), random.randint(0, 59)).isoformat()
+
+
 async def is_demo_seeded() -> bool:
     async with _open_db() as db:
         async with db.execute("SELECT COUNT(*) AS n FROM users WHERE is_demo = 1") as cur:
@@ -100,7 +115,6 @@ async def seed_demo_data() -> dict:
     now = datetime.utcnow()
     user_rows: list[tuple] = []
     survey_rows: list[tuple] = []
-    completed_idx = 0  # global counter, drives the round-robin Period buckets
 
     for dept in DEPARTMENTS:
         weights = dept["risk"]
@@ -114,34 +128,33 @@ async def seed_demo_data() -> dict:
             shift = SHIFTS[i % len(SHIFTS)]
             job_title = titles[i % len(titles)]
 
-            # Only the "completed" share of each department has an assessment.
+            # Only the "completed" share of each department has assessments —
+            # and each such staff member carries a monthly history, so the trend
+            # chart and every filter/period combination has real date spread.
             if i < completed:
-                # Spread the assessment date across the Period buckets in turn.
-                lo, hi = _AGE_BUCKETS[completed_idx % len(_AGE_BUCKETS)]
-                completed_idx += 1
-                age_days = random.randint(lo, hi)
-                ts = (now - timedelta(days=age_days, hours=random.randint(0, 23))).isoformat()
-                # The user account is created shortly before their assessment.
-                created = (now - timedelta(days=age_days + random.randint(3, 30))).isoformat()
-
                 # Bias the High band by the shift's risk factor so night staff
                 # read as more at-risk without changing the overall department mix much.
                 w = list(weights)
                 w[2] *= _SHIFT_RISK_MULT[shift]
-                risk = random.choices(["Low", "Moderate", "High"], weights=w)[0]
-                score = _score_for(risk)
-                report = {
-                    "analysis": {},
-                    "totalScore": score,
-                    "maxScore": _MAX_SCORE,
-                    "riskLevel": risk,
-                    "interpretation": _interp(risk),
-                    "domainTotals": {},
-                }
-                survey_rows.append((
-                    str(uuid.uuid4()), user_id, None, str(uuid.uuid4()), _SURVEY_TYPE,
-                    ts, ts, "{}", json.dumps(report), "{}", 1,
-                ))
+                history = random.randint(_MIN_HISTORY, _MAX_HISTORY)
+                for k in range(history):  # k = months ago; 0 = current month
+                    ts = _month_timestamp(now, k)
+                    risk = random.choices(["Low", "Moderate", "High"], weights=w)[0]
+                    score = _score_for(risk)
+                    report = {
+                        "analysis": {},
+                        "totalScore": score,
+                        "maxScore": _MAX_SCORE,
+                        "riskLevel": risk,
+                        "interpretation": _interp(risk),
+                        "domainTotals": {},
+                    }
+                    survey_rows.append((
+                        str(uuid.uuid4()), user_id, None, str(uuid.uuid4()), _SURVEY_TYPE,
+                        ts, ts, "{}", json.dumps(report), "{}", 1,
+                    ))
+                # The account is created a month before the oldest assessment.
+                created = _month_timestamp(now, history)
             else:
                 # Staff who have not completed an assessment yet.
                 created = (now - timedelta(days=random.randint(20, 120))).isoformat()

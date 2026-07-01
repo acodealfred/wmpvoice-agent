@@ -445,6 +445,93 @@ def _monday_of(iso: str) -> str | None:
     return monday.isoformat()
 
 
+def _month_key(iso: str) -> str | None:
+    """Return the YYYY-MM month bucket for an ISO timestamp, or None if unparseable."""
+    try:
+        return datetime.fromisoformat(iso).strftime("%Y-%m")
+    except (ValueError, TypeError):
+        return None
+
+
+async def get_manager_score_trend(
+    department: str | None = None,
+    shift: str | None = None,
+    job_title: str | None = None,
+    months: int | None = 12,
+) -> dict:
+    """Organisation-wide average burnout score per calendar month.
+
+    One point per month (the mean of every assessment's numeric `totalScore`),
+    honouring the department / shift / job-title filters and a months-back
+    window (`months` = None → all time). Aggregate and de-identified — counts
+    and means only.
+    """
+    cutoff = None
+    if months:
+        first = datetime.now().replace(day=1)
+        # Step back `months - 1` whole months so the window includes the current month.
+        y, m = first.year, first.month - (months - 1)
+        while m <= 0:
+            m += 12
+            y -= 1
+        cutoff = f"{y:04d}-{m:02d}"
+
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT u.department AS department, u.shift AS shift, u.job_title AS job_title, "
+            "       sr.technical_report AS tr, sr.updated_at AS updated_at "
+            "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
+            "WHERE sr.technical_report IS NOT NULL"
+        ) as cur:
+            rows = await cur.fetchall()
+        async with db.execute(
+            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'guest'"
+        ) as cur:
+            opt_rows = await cur.fetchall()
+
+    filter_options = {"department": set(), "shift": set(), "jobTitle": set()}
+    for r in opt_rows:
+        if r["department"]:
+            filter_options["department"].add(r["department"])
+        if r["shift"]:
+            filter_options["shift"].add(r["shift"])
+        if r["job_title"]:
+            filter_options["jobTitle"].add(r["job_title"])
+
+    buckets: dict[str, dict] = {}
+    for r in rows:
+        if department and r["department"] != department:
+            continue
+        if shift and r["shift"] != shift:
+            continue
+        if job_title and r["job_title"] != job_title:
+            continue
+        month = _month_key(r["updated_at"] or "")
+        if not month:
+            continue
+        if cutoff and month < cutoff:
+            continue
+        try:
+            report = json.loads(r["tr"]) if r["tr"] else {}
+        except Exception:
+            report = {}
+        score = report.get("totalScore")
+        if not isinstance(score, (int, float)):
+            continue
+        b = buckets.setdefault(month, {"sum": 0.0, "n": 0})
+        b["sum"] += score
+        b["n"] += 1
+
+    points = [
+        {"month": month, "avgScore": round(b["sum"] / b["n"], 1), "assessed": b["n"]}
+        for month, b in sorted(buckets.items())
+    ]
+    return {
+        "points": points,
+        "filterOptions": {k: sorted(v) for k, v in filter_options.items()},
+    }
+
+
 async def get_manager_analytics(
     department: str | None = None,
     shift: str | None = None,

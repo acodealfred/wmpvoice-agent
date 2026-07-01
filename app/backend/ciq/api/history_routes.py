@@ -7,6 +7,7 @@ from db import (
     get_all_users_with_session_info,
     get_manager_analytics,
     get_manager_overview,
+    get_manager_score_trend,
     get_user_survey_records,
 )
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
@@ -39,6 +40,24 @@ async def manager_analytics(request: web.Request) -> web.Response:
         date_from=q.get("from") or None,
         date_to=q.get("to") or None,
         group_by=q.get("groupBy") or "department",
+    )
+    return web.json_response(data)
+
+
+async def manager_score_trend(request: web.Request) -> web.Response:
+    """GET /manager/score-trend — org-wide average burnout score per month.
+
+    Query params (all optional): department, shift, jobTitle, and months (6 |
+    12 | 24 | all) for the look-back window. Defaults to the last 12 months.
+    """
+    q = request.query
+    raw_months = (q.get("months") or "12").lower()
+    months = None if raw_months == "all" else int(raw_months) if raw_months.isdigit() else 12
+    data = await get_manager_score_trend(
+        department=q.get("department") or None,
+        shift=q.get("shift") or None,
+        job_title=q.get("jobTitle") or None,
+        months=months,
     )
     return web.json_response(data)
 
