@@ -551,10 +551,31 @@
   background: rgba(84,167,221,.14); color: var(--cyan);
   border: 1px solid rgba(84,167,221,.24);
 }
+/* Header controls: New chat button + badge */
+.ml .ml-chat-head-right { display: flex; align-items: center; gap: 8px; }
+.ml .ml-chat-new {
+  background: rgba(84,167,221,.14); color: var(--cyan); border: 1px solid var(--line2);
+  border-radius: 999px; padding: 4px 11px; font: 800 11px var(--font); cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.ml .ml-chat-new:hover:not(:disabled) { background: rgba(84,167,221,.24); border-color: var(--cyan); }
+.ml .ml-chat-new:disabled { opacity: .45; cursor: default; }
+
 /* Transient tool/thinking status line */
 .ml .ml-chat-status {
   font-size: 11.5px; font-weight: 600; color: var(--muted); font-style: italic;
   padding: 2px 4px; align-self: flex-start;
+}
+/* Animated ellipsis: cycles . → .. → ... after the label. */
+.ml .ml-chat-status .ml-dots::after {
+  content: ".";
+  animation: ml-dots 1.2s steps(1, end) infinite;
+}
+@keyframes ml-dots {
+  0%   { content: "."; }
+  33%  { content: ".."; }
+  66%  { content: "..."; }
+  100% { content: "."; }
 }
 
 .ml .ml-chat-input { display: flex; gap: 8px; margin-top: auto; }

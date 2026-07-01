@@ -32,9 +32,47 @@ export function ManagerChat({ filters }: { filters?: Record<string, string> }) {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
     }, [messages, status]);
 
+    // Rehydrate the most recent persisted chat on mount so the conversation
+    // survives logout/login, refreshes and tab navigation. Empty for new users.
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                const res = await apiFetch("/manager/chats", { credentials: "same-origin" });
+                if (!res.ok) return;
+                const { chats } = await res.json();
+                if (!alive || !chats?.length) return;
+                const latest = chats[0].chat_id;
+                const r2 = await apiFetch(`/manager/chats/${latest}`, { credentials: "same-origin" });
+                if (!r2.ok || !alive) return;
+                const data = await r2.json();
+                const restored: Msg[] = (data.messages ?? []).map((m: { role: Msg["role"]; content: string; citations?: Citation[] }) => ({
+                    role: m.role, text: m.content, citations: m.citations,
+                }));
+                if (alive && restored.length) {
+                    chatIdRef.current = latest;
+                    setMessages(restored);
+                }
+            } catch {
+                /* first-load failure is non-fatal — keep the greeting */
+            }
+        })();
+        return () => { alive = false; };
+    }, []);
+
     // Mutate the last (assistant) message in place as tokens stream in.
     const patchLast = (fn: (m: Msg) => Msg) =>
         setMessages(ms => ms.map((m, i) => (i === ms.length - 1 ? fn(m) : m)));
+
+    // Start a fresh conversation. The previous chat stays persisted; a new one
+    // is created server-side on the next message (chatId omitted).
+    const newChat = () => {
+        if (busy) return;
+        chatIdRef.current = null;
+        setInput("");
+        setStatus("");
+        setMessages([GREETING]);
+    };
 
     const send = async () => {
         const text = input.trim();
@@ -109,7 +147,10 @@ export function ManagerChat({ filters }: { filters?: Record<string, string> }) {
         <div className="ml-card ml-pad ml-chat">
             <div className="ml-sec-h">
                 <h2>Wellbeing Assistant</h2>
-                <span className="ml-badge ml-b-cyan">Grounded · beta</span>
+                <div className="ml-chat-head-right">
+                    <button className="ml-chat-new" onClick={newChat} disabled={busy} title="Start a new chat">+ New chat</button>
+                    <span className="ml-badge ml-b-cyan">Grounded · beta</span>
+                </div>
             </div>
 
             <div className="ml-chat-log" ref={listRef}>
@@ -132,7 +173,11 @@ export function ManagerChat({ filters }: { filters?: Record<string, string> }) {
                         </div>
                     </div>
                 ))}
-                {status && <div className="ml-chat-status">{status}</div>}
+                {status && (
+                    <div className="ml-chat-status">
+                        {status.replace(/[.…]+$/, "")}<span className="ml-dots" />
+                    </div>
+                )}
             </div>
 
             <div className="ml-chat-input">

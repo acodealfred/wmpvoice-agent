@@ -248,15 +248,25 @@ Proposed new (optional) flags:
 | Orchestrator | `ciq/chat/orchestrator.py` (new) | Tool loop + streaming + prompts |
 | Guardrails | `ciq/chat/guardrails.py` (new) | Input red-flags, output citation/provenance/safety |
 | Routes | `ciq/chat/routes.py` (new), `ciq/server.py` | `POST /manager/chat` (SSE) + chat REST, registration |
-| Frontend | `manager-chat.tsx`, `lib/api.ts` | Replace placeholder with real SSE client + citation chips |
+| Frontend | `manager-chat.tsx`, `manager-landing.css` | SSE client, markdown answers, citation chips, tool-status line, latest-chat rehydration, New-chat button |
 
 ## Phasing
 
-- **Phase 1 (MVP)** — `POST /manager/chat` (SSE), the four tools, tool loop,
-  system-prompt + red-flag guardrails, DB persistence, wired widget.
-- **Phase 2** — richer citation UI, filter-context awareness, "thinking…"
-  tool-progress indicator, chat list/history sidebar.
-- **Phase 3** — output guardrail judge, feedback (thumbs), rate limiting,
+- **Phase 1 (MVP)** — ✅ **done**. `POST /manager/chat` (SSE), the four tools,
+  bounded tool loop, system-prompt + red-flag guardrails, DB persistence, live
+  SSE widget. Reuses the consultative-summary gpt-4o path (no new creds).
+- **Phase 2** — _partially done_.
+  - ✅ Citation chips under answers (`ml-chat-cite`).
+  - ✅ "Thinking…" tool-progress indicator (per-tool status line via SSE `tool` events).
+  - ✅ Persistence rehydration: the widget reloads the latest chat on mount
+    (`GET /manager/chats` → `GET /manager/chats/{id}`), so conversations survive
+    logout/login, refresh and tab navigation.
+  - ✅ **New chat** control — resets the widget and starts a fresh server-side
+    chat on the next message (previous chat stays persisted).
+  - ⬜ Filter-context awareness — the orchestrator already accepts a `filters`
+    arg; the widget still sends `{}` (not yet wired to the live dashboard filters).
+  - ⬜ Full chat-list / history sidebar (switch between past chats, delete).
+- **Phase 3** — ⬜ output guardrail judge, feedback (thumbs), rate limiting,
   answer/result caching for Mithra to cut latency.
 
 ## Non-goals / explicit exclusions
