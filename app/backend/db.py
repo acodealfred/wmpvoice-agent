@@ -655,3 +655,117 @@ async def get_manager_analytics(
         "atRiskPct": round(at_risk_total / total_assessed * 100) if total_assessed else 0,
         "filterOptions": {k: sorted(v) for k, v in filter_options.items()},
     }
+
+
+async def get_filter_options() -> dict:
+    """Distinct department / shift / job-title values across guest staff.
+
+    Drives the chat tools' enumerated parameters so the model can only filter on
+    values that actually exist (and never smuggle a name or free text through)."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'guest'"
+        ) as cur:
+            rows = await cur.fetchall()
+    opts = {"department": set(), "shift": set(), "jobTitle": set()}
+    for r in rows:
+        if r["department"]:
+            opts["department"].add(r["department"])
+        if r["shift"]:
+            opts["shift"].add(r["shift"])
+        if r["job_title"]:
+            opts["jobTitle"].add(r["job_title"])
+    return {k: sorted(v) for k, v in opts.items()}
+
+
+# ── Manager chat persistence (see docs/manager-chat.md) ────────────────────────
+
+async def create_chat_session(chat_id: str, user_id: str, title: str) -> None:
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO chat_sessions (chat_id, user_id, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (chat_id, user_id, title, now, now),
+        )
+        await db.commit()
+
+
+async def get_chat_session(chat_id: str) -> dict | None:
+    """Return a chat's metadata (incl. user_id, for ownership checks)."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT chat_id, user_id, title, created_at, updated_at FROM chat_sessions WHERE chat_id = ?",
+            (chat_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def list_chat_sessions(user_id: str) -> list[dict]:
+    """A manager's chats, most recently active first."""
+    async with _open_db() as db:
+        async with db.execute(
+            """SELECT chat_id, title, created_at, updated_at
+               FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC""",
+            (user_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_chat_messages(chat_id: str) -> list[dict]:
+    """Full message history for a chat, oldest first. Citations are parsed back to lists."""
+    async with _open_db() as db:
+        async with db.execute(
+            """SELECT message_id, role, content, citations, created_at
+               FROM chat_messages WHERE chat_id = ? ORDER BY created_at, rowid""",
+            (chat_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        m = dict(r)
+        if m.get("citations"):
+            try:
+                m["citations"] = json.loads(m["citations"])
+            except Exception:
+                m["citations"] = []
+        else:
+            m["citations"] = []
+        out.append(m)
+    return out
+
+
+async def add_chat_message(
+    message_id: str,
+    chat_id: str,
+    role: str,
+    content: str,
+    citations: list | None = None,
+    tool_trace: list | None = None,
+) -> None:
+    """Append a message and bump the chat's updated_at (single transaction)."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO chat_messages
+               (message_id, chat_id, role, content, citations, tool_trace, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                message_id, chat_id, role, content,
+                json.dumps(citations) if citations else None,
+                json.dumps(tool_trace) if tool_trace else None,
+                now,
+            ),
+        )
+        await db.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE chat_id = ?", (now, chat_id)
+        )
+        await db.commit()
+
+
+async def delete_chat_session(chat_id: str) -> None:
+    async with _open_db() as db:
+        await db.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
+        await db.execute("DELETE FROM chat_sessions WHERE chat_id = ?", (chat_id,))
+        await db.commit()

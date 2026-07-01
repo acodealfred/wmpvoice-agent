@@ -1,0 +1,74 @@
+' CIQ Manager "Wellbeing Assistant" chat — one turn, end to end.
+' Render with any PlantUML tool (plantuml.com, VS Code PlantUML extension).
+@startuml ciq-manager-chat-sequence
+title CIQ Manager Chat — One Turn (SSE + tool loop + guardrails + persistence)
+
+actor Manager
+participant "manager-chat.tsx" as FE
+participant "auth_middleware" as AUTH
+participant "POST /manager/chat\n(SSE handler)" as ROUTE
+participant "Orchestrator" as ORCH
+participant "Guardrails" as GUARD
+participant "Grounding tools" as TOOLS
+database "SQLite\n(aggregates + chats)" as DB
+cloud "Mithra KB RAG" as MITHRA
+cloud "Azure OpenAI gpt-4o" as AOAI
+
+== Send a message ==
+Manager -> FE : type question + hit send
+FE -> AUTH : POST /manager/chat\n{chatId?, message, filters}
+AUTH -> AUTH : require role in {manager, admin}
+alt not a manager
+  AUTH --> FE : 403
+else authorised
+  AUTH -> ROUTE : forward
+end
+
+== Load history + input guard ==
+ROUTE -> DB : load chat_messages(chatId)  (or create chat)
+DB --> ROUTE : prior turns
+ROUTE -> GUARD : input guard (scope + red-flag regex)
+alt disallowed (e.g. "show me <person>'s report")
+  GUARD --> ROUTE : refuse
+  ROUTE ..> FE : SSE event:token "I can only share aggregate…"
+  ROUTE ..> FE : SSE event:done
+else allowed
+  GUARD --> ROUTE : ok
+end
+
+== Tool-resolution loop (non-streamed, bounded) ==
+ROUTE -> ORCH : messages + tool schemas
+loop until final answer OR max_iters
+  ORCH -> AOAI : chat/completions (tools, stream=false)
+  AOAI --> ORCH : tool_call(s)  OR  finish
+  opt model requested a tool
+    ORCH -> TOOLS : dispatch (get_org_overview / _department_breakdown /\n_score_trend / search_research)
+    alt operational query
+      TOOLS -> DB : aggregate query (no PII)
+      DB --> TOOLS : counts / risk mix / monthly avg
+    else research query
+      TOOLS -> MITHRA : call_mithra_kb_chat(query)
+      MITHRA --> TOOLS : snippets + citations
+    end
+    TOOLS --> ORCH : tool result (JSON)
+    ORCH ..> FE : SSE event:tool {name, status:done}
+  end
+end
+
+== Stream the final answer ==
+ORCH -> AOAI : chat/completions (final, stream=true)
+loop token deltas
+  AOAI --> ORCH : delta
+  ORCH ..> FE : SSE event:token {delta}
+end
+
+== Output guard + persist ==
+ORCH -> GUARD : output guard\n(citation enforcement, number provenance, safety, disclaimer)
+GUARD --> ORCH : cleaned answer + citations
+ORCH ..> FE : SSE event:citations {citations}
+ORCH -> DB : INSERT user msg + assistant msg (content, citations, tool_trace)
+DB --> ORCH : ok
+ORCH ..> FE : SSE event:done {chatId, messageId}
+FE -> Manager : render answer + citation chips
+
+@enduml

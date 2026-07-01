@@ -111,6 +111,7 @@ export function ManagerScoreTrend() {
                     <p className="ml-an-empty">No scored assessments in this window.</p>
                 )}
                 {!loading && points.length > 0 && (
+                    <div className="ml-chart-fill">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -12 }}>
                             <CartesianGrid stroke="rgba(84,167,221,.14)" vertical={false} />
@@ -130,6 +131,7 @@ export function ManagerScoreTrend() {
                                 activeDot={{ r: 5, fill: "#7fd4ff" }} />
                         </LineChart>
                     </ResponsiveContainer>
+                    </div>
                 )}
             </div>
 

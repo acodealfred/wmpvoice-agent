@@ -123,6 +123,37 @@ async def init_db() -> None:
             )
         """)
 
+        # Manager "Wellbeing Assistant" chat history. One chat_sessions row per
+        # conversation; many chat_messages per chat. See docs/manager-chat.md.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                chat_id    TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL REFERENCES users(user_id),
+                title      TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                message_id TEXT PRIMARY KEY,
+                chat_id    TEXT NOT NULL REFERENCES chat_sessions(chat_id),
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                citations  TEXT,
+                tool_trace TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_chat
+            ON chat_messages(chat_id, created_at)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_user
+            ON chat_sessions(user_id, updated_at DESC)
+        """)
+
         now = datetime.utcnow().isoformat()
         for name, password, role in SEED_USERS:
             user_id = str(uuid.uuid4())
