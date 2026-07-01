@@ -315,8 +315,7 @@
 
 /* ─── Holo card ─── */
 .ml .ml-holo {
-  position: absolute; left: 0; top: 0; width: 264px; z-index: 40;
-  transform: translate(-50%, -50%);
+  position: absolute; top: 92px; right: 8px; width: 280px; z-index: 5;
   opacity: 0; visibility: hidden; transition: opacity .3s ease;
   --hc: #54a7dd;
   pointer-events: none;

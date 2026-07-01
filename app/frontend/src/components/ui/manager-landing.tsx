@@ -413,7 +413,6 @@ export function ManagerLanding({ theme }: Props) {
             (holo.querySelector(".ml-desc") as HTMLElement).textContent =
                 `${d.completed} of ${d.eligible} staff assessed · ${d.atRiskPct}% in Moderate/High burnout${d.avgScore != null ? ` · avg score ${d.avgScore}` : ""}.`;
             holo.classList.add("show");
-            positionHolo();
         }
         function closeHolo() { holo?.classList.remove("show"); clearSelect(); }
 
@@ -436,21 +435,6 @@ export function ManagerLanding({ theme }: Props) {
         const closeFn = (e: Event) => { e.stopPropagation(); closeHolo(); };
         closeBtn?.addEventListener("click", closeFn);
 
-        const proj = new THREE.Vector3();
-        function positionHolo() {
-            if (!selected || !holo) return;
-            proj.set(selected.x, selected.topY + 1, selected.z); proj.project(camera);
-            if (proj.z > 1) { holo.style.opacity = "0"; return; }
-            holo.style.opacity = "1";
-            const cw = mount!.clientWidth, ch = mount!.clientHeight;
-            const bx = (proj.x * 0.5 + 0.5) * cw, by = (-proj.y * 0.5 + 0.5) * ch;
-            const cx = cw / 2, cy = ch * 0.42, bias = 0.82;
-            let px = bx + (cx - bx) * bias, py = by + (cy - by) * bias;
-            px = Math.max(150, Math.min(cw - 150, px));
-            py = Math.max(150, Math.min(ch - 150, py));
-            holo.style.left = px + "px"; holo.style.top = py + "px";
-        }
-
         // ── render loop ──────────────────────────────────────────────────
         const clock = new THREE.Clock();
         let raf = 0;
@@ -470,7 +454,6 @@ export function ManagerLanding({ theme }: Props) {
                 if (mm.position.y > 28) mm.position.y = 1;
                 (mm.material as THREE.Material).opacity = 0.3 + Math.sin(t * 2 + mm.position.x) * 0.25;
             });
-            if (selected) positionHolo();
             renderer.render(scene, camera);
         }
         applyMapTheme(themeRef.current);
@@ -528,24 +511,6 @@ export function ManagerLanding({ theme }: Props) {
 
     return (
         <div className={`ml${theme === "light" ? " ml-light" : theme === "dark" ? " ml-dark" : ""}`}>
-            {/* Holographic detail card (filled imperatively on building click) */}
-            <div ref={holoRef} className="ml-holo">
-                <div className="ml-holo-card">
-                    <div className="ml-close">×</div>
-                    <span className="ml-tag">—</span>
-                    <h2>—</h2>
-                    <p className="ml-hsub">—</p>
-                    <div className="ml-stats">
-                        <div className="ml-cell"><span className="ml-ck">Risk</span><span className="ml-cv">—</span></div>
-                        <div className="ml-cell"><span className="ml-ck">Score</span><span className="ml-cv">—</span></div>
-                        <div className="ml-cell"><span className="ml-ck">Date</span><span className="ml-cv">—</span></div>
-                    </div>
-                    <div className="ml-meter"><i style={{ width: "0%" }} /></div>
-                    <p className="ml-desc">—</p>
-                    <p className="ml-foot">Aggregate, de-identified signal — no individual reports.</p>
-                </div>
-            </div>
-
             {loading && (
                 <div className="ml-loader">
                     <div className="ml-ring" />
@@ -586,6 +551,24 @@ export function ManagerLanding({ theme }: Props) {
                             <p style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0 0" }}>Buildings appear here as staff complete the voice assessment.</p>
                         </div>
                     )}
+
+                    {/* Holographic detail card — floats over the map (top-right), filled imperatively on building click */}
+                    <div ref={holoRef} className="ml-holo">
+                        <div className="ml-holo-card">
+                            <div className="ml-close">×</div>
+                            <span className="ml-tag">—</span>
+                            <h2>—</h2>
+                            <p className="ml-hsub">—</p>
+                            <div className="ml-stats">
+                                <div className="ml-cell"><span className="ml-ck">Risk</span><span className="ml-cv">—</span></div>
+                                <div className="ml-cell"><span className="ml-ck">Score</span><span className="ml-cv">—</span></div>
+                                <div className="ml-cell"><span className="ml-ck">Date</span><span className="ml-cv">—</span></div>
+                            </div>
+                            <div className="ml-meter"><i style={{ width: "0%" }} /></div>
+                            <p className="ml-desc">—</p>
+                            <p className="ml-foot">Aggregate, de-identified signal — no individual reports.</p>
+                        </div>
+                    </div>
                 </section>
 
                 <div className="ml-cards">
