@@ -3,9 +3,12 @@
 #
 # The replica URL (abs://<account>@<container>/ciq) is injected via the
 # LITESTREAM_REPLICA_URL env var, set by the Container App (see infra/main.bicep).
-# Auth is via the app's user-assigned managed identity — no account keys.
-# (AZURE_CLIENT_ID is already exported to the container to select that identity.)
+# Auth is via the app's user-assigned managed identity — no account keys, which
+# requires Litestream >= 0.5.0 (see app/Dockerfile). AZURE_CLIENT_ID is exported
+# to the container to select that identity.
+#
+# NOTE: 0.5.x uses a single `replica:` object (0.3.x used a `replicas:` array).
 dbs:
   - path: /app/data/ciq.db
-    replicas:
-      - url: ${LITESTREAM_REPLICA_URL}
+    replica:
+      url: ${LITESTREAM_REPLICA_URL}

@@ -19,7 +19,11 @@ WORKDIR /app
 # Litestream: streaming SQLite replication to Azure Blob (durable persistence
 # across deployments). Pulled from the official image — single static binary,
 # no extra OS packages needed. See docs/persistence.md for the rationale.
-COPY --from=litestream/litestream:0.3.13 /usr/local/bin/litestream /usr/local/bin/litestream
+# NOTE: 0.5.x is required for Azure MANAGED-IDENTITY auth (added in 0.5.0). The
+# storage account has allowSharedKeyAccess=false, so account-key auth is
+# impossible; on 0.3.x this meant replication silently failed. Use >= 0.5.1 —
+# the entrypoint's `-if-replica-exists` flag was dropped in 0.5.0, restored in 0.5.1.
+COPY --from=litestream/litestream:0.5.2 /usr/local/bin/litestream /usr/local/bin/litestream
 
 COPY --from=build-stage /backend/static /app/static
 COPY ./backend/ /app

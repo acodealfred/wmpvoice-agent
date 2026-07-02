@@ -60,7 +60,12 @@ stop:  SIGTERM ─► Litestream final sync ─► exit       (planned redeploys
 ```
 
 - **`app/Dockerfile`** copies the `litestream` binary from the official image and
-  runs **`app/backend/entrypoint.sh`** as the container command.
+  runs **`app/backend/entrypoint.sh`** as the container command. **Pin ≥ 0.5.1**:
+  Azure managed-identity auth landed in Litestream **0.5.0**, and this design uses
+  MI only (`allowSharedKeyAccess: false`, no account key), so 0.3.x cannot
+  authenticate and replication silently fails. 0.5.x also renamed the config
+  `replicas:` array to a single `replica:` object (0.5.0 briefly dropped
+  `-if-replica-exists`, restored in 0.5.1).
 - **`entrypoint.sh`** restores the DB from blob (a no-op on the very first
   deploy via `-if-replica-exists`), then launches gunicorn *under*
   `litestream replicate -exec`, so writes stream out continuously and a final
