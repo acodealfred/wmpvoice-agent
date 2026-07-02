@@ -42,7 +42,7 @@ async def _sse(resp: web.StreamResponse, event: str, data: dict) -> None:
 
 def _auth_for(request: web.Request, scope: str) -> ChatAuth:
     session = request["auth_session"]
-    return ChatAuth(user_id=session["user_id"], role=session.get("role") or "guest", scope=scope)
+    return ChatAuth(user_id=session["user_id"], role=session.get("role") or "employee", scope=scope)
 
 
 async def _stream_chat(request: web.Request, scope: str, system_prompt: str, tool_schemas: list) -> web.StreamResponse:

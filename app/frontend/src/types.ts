@@ -243,7 +243,7 @@ export type SurveyTypeConfig = {
     availableSurveyTypes: string[];
 };
 
-export type UserRole = "admin" | "manager" | "guest";
+export type UserRole = "admin" | "manager" | "employee";
 
 export type AuthUser = {
     user_id: string;

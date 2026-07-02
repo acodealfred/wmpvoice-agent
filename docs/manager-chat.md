@@ -124,8 +124,11 @@ scope)` derived from the auth session — never anything the prompt controls.
 | Tool group | Allowed `scope` | Allowed `role` |
 |---|---|---|
 | org tools (`get_org_overview`, `get_department_breakdown`, `get_score_trend`) | `manager` | manager, admin |
-| personal tools (`get_my_*`) | `personal` | guest, manager, admin |
+| personal tools (`get_my_*`) | `personal` | employee, manager, admin |
 | `search_research` | both | all |
+
+> The assessed-staff role is **`employee`** (renamed from the former `guest`).
+> Component/file names like `guest-chat.tsx` are kept for continuity.
 
 Four independent layers, any one of which blocks org-data leakage from the guest
 surface:

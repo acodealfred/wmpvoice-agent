@@ -44,6 +44,11 @@ _SHIFT_RISK_MULT = {"Day": 0.85, "Evening": 1.0, "Night": 1.4}
 _MIN_HISTORY = 8
 _MAX_HISTORY = 24
 
+# A few demo employees are flagged inactive (departed staff) so the dashboard's
+# "active employees" total differs visibly from the raw headcount. Global
+# employee indices (0-based, across all departments in order).
+_INACTIVE_EMP_INDICES = {6, 22, 40, 58}
+
 # Department-appropriate job titles (the Job Title filter dimension).
 JOB_TITLES = {
     "Emergency":     ["ER Physician", "ER Nurse", "Paramedic", "Triage Nurse"],
@@ -115,6 +120,7 @@ async def seed_demo_data() -> dict:
     now = datetime.utcnow()
     user_rows: list[tuple] = []
     survey_rows: list[tuple] = []
+    emp_idx = 0  # global employee counter (drives the inactive selection)
 
     for dept in DEPARTMENTS:
         weights = dept["risk"]
@@ -159,13 +165,15 @@ async def seed_demo_data() -> dict:
                 # Staff who have not completed an assessment yet.
                 created = (now - timedelta(days=random.randint(20, 120))).isoformat()
 
-            user_rows.append((user_id, name, pw_hash, "guest", dept["name"], shift, job_title, 1, created))
+            active = 0 if emp_idx in _INACTIVE_EMP_INDICES else 1
+            emp_idx += 1
+            user_rows.append((user_id, name, pw_hash, "employee", dept["name"], shift, job_title, 1, active, created))
 
     async with _open_db() as db:
         await db.executemany(
             """INSERT INTO users
-               (user_id, name, password_hash, role, department, shift, job_title, is_demo, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, name, password_hash, role, department, shift, job_title, is_demo, active, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             user_rows,
         )
         await db.executemany(

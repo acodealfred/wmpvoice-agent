@@ -63,7 +63,7 @@ ENABLE_BIOMETRIC_GUARDRAIL=true  # default for the descriptive-only biometric gu
                                  # (agent declines interpret/predict/prescribe on biometrics).
                                  # Runtime-togglable from the Admin tab via POST /admin/biometric-guardrail.
                                  # NOTE: like all /admin/* routes, this requires the "admin" role
-                                 # (enforced in auth_middleware); guests get 403.
+                                 # (enforced in auth_middleware); non-admins get 403.
 ```
 
 **AWS Rekognition (face emotion analysis):**
@@ -76,6 +76,22 @@ AWS_SECRET_ACCESS_KEY=...
 Omit `AZURE_OPENAI_API_KEY` and `AZURE_SEARCH_API_KEY` to use Entra ID / Managed Identity instead of key-based auth. When running locally with `azd`, `AzureDeveloperCliCredential` is used; in production, `DefaultAzureCredential` picks up the managed identity.
 
 ## Architecture
+
+### Roles
+
+Three roles (`users.role`): **`admin`** (reaches `/admin/*`), **`manager`**
+(reaches `/manager/*` — the dashboard), and **`employee`** (the assessed staff;
+renamed from the former `guest`). `users` also has an **`active`** boolean;
+the manager dashboard's population is **active employees only**. The role rename
++ `active` column are applied by an in-place migration in `db_init.init_db`.
+
+### Manager dashboard & chat
+
+The manager dashboard's counting rules (distribution cards count *people* by
+their latest assessment; trends stay assessment-based) are documented in
+`docs/manager-dashboard.md`. The two-surface "Wellbeing Assistant" chat
+(manager + personal/employee), its RBAC-gated tools, and persistence are in
+`docs/manager-chat.md`.
 
 ### Request flow
 

@@ -645,7 +645,7 @@ export function ManagerLanding({ theme }: Props) {
                                 <div className="ml-snap-row">
                                     <div>
                                         <p className="ml-snap-k">Total Staff</p>
-                                        <p className="ml-snap-t">Guest accounts in system</p>
+                                        <p className="ml-snap-t">Active employees in system</p>
                                     </div>
                                     <b className="ml-snap-v">{total}</b>
                                 </div>

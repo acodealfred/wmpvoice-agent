@@ -311,45 +311,36 @@ async def get_manager_overview() -> dict:
     distribution derived from the stored technical_report JSON blobs.
     """
     async with _open_db() as db:
-        # Guest users are the assessed population; exclude admins/managers.
+        # Active employees are the assessed population (exclude admins/managers
+        # and anyone deactivated).
         async with db.execute(
-            "SELECT COUNT(*) AS n FROM users WHERE role = 'guest'"
+            "SELECT COUNT(*) AS n FROM users WHERE role = 'employee' AND active = 1"
         ) as cur:
             row = await cur.fetchone()
-            total_guests = row["n"] if row else 0
+            total_staff = row["n"] if row else 0
 
-        async with db.execute(
-            "SELECT COUNT(DISTINCT user_id) AS n FROM survey_records"
-        ) as cur:
-            row = await cur.fetchone()
-            participants = row["n"] if row else 0
-
-        # Pull all technical_report blobs to tally risk levels.
-        async with db.execute(
-            "SELECT technical_report, updated_at FROM survey_records "
-            "WHERE technical_report IS NOT NULL ORDER BY updated_at DESC"
-        ) as cur:
-            rows = await cur.fetchall()
-
-        # Eligible staff per department (drives participation denominators).
+        # Eligible active employees per department (participation denominators).
         async with db.execute(
             "SELECT department AS dept, COUNT(*) AS n FROM users "
-            "WHERE department IS NOT NULL AND department != '' GROUP BY department"
+            "WHERE role = 'employee' AND active = 1 "
+            "AND department IS NOT NULL AND department != '' GROUP BY department"
         ) as cur:
             dept_eligible = {r["dept"]: r["n"] for r in await cur.fetchall()}
 
-        # Per-department assessments (joined so the dept comes from the user).
+        # Every scored assessment by an active employee, newest first, joined to
+        # the author's department. Drives latest-per-person risk + recent nodes.
         async with db.execute(
-            "SELECT u.department AS dept, sr.user_id AS uid, sr.technical_report AS tr "
+            "SELECT sr.user_id AS uid, u.department AS dept, "
+            "       sr.technical_report AS tr, sr.updated_at AS updated_at "
             "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
-            "WHERE u.department IS NOT NULL AND u.department != ''"
+            "WHERE sr.technical_report IS NOT NULL AND u.role = 'employee' AND u.active = 1 "
+            "ORDER BY sr.updated_at DESC"
         ) as cur:
-            dept_rows = await cur.fetchall()
+            rows = await cur.fetchall()
 
     risk_counts: dict[str, int] = {"Low": 0, "Moderate": 0, "High": 0}
-    # Every parsed assessment, anonymised (no user_id / name / transcript). Drives
-    # both the "Recent Assessments" card and the 3D campus (one building per node).
-    nodes: list[dict] = []
+    nodes: list[dict] = []          # recent assessment events (per assessment)
+    latest_by_user: dict[str, dict] = {}   # uid -> latest scored {risk, score, dept}
 
     def _norm_risk(raw: str) -> str | None:
         for key in risk_counts:
@@ -359,38 +350,42 @@ async def get_manager_overview() -> dict:
 
     for r in rows:
         try:
-            report = json.loads(r["technical_report"])
+            report = json.loads(r["tr"])
         except Exception:
             continue
-        raw_risk = report.get("riskLevel") or report.get("risk_level") or ""
-        risk = _norm_risk(raw_risk)
-        if risk:
-            risk_counts[risk] += 1
-        nodes.append({
-            "updated_at": r["updated_at"],
-            "riskLevel": risk or "—",
-            "totalScore": report.get("totalScore"),
-            "maxScore": report.get("maxScore"),
-        })
+        risk = _norm_risk(report.get("riskLevel") or report.get("risk_level") or "")
+        if len(nodes) < 24:
+            nodes.append({
+                "updated_at": r["updated_at"],
+                "riskLevel": risk or "—",
+                "totalScore": report.get("totalScore"),
+                "maxScore": report.get("maxScore"),
+            })
+        # First time we see a user (rows are newest-first) is their latest.
+        if r["uid"] not in latest_by_user:
+            latest_by_user[r["uid"]] = {"risk": risk, "score": report.get("totalScore"), "dept": r["dept"]}
 
-    # ── Per-department aggregation (each becomes a building in the campus) ──
+    # Org risk distribution = one vote per person, from their LATEST assessment.
+    for v in latest_by_user.values():
+        if v["risk"]:
+            risk_counts[v["risk"]] += 1
+
+    participants = len(latest_by_user)   # distinct active employees who completed an assessment
+
+    # ── Per-department aggregation (latest-per-person; each is a campus building) ──
     dept_acc: dict[str, dict] = {}
-    for r in dept_rows:
-        d = dept_acc.setdefault(r["dept"], {
+    for uid, v in latest_by_user.items():
+        if not v["dept"]:
+            continue
+        d = dept_acc.setdefault(v["dept"], {
             "completed_users": set(), "Low": 0, "Moderate": 0, "High": 0,
             "score_sum": 0.0, "score_n": 0,
         })
-        d["completed_users"].add(r["uid"])
-        try:
-            rep = json.loads(r["tr"]) if r["tr"] else {}
-        except Exception:
-            rep = {}
-        risk = _norm_risk(rep.get("riskLevel") or rep.get("risk_level") or "")
-        if risk:
-            d[risk] += 1
-        score = rep.get("totalScore")
-        if isinstance(score, (int, float)):
-            d["score_sum"] += score
+        d["completed_users"].add(uid)
+        if v["risk"]:
+            d[v["risk"]] += 1
+        if isinstance(v["score"], (int, float)):
+            d["score_sum"] += v["score"]
             d["score_n"] += 1
 
     departments: list[dict] = []
@@ -418,10 +413,10 @@ async def get_manager_overview() -> dict:
         })
 
     return {
-        "totalGuests": total_guests,
+        "totalGuests": total_staff,          # active employees (kept key for the frontend)
         "participants": participants,
-        "surveysCompleted": len(rows),
-        "riskCounts": risk_counts,
+        "surveysCompleted": len(rows),       # total scored assessment runs
+        "riskCounts": risk_counts,           # people, by latest assessment
         # Most-recent first; card slices the first 10, campus uses up to 24.
         "recentAssessments": nodes[:10],
         "nodes": nodes[:24],
@@ -481,11 +476,11 @@ async def get_manager_score_trend(
             "SELECT u.department AS department, u.shift AS shift, u.job_title AS job_title, "
             "       sr.technical_report AS tr, sr.updated_at AS updated_at "
             "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
-            "WHERE sr.technical_report IS NOT NULL"
+            "WHERE sr.technical_report IS NOT NULL AND u.role = 'employee'"
         ) as cur:
             rows = await cur.fetchall()
         async with db.execute(
-            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'guest'"
+            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'employee' AND active = 1"
         ) as cur:
             opt_rows = await cur.fetchall()
 
@@ -556,20 +551,20 @@ async def get_manager_analytics(
         return None
 
     async with _open_db() as db:
-        # Every assessment joined to its author's attributes. Anonymous beyond
-        # the three grouping dimensions; the report blob is parsed in Python.
+        # Every scored assessment by an active employee, joined to their
+        # attributes (+ user_id, to reduce to one row per person for the groups).
         async with db.execute(
             "SELECT u.department AS department, u.shift AS shift, u.job_title AS job_title, "
-            "       sr.technical_report AS tr, sr.updated_at AS updated_at "
+            "       sr.user_id AS uid, sr.technical_report AS tr, sr.updated_at AS updated_at "
             "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
-            "WHERE sr.technical_report IS NOT NULL"
+            "WHERE sr.technical_report IS NOT NULL AND u.role = 'employee' AND u.active = 1"
         ) as cur:
             rows = await cur.fetchall()
 
-        # Distinct values across all guest staff drive the filter dropdowns, so
-        # the options stay stable regardless of the currently applied filters.
+        # Distinct values across active employees drive the filter dropdowns.
         async with db.execute(
-            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'guest'"
+            "SELECT DISTINCT department, shift, job_title FROM users "
+            "WHERE role = 'employee' AND active = 1"
         ) as cur:
             opt_rows = await cur.fetchall()
 
@@ -582,11 +577,10 @@ async def get_manager_analytics(
         if r["job_title"]:
             filter_options["jobTitle"].add(r["job_title"])
 
-    # ── Apply filters, then accumulate groups + weekly trend ───────────────
-    groups: dict[str, dict] = {}
+    # ── Apply filters. Groups count PEOPLE (each person's latest assessment);
+    #    the weekly trend stays assessment-based (a time series). ────────────
+    latest: dict[str, dict] = {}          # uid -> {key, band, updated_at}
     trend_acc: dict[str, dict] = {}
-    total_assessed = 0
-    risk_totals = {"Low": 0, "Moderate": 0, "High": 0}
 
     for r in rows:
         if department and r["department"] != department:
@@ -607,21 +601,33 @@ async def get_manager_analytics(
         band = _norm_risk(report.get("riskLevel") or report.get("risk_level") or "")
         if not band:
             continue
-        if risk and band != risk:
-            continue
 
-        key = r[group_col] or "Unassigned"
-        g = groups.setdefault(key, {"key": key, "Low": 0, "Moderate": 0, "High": 0})
-        g[band] += 1
-        total_assessed += 1
-        risk_totals[band] += 1
-
+        # Weekly trend — every qualifying assessment (time series).
         week = _monday_of(r["updated_at"])
         if week:
             t = trend_acc.setdefault(week, {"atRisk": 0, "assessed": 0})
             t["assessed"] += 1
             if band in ("Moderate", "High"):
                 t["atRisk"] += 1
+
+        # Keep only each person's most recent qualifying assessment for the groups.
+        uid = r["uid"]
+        prev = latest.get(uid)
+        upd = r["updated_at"] or ""
+        if prev is None or upd > prev["updated_at"]:
+            latest[uid] = {"key": r[group_col] or "Unassigned", "band": band, "updated_at": upd}
+
+    # Groups + totals from latest-per-person (one vote each), honouring risk filter.
+    groups: dict[str, dict] = {}
+    total_assessed = 0
+    risk_totals = {"Low": 0, "Moderate": 0, "High": 0}
+    for v in latest.values():
+        if risk and v["band"] != risk:
+            continue
+        g = groups.setdefault(v["key"], {"key": v["key"], "Low": 0, "Moderate": 0, "High": 0})
+        g[v["band"]] += 1
+        total_assessed += 1
+        risk_totals[v["band"]] += 1
 
     group_list = []
     for g in groups.values():
@@ -664,7 +670,7 @@ async def get_filter_options() -> dict:
     values that actually exist (and never smuggle a name or free text through)."""
     async with _open_db() as db:
         async with db.execute(
-            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'guest'"
+            "SELECT DISTINCT department, shift, job_title FROM users WHERE role = 'employee' AND active = 1"
         ) as cur:
             rows = await cur.fetchall()
     opts = {"department": set(), "shift": set(), "jobTitle": set()}

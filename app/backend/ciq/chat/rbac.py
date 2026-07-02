@@ -15,14 +15,14 @@ from dataclasses import dataclass
 class ChatAuth:
     """Trusted identity for a chat turn, derived from the auth session only."""
     user_id: str
-    role: str    # 'guest' | 'manager' | 'admin'
-    scope: str   # 'manager' (org surface) | 'personal' (guest surface)
+    role: str    # 'employee' | 'manager' | 'admin'
+    scope: str   # 'manager' (org surface) | 'personal' (employee surface)
 
 
 # Capability required per tool: which surface (scope) and which roles may run it.
 _ORG = {"scopes": {"manager"}, "roles": {"manager", "admin"}}
-_PERSONAL = {"scopes": {"personal"}, "roles": {"guest", "manager", "admin"}}
-_BOTH = {"scopes": {"manager", "personal"}, "roles": {"guest", "manager", "admin"}}
+_PERSONAL = {"scopes": {"personal"}, "roles": {"employee", "manager", "admin"}}
+_BOTH = {"scopes": {"manager", "personal"}, "roles": {"employee", "manager", "admin"}}
 
 TOOL_ACCESS: dict[str, dict] = {
     # Org / aggregate tools — manager surface only.

@@ -12,20 +12,23 @@ from db import DB_PATH
 
 logger = logging.getLogger("voicerag")
 
-# (name, password, role). role is "admin" or "guest". Admins can reach the
-# /admin/* routes; guests are blocked from them by auth_middleware.
+# (name, password, role, department, shift, job_title). role is "admin",
+# "manager" or "employee" (the assessed staff — formerly "guest"). Admins reach
+# /admin/*, managers reach /manager/*; employees are blocked from both.
+# Department/shift/job give the seed employees a place in the dashboard's
+# departmental views. Admins/managers carry no department (not assessed staff).
 SEED_USERS = [
-    ("system1", "sys123", "admin"),
-    ("system2", "sys123", "admin"),
-    ("system3", "sys123", "admin"),
-    ("admin1", "sys123", "admin"),
-    ("admin2", "sys123", "admin"),
-    ("admin3", "sys123", "admin"),
-    ("guest1", "sys123", "guest"),
-    ("guest2", "sys123", "guest"),
-    ("guest3", "sys123", "guest"),
-    ("manager1", "sys123", "manager"),
-    ("manager2", "sys123", "manager"),
+    ("system1", "sys123", "admin", None, None, None),
+    ("system2", "sys123", "admin", None, None, None),
+    ("system3", "sys123", "admin", None, None, None),
+    ("admin1", "sys123", "admin", None, None, None),
+    ("admin2", "sys123", "admin", None, None, None),
+    ("admin3", "sys123", "admin", None, None, None),
+    ("guest1", "sys123", "employee", "Emergency", "Day", "ER Nurse"),
+    ("guest2", "sys123", "employee", "ICU", "Night", "ICU Nurse"),
+    ("guest3", "sys123", "employee", "Surgery", "Evening", "Scrub Nurse"),
+    ("manager1", "sys123", "manager", None, None, None),
+    ("manager2", "sys123", "manager", None, None, None),
 ]
 
 
@@ -45,11 +48,12 @@ async def init_db() -> None:
                 user_id       TEXT PRIMARY KEY,
                 name          TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
-                role          TEXT NOT NULL DEFAULT 'guest',
+                role          TEXT NOT NULL DEFAULT 'employee',
                 department    TEXT,
                 shift         TEXT,
                 job_title     TEXT,
                 is_demo       INTEGER NOT NULL DEFAULT 0,
+                active        INTEGER NOT NULL DEFAULT 1,
                 created_at    TEXT NOT NULL
             )
         """)
@@ -58,16 +62,20 @@ async def init_db() -> None:
         # CREATE TABLE IF NOT EXISTS won't add a column to an existing table, so
         # add each explicitly and ignore the "duplicate column" error on re-run.
         for stmt in (
-            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'guest'",
+            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'employee'",
             "ALTER TABLE users ADD COLUMN department TEXT",
             "ALTER TABLE users ADD COLUMN shift TEXT",
             "ALTER TABLE users ADD COLUMN job_title TEXT",
             "ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
         ):
             try:
                 await db.execute(stmt)
             except aiosqlite.OperationalError:
                 pass  # column already present
+
+        # Rename the assessed-staff role from the old "guest" to "employee".
+        await db.execute("UPDATE users SET role = 'employee' WHERE role = 'guest'")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 session_token   TEXT PRIMARY KEY,
@@ -165,18 +173,19 @@ async def init_db() -> None:
         """)
 
         now = datetime.utcnow().isoformat()
-        for name, password, role in SEED_USERS:
+        for name, password, role, department, shift, job_title in SEED_USERS:
             user_id = str(uuid.uuid4())
             password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
             await db.execute(
-                """INSERT OR IGNORE INTO users (user_id, name, password_hash, role, created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (user_id, name, password_hash, role, now),
+                """INSERT OR IGNORE INTO users
+                   (user_id, name, password_hash, role, department, shift, job_title, active, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)""",
+                (user_id, name, password_hash, role, department, shift, job_title, now),
             )
-            # Keep an existing seed account's role in sync if it predates roles.
+            # Keep an existing seed account's role/attributes in sync (idempotent).
             await db.execute(
-                "UPDATE users SET role = ? WHERE name = ?",
-                (role, name),
+                "UPDATE users SET role = ?, department = ?, shift = ?, job_title = ? WHERE name = ?",
+                (role, department, shift, job_title, name),
             )
 
         await db.commit()

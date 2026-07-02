@@ -120,7 +120,7 @@ export function ManagerAnalytics() {
                         {data?.atRiskPct ?? 0}%
                     </span>
                     <span className="ml-an-headline-txt">
-                        at-risk across <b>{data?.totalAssessed ?? 0}</b> assessments
+                        at-risk across <b>{data?.totalAssessed ?? 0}</b> {(data?.totalAssessed ?? 0) === 1 ? "employee" : "employees"}
                         in <b>{groups.length}</b> {groups.length === 1 ? "department" : "departments"} — ranked by burnout concentration.
                     </span>
                 </p>
