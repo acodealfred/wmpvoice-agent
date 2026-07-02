@@ -1,7 +1,11 @@
-"""Manager chat routes — SSE streaming endpoint + chat history REST.
+"""Chat routes — SSE streaming + history REST, for two surfaces.
 
-All under /manager/*, so auth_middleware already restricts them to managers and
-admins. See docs/manager-chat.md § "Transport protocol".
+  • Manager (org) surface: /manager/chat*  — auth_middleware gates to manager/admin.
+  • Personal (guest) surface: /me/chat*     — any authenticated user; tools are
+    bound to their own user_id and RBAC-gated.
+
+Both share one SSE handler; they differ only in scope, system prompt and toolkit.
+See docs/manager-chat.md § "Transport protocol" and § "RBAC".
 """
 import json
 import logging
@@ -20,6 +24,9 @@ from db import (
 
 from ciq.chat.guardrails import EMPTY_FALLBACK, build_footer, check_input
 from ciq.chat.orchestrator import run_chat
+from ciq.chat.prompts import GUEST_SYSTEM_PROMPT, MANAGER_SYSTEM_PROMPT
+from ciq.chat.rbac import ChatAuth
+from ciq.chat.tools import GUEST_TOOL_SCHEMAS, MANAGER_TOOL_SCHEMAS
 
 logger = logging.getLogger("voicerag")
 
@@ -33,9 +40,14 @@ async def _sse(resp: web.StreamResponse, event: str, data: dict) -> None:
     await resp.write(f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
 
 
-async def manager_chat(request: web.Request) -> web.StreamResponse:
-    """POST /manager/chat — send a message, stream the grounded answer as SSE."""
-    user_id = request["auth_session"]["user_id"]
+def _auth_for(request: web.Request, scope: str) -> ChatAuth:
+    session = request["auth_session"]
+    return ChatAuth(user_id=session["user_id"], role=session.get("role") or "guest", scope=scope)
+
+
+async def _stream_chat(request: web.Request, scope: str, system_prompt: str, tool_schemas: list) -> web.StreamResponse:
+    """Shared SSE handler for a chat turn on either surface."""
+    auth = _auth_for(request, scope)
     try:
         body = await request.json()
     except Exception:
@@ -47,17 +59,17 @@ async def manager_chat(request: web.Request) -> web.StreamResponse:
     chat_id = body.get("chatId") or None
     filters = body.get("filters") if isinstance(body.get("filters"), dict) else None
 
-    # ── Resolve / create the chat (ownership enforced) BEFORE streaming ──
+    # ── Resolve / create the chat (ownership + scope enforced) BEFORE streaming ──
     if chat_id:
         chat = await get_chat_session(chat_id)
-        if not chat:
+        if not chat or chat.get("scope") != scope:
             return web.json_response({"error": "Chat not found"}, status=404)
-        if chat["user_id"] != user_id:
+        if chat["user_id"] != auth.user_id:
             return web.json_response({"error": "Forbidden"}, status=403)
         history = await get_chat_messages(chat_id)
     else:
         chat_id = str(uuid.uuid4())
-        await create_chat_session(chat_id, user_id, _title_from(message))
+        await create_chat_session(chat_id, auth.user_id, _title_from(message), scope=scope)
         history = []
 
     # Persist the user's turn up front so it survives a mid-generation failure.
@@ -74,8 +86,8 @@ async def manager_chat(request: web.Request) -> web.StreamResponse:
     await resp.prepare(request)
     await _sse(resp, "meta", {"chatId": chat_id})
 
-    # ── Deterministic input guard — refuse individual-level requests ──
-    refusal = check_input(message)
+    # ── Deterministic input guard (scope-aware) ──
+    refusal = check_input(message, scope)
     if refusal:
         await _sse(resp, "token", {"delta": refusal})
         await add_chat_message(str(uuid.uuid4()), chat_id, "assistant", refusal)
@@ -84,13 +96,10 @@ async def manager_chat(request: web.Request) -> web.StreamResponse:
         return resp
 
     # ── Orchestrate: tool loop → streamed synthesis ──
-    answer_text = ""
-    citations: list = []
-    tool_trace: list = []
-    errored = False
+    answer_text, citations, tool_trace, errored = "", [], [], False
     rtmt = request.app.get("rtmt")
     try:
-        async for ev in run_chat(rtmt, history, message, filters):
+        async for ev in run_chat(rtmt, auth, history, message, filters, system_prompt, tool_schemas):
             kind = ev["type"]
             if kind == "tool":
                 await _sse(resp, "tool", {"name": ev["name"], "status": "done"})
@@ -117,7 +126,7 @@ async def manager_chat(request: web.Request) -> web.StreamResponse:
         stored = EMPTY_FALLBACK
         await _sse(resp, "token", {"delta": stored})
     if stored:
-        footer = build_footer(citations)
+        footer = build_footer(citations, scope)
         await _sse(resp, "token", {"delta": footer})
         stored += footer
         await add_chat_message(
@@ -130,32 +139,63 @@ async def manager_chat(request: web.Request) -> web.StreamResponse:
     return resp
 
 
-async def manager_chat_list(request: web.Request) -> web.Response:
-    """GET /manager/chats — the manager's chats, most recent first."""
+async def _list(request: web.Request, scope: str) -> web.Response:
     user_id = request["auth_session"]["user_id"]
-    return web.json_response({"chats": await list_chat_sessions(user_id)})
+    return web.json_response({"chats": await list_chat_sessions(user_id, scope)})
 
 
-async def manager_chat_get(request: web.Request) -> web.Response:
-    """GET /manager/chats/{chatId} — full message history (owner only)."""
+async def _get(request: web.Request, scope: str) -> web.Response:
     user_id = request["auth_session"]["user_id"]
     chat_id = request.match_info["chatId"]
     chat = await get_chat_session(chat_id)
-    if not chat:
+    if not chat or chat.get("scope") != scope:
         return web.json_response({"error": "Chat not found"}, status=404)
     if chat["user_id"] != user_id:
         return web.json_response({"error": "Forbidden"}, status=403)
     return web.json_response({"chat": chat, "messages": await get_chat_messages(chat_id)})
 
 
-async def manager_chat_delete(request: web.Request) -> web.Response:
-    """DELETE /manager/chats/{chatId} — delete a chat (owner only)."""
+async def _delete(request: web.Request, scope: str) -> web.Response:
     user_id = request["auth_session"]["user_id"]
     chat_id = request.match_info["chatId"]
     chat = await get_chat_session(chat_id)
-    if not chat:
+    if not chat or chat.get("scope") != scope:
         return web.json_response({"error": "Chat not found"}, status=404)
     if chat["user_id"] != user_id:
         return web.json_response({"error": "Forbidden"}, status=403)
     await delete_chat_session(chat_id)
     return web.json_response({"ok": True})
+
+
+# ── Manager (org) surface — /manager/chat* ──────────────────────────────────
+async def manager_chat(request):
+    return await _stream_chat(request, "manager", MANAGER_SYSTEM_PROMPT, MANAGER_TOOL_SCHEMAS)
+
+
+async def manager_chat_list(request):
+    return await _list(request, "manager")
+
+
+async def manager_chat_get(request):
+    return await _get(request, "manager")
+
+
+async def manager_chat_delete(request):
+    return await _delete(request, "manager")
+
+
+# ── Personal (guest) surface — /me/chat* ────────────────────────────────────
+async def me_chat(request):
+    return await _stream_chat(request, "personal", GUEST_SYSTEM_PROMPT, GUEST_TOOL_SCHEMAS)
+
+
+async def me_chat_list(request):
+    return await _list(request, "personal")
+
+
+async def me_chat_get(request):
+    return await _get(request, "personal")
+
+
+async def me_chat_delete(request):
+    return await _delete(request, "personal")

@@ -28,6 +28,10 @@ from ciq.chat.routes import (
     manager_chat_delete,
     manager_chat_get,
     manager_chat_list,
+    me_chat,
+    me_chat_delete,
+    me_chat_get,
+    me_chat_list,
 )
 from ciq.config import APP_VERSION
 from ciq.kb.routes import (
@@ -121,6 +125,12 @@ async def create_app():
     app.router.add_get("/manager/chats", manager_chat_list)
     app.router.add_get("/manager/chats/{chatId}", manager_chat_get)
     app.router.add_delete("/manager/chats/{chatId}", manager_chat_delete)
+
+    # ── Personal (guest) "Wellbeing Assistant" chat — own data only ───────
+    app.router.add_post("/me/chat", me_chat)
+    app.router.add_get("/me/chats", me_chat_list)
+    app.router.add_get("/me/chats/{chatId}", me_chat_get)
+    app.router.add_delete("/me/chats/{chatId}", me_chat_delete)
 
     # ── Mithra Knowledge Base admin proxy routes ──────────────────────────
     app.router.add_get("/admin/kb/documents", admin_kb_list_documents)

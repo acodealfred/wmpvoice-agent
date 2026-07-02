@@ -680,35 +680,35 @@ async def get_filter_options() -> dict:
 
 # ── Manager chat persistence (see docs/manager-chat.md) ────────────────────────
 
-async def create_chat_session(chat_id: str, user_id: str, title: str) -> None:
+async def create_chat_session(chat_id: str, user_id: str, title: str, scope: str = "manager") -> None:
     now = datetime.utcnow().isoformat()
     async with _open_db() as db:
         await db.execute(
-            """INSERT INTO chat_sessions (chat_id, user_id, title, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (chat_id, user_id, title, now, now),
+            """INSERT INTO chat_sessions (chat_id, user_id, title, scope, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (chat_id, user_id, title, scope, now, now),
         )
         await db.commit()
 
 
 async def get_chat_session(chat_id: str) -> dict | None:
-    """Return a chat's metadata (incl. user_id, for ownership checks)."""
+    """Return a chat's metadata (incl. user_id + scope, for ownership/scope checks)."""
     async with _open_db() as db:
         async with db.execute(
-            "SELECT chat_id, user_id, title, created_at, updated_at FROM chat_sessions WHERE chat_id = ?",
+            "SELECT chat_id, user_id, title, scope, created_at, updated_at FROM chat_sessions WHERE chat_id = ?",
             (chat_id,),
         ) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
 
 
-async def list_chat_sessions(user_id: str) -> list[dict]:
-    """A manager's chats, most recently active first."""
+async def list_chat_sessions(user_id: str, scope: str = "manager") -> list[dict]:
+    """A user's chats for one surface (scope), most recently active first."""
     async with _open_db() as db:
         async with db.execute(
             """SELECT chat_id, title, created_at, updated_at
-               FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC""",
-            (user_id,),
+               FROM chat_sessions WHERE user_id = ? AND scope = ? ORDER BY updated_at DESC""",
+            (user_id, scope),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 

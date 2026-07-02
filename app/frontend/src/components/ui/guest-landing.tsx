@@ -4,6 +4,8 @@ import { Mic, Flame, TrendingUp, TrendingDown, Minus, ShieldCheck, Brain, Waves,
 import { apiFetch } from "@/lib/api";
 import { SurveyRecord } from "@/types";
 import { PILL, TEXT_TONE, riskTone } from "@/lib/badges";
+import { GuestScoreTrend } from "./guest-score-trend";
+import { GuestChat } from "./guest-chat";
 import "./guest-landing.css";
 
 interface Props {
@@ -364,6 +366,17 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                 </p>
                             </motion.div>
                         )}
+
+                        {/* Your journey — personal trend + wellbeing assistant (own data only) */}
+                        <motion.section
+                            initial={{ opacity: 0, y: 24 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.55, delay: 0.32, ease: [0.22, 1, 0.36, 1] }}
+                            className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5"
+                        >
+                            <div className="lg:col-span-3"><GuestScoreTrend records={records ?? []} /></div>
+                            <div className="lg:col-span-2"><GuestChat /></div>
+                        </motion.section>
                     </>
                 )}
 

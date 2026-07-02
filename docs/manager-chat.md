@@ -1,37 +1,44 @@
-# Manager "Wellbeing Assistant" chat — architecture
+# "Wellbeing Assistant" chat — architecture
 
-A conversational assistant embedded in the manager dashboard
-(`manager-chat.tsx`, the widget beside the Monthly Burnout Score chart). A
-manager can ask questions about the organisation's burnout picture and get
-answers that are **grounded in two authoritative sources and invent nothing**:
+A conversational assistant with **two surfaces** that share one engine:
 
-- **Operational SSoT** — the live, de-identified SQLite aggregates that already
-  power the dashboard cards.
+- **Manager (org) surface** — `manager-chat.tsx` on the manager dashboard.
+  Grounded in **de-identified org aggregates** + research.
+- **Personal (guest) surface** — `guest-chat.tsx` on the returning-guest landing.
+  Grounded in the signed-in user's **own assessments only** + research.
+
+Both are **grounded and invent nothing**:
+
+- **Operational SSoT** — live SQLite data (org aggregates for managers; the
+  user's own records for guests).
 - **Evidential SSoT** — the **Mithra Knowledge Base** RAG over the
   organisation's uploaded burnout research, returned with citations.
 
 The LLM's job is orchestration, synthesis and tone — **not** knowledge. Numbers
-come only from the operational tools; "why / what to do" reasoning comes only
-from Mithra, with citations. This is the same grounding philosophy already used
-by the report pipeline (`call_mithra_kb_chat` → `call_report_llm`), generalised
-to an interactive, multi-turn setting.
+come only from the data tools; "why / what to do" reasoning comes only from
+Mithra, with citations. Same philosophy as the report pipeline
+(`call_mithra_kb_chat` → the consultative-summary LLM), generalised to an
+interactive, multi-turn, two-surface setting.
 
-> Status: **implemented (Phase 1)**. Backend under `app/backend/ciq/chat/`
-> (`tools.py`, `guardrails.py`, `orchestrator.py`, `routes.py`), chat tables in
-> `db_init.py` + CRUD in `db.py`, routes registered in `ciq/server.py`; the
-> `manager-chat.tsx` widget is a live SSE client. Needs `REPORT_OPENAI_*`
-> (LLM) and `MITHRA_APP_TOKEN` (research tool) configured at runtime.
+> Status: **implemented**. Backend under `app/backend/ciq/chat/`
+> (`rbac.py`, `tools.py`, `prompts.py`, `guardrails.py`, `orchestrator.py`,
+> `routes.py`), chat tables in `db_init.py` + CRUD in `db.py`, routes in
+> `ciq/server.py`. Frontend: shared `useChatStream` hook +
+> `manager-chat.tsx` / `guest-chat.tsx` / `guest-score-trend.tsx`. Uses the
+> **consultative-summary gpt-4o path** (`AZURE_OPENAI_*`) and `MITHRA_APP_TOKEN`.
 
 ## Decisions (locked)
 
 | # | Decision | Choice |
 |---|---|---|
 | 1 | Scope | **Hybrid** — operational data **and** research evidence |
-| 2 | LLM engine | **Reuse** the existing Azure OpenAI `gpt-4o` deployment (`REPORT_OPENAI_*`) |
-| 3 | RAG usage | **Retriever + orchestrator synthesis** — Mithra supplies evidence + citations; our orchestrator fuses it with org numbers |
+| 2 | LLM engine | **Reuse** the consultative-summary Azure OpenAI `gpt-4o` path (`AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_CHAT_DEPLOYMENT` + the realtime credential) |
+| 3 | RAG usage | **Retriever + orchestrator synthesis** — Mithra supplies evidence + citations; our orchestrator fuses it with the data |
 | 4 | Query power | **On-demand, via a fixed set of PII-safe parametrized tools** (no free-form SQL) |
-| 5 | Transport | **SSE streaming** over `POST /manager/chat` |
-| 6 | Persistence | **Store chats in SQLite** (`chat_sessions`, `chat_messages`) |
+| 5 | Transport | **SSE streaming** over `POST /manager/chat` and `POST /me/chat` |
+| 6 | Persistence | **Store chats in SQLite** (`chat_sessions`, `chat_messages`), separated by `scope` |
+| 7 | Surfaces | **Two** — manager (org) and personal (guest), sharing one RBAC-gated engine |
+| 8 | Authorization | **RBAC on every tool call**, checked against the trusted server-side context — org data is prompt-injection-proof from the guest surface |
 
 ## Component view
 
@@ -73,27 +80,66 @@ tools physically cannot return PII), not merely a prompt instruction.
 
 ## The grounding tools (fixed, PII-safe)
 
-Four tools, each a thin wrapper over code that already exists in `db.py` /
-`mithra_client.py`. The model chooses which to call; it cannot compose
-arbitrary queries.
+Two toolkits (`ciq/chat/tools.py`), each a thin wrapper over existing code. The
+model chooses which to call within its surface; it cannot compose arbitrary
+queries.
 
-| Tool | Wraps | Parameters | Returns (all aggregate) |
-|---|---|---|---|
-| `get_org_overview` | `get_manager_overview()` | — | Totals, participation, risk distribution, per-department aggregates, valid filter values |
-| `get_department_breakdown` | `get_manager_analytics()` | `groupBy` (department\|shift\|jobTitle), `department?`, `shift?`, `jobTitle?`, `risk?`, `from?`, `to?` | Grouped counts, risk mix, at-risk % per group |
-| `get_score_trend` | `get_manager_score_trend()` | `department?`, `shift?`, `jobTitle?`, `months` (6\|12\|24\|all) | Monthly average burnout score series |
-| `search_research` | `call_mithra_kb_chat()` | `query` | Evidence snippets + `citations[]` (paper title, page) |
+**Manager (org) toolkit** — `MANAGER_TOOL_SCHEMAS`, aggregates only:
+
+| Tool | Wraps | Returns |
+|---|---|---|
+| `get_org_overview` | `get_manager_overview()` + `get_filter_options()` | Totals, participation, risk distribution, per-department aggregates, valid filter values |
+| `get_department_breakdown` | `get_manager_analytics()` | Grouped counts, risk mix, at-risk % per group |
+| `get_score_trend` | `get_manager_score_trend()` | Monthly average burnout score series |
+| `search_research` | `call_mithra_kb_chat()` | Evidence snippets + `citations[]` |
+
+**Personal (guest) toolkit** — `GUEST_TOOL_SCHEMAS`, the caller's own data only
+(bound to `auth.user_id`, never a model-supplied id):
+
+| Tool | Wraps | Returns |
+|---|---|---|
+| `get_my_assessments` | `get_user_survey_records(user_id)` | Their scores, risk, dates, domains (most recent first) |
+| `get_my_score_trend` | same | Their score over time — one point per assessment |
+| `get_my_latest_report` | same | Their latest score/risk/interpretation + behavioural analysis / consultative summary text |
+| `search_research` | `call_mithra_kb_chat()` | Evidence snippets + `citations[]` |
 
 Design notes:
-- **Enumerated parameters only.** Filter values are validated against the
-  distinct values returned by `get_org_overview` before hitting the DB, so the
-  model can't smuggle a `department` that is actually a name or free text.
-- **`search_research` is a retriever here.** Mithra *can* answer on its own, but
-  in this design we take its snippets + citations and let the orchestrator
-  synthesise a single answer that blends evidence with the org's own numbers
-  (decision #3). Mithra's raw prose is not surfaced verbatim.
-- Adding a tool = adding one PII-safe wrapper. There is deliberately no
-  "run this SQL" escape hatch.
+- **Enumerated parameters only.** Manager filter values are validated against the
+  real distinct values before hitting the DB, so the model can't smuggle a
+  `department` that is actually a name or free text.
+- **Personal tools are user-scoped structurally** — they read `auth.user_id`
+  and ignore any `user_id` in the model's arguments, so "fetch *user X's* data"
+  is impossible.
+- **`search_research` is a retriever.** We take its snippets + citations and let
+  the orchestrator synthesise; Mithra's raw prose is not surfaced verbatim.
+- Adding a tool = adding one PII-safe wrapper + a `TOOL_ACCESS` entry (below).
+  There is deliberately no "run this SQL" escape hatch.
+
+## RBAC on the assistant tools (injection-proof)
+
+Every tool call passes through `dispatch_tool(name, args, auth)`, which enforces
+`rbac.TOOL_ACCESS` **before touching data**, using a `ChatAuth(user_id, role,
+scope)` derived from the auth session — never anything the prompt controls.
+
+| Tool group | Allowed `scope` | Allowed `role` |
+|---|---|---|
+| org tools (`get_org_overview`, `get_department_breakdown`, `get_score_trend`) | `manager` | manager, admin |
+| personal tools (`get_my_*`) | `personal` | guest, manager, admin |
+| `search_research` | both | all |
+
+Four independent layers, any one of which blocks org-data leakage from the guest
+surface:
+1. **Route auth** — `/manager/*` is role-gated (guest → 403); `/me/*` is any
+   authenticated user.
+2. **Toolkit isolation** — the guest orchestrator only *advertises* personal tool
+   schemas; the model never sees org tools.
+3. **RBAC dispatch gate** — even if an org tool name were emitted (injection,
+   future refactor), execution is refused based on the trusted `scope`/`role`,
+   and the attempt is logged (`[Chat] RBAC denied … possible prompt injection`).
+4. **User-id binding** — personal tools use `auth.user_id` only.
+
+A denied call returns `{"error": "not authorized …"}` as the tool result, which
+the model must explain around — it never gets the data.
 
 ## Orchestration loop
 
@@ -125,15 +171,18 @@ Layered, mirroring and extending the app's existing posture (de-identified only;
 descriptive-only).
 
 **Pre-request (deterministic):**
-- **Authz** — `/manager/*` role gate in `auth_middleware`; guests get 403.
-- **Red-flag input filter** — regex/rules that refuse individual-level requests
-  ("show me *<person>*'s report/score", requests for transcripts, biometrics,
-  or identities) before any LLM call.
+- **Authz** — route gate in `auth_middleware` + **RBAC per tool** (see above).
+- **Scope-aware red-flag input filter** (`check_input(message, scope)`):
+  - *manager* scope refuses **individual-level** requests ("show me *<person>*'s
+    report", transcripts, biometrics, identities).
+  - *personal* scope refuses **other-people / org-wide** requests ("the team's
+    average", "compare me to colleagues"), redirecting to the manager dashboard.
 
 **During (structural):**
-- Tools return aggregates only — the strongest guardrail, because PII never
-  enters the model's context in the first place.
-- Enumerated tool parameters validated against real filter values.
+- Manager tools return aggregates only; personal tools return only the caller's
+  own data. Either way, out-of-scope data never enters the model's context.
+- Enumerated tool parameters validated against real filter values; personal
+  tools bound to `auth.user_id`.
 
 **Post-response (deterministic + LLM):**
 - **Citation enforcement** — if the answer makes an evidence/claim statement,
@@ -172,14 +221,18 @@ checks) **+** LLM-side guardrails (scoped system prompt, optional judge).
 | `done` | `{ "chatId": "…", "messageId": "…" }` | Turn complete; client persists ids |
 | `error` | `{ "message": "…" }` | Fatal error; stream ends |
 
-**Companion REST endpoints** (JSON, under the same `/manager/` gate):
-- `GET /manager/chats` — list the manager's chats (id, title, updated_at).
-- `GET /manager/chats/{chatId}` — full message history for re-hydration.
-- `DELETE /manager/chats/{chatId}` — delete a chat (optional).
+The **personal surface is identical** with `POST /me/chat` — same request body
+(minus `filters`) and same event stream.
 
-These are distinct from the existing `/kb/chats/*` routes, which are raw Mithra
-proxies for the admin KB UI. The manager assistant does **not** reuse them —
-it needs the org-data grounding and guardrail layer around Mithra.
+**Companion REST endpoints** (JSON), one set per surface:
+- Manager (`/manager/` gate): `GET /manager/chats`, `GET /manager/chats/{id}`,
+  `DELETE /manager/chats/{id}`.
+- Personal (any authenticated user): `GET /me/chats`, `GET /me/chats/{id}`,
+  `DELETE /me/chats/{id}`.
+
+Each list/get/delete verifies **ownership *and* scope**, so a manager chat can't
+be read through `/me/*` and vice-versa. These are distinct from `/kb/chats/*`
+(raw Mithra proxies for the admin KB UI).
 
 ## Persistence (SQLite)
 
@@ -193,6 +246,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     chat_id     TEXT PRIMARY KEY,
     user_id     TEXT NOT NULL REFERENCES users(user_id),
     title       TEXT,                     -- derived from first question
+    scope       TEXT NOT NULL DEFAULT 'manager',  -- 'manager' | 'personal'
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -211,9 +265,10 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_chat
     ON chat_messages(chat_id, created_at);
 ```
 
-`tool_trace` stores which tools ran with which arguments and a digest of the
-result — useful for auditing "where did this number come from?" without keeping
-full payloads. It is never sent to the client.
+`tool_trace` stores which tools ran with which arguments — useful for auditing
+"where did this come from?". It is never sent to the client. `scope` separates a
+user's two chat lists (`/manager/chats` vs `/me/chats`); the additive migration
+defaults existing rows to `'manager'`.
 
 ## Configuration
 
@@ -236,19 +291,22 @@ Proposed new (optional) flags:
 
 | Var | Default | Purpose |
 |---|---|---|
-| `ENABLE_MANAGER_CHAT` | `true` | Feature flag for the endpoint + widget |
-| `MANAGER_CHAT_MAX_TOOL_ITERS` | `3` | Cap on tool-resolution rounds per turn |
+| `MANAGER_CHAT_MAX_TOOL_ITERS` | `3` | Cap on tool-resolution rounds per turn (both surfaces) |
 
 ## Implementation touch points
 
 | Area | File(s) | Change |
 |---|---|---|
-| Chat store | `db.py`, `db_init.py` | `chat_sessions` / `chat_messages` tables + CRUD helpers |
-| Tools | `ciq/chat/tools.py` (new) | PII-safe wrappers over the aggregate + Mithra functions |
-| Orchestrator | `ciq/chat/orchestrator.py` (new) | Tool loop + streaming + prompts |
-| Guardrails | `ciq/chat/guardrails.py` (new) | Input red-flags, output citation/provenance/safety |
-| Routes | `ciq/chat/routes.py` (new), `ciq/server.py` | `POST /manager/chat` (SSE) + chat REST, registration |
-| Frontend | `manager-chat.tsx`, `manager-landing.css` | SSE client, markdown answers, citation chips, tool-status line, latest-chat rehydration, New-chat button |
+| Chat store | `db.py`, `db_init.py` | `chat_sessions` (+`scope`) / `chat_messages` tables + scope-aware CRUD |
+| RBAC | `ciq/chat/rbac.py` | `ChatAuth` + `TOOL_ACCESS` capability map + `is_authorized` |
+| Tools | `ciq/chat/tools.py` | Manager + guest toolkits, RBAC-gated `dispatch_tool(name, args, auth)` |
+| Prompts | `ciq/chat/prompts.py` | `MANAGER_SYSTEM_PROMPT`, `GUEST_SYSTEM_PROMPT` |
+| Orchestrator | `ciq/chat/orchestrator.py` | Generic tool loop + streaming (takes `auth`, prompt, schemas) |
+| Guardrails | `ciq/chat/guardrails.py` | Scope-aware red-flags + footer |
+| Routes | `ciq/chat/routes.py`, `ciq/server.py` | Shared SSE handler; `/manager/chat*` + `/me/chat*` |
+| Frontend (shared) | `hooks/useChatStream.ts` | Headless SSE/typewriter/rehydrate/new-chat controller |
+| Frontend (manager) | `manager-chat.tsx` | Manager skin (`ml` theme) |
+| Frontend (guest) | `guest-chat.tsx` + `guest-chat.css`, `guest-score-trend.tsx`, `guest-landing.tsx` | Guest skin (`gl` theme), per-assessment chart, "Your journey" section (returning guests only) |
 
 ## Phasing
 
@@ -264,17 +322,23 @@ Proposed new (optional) flags:
   - ✅ **New chat** control — resets the widget and starts a fresh server-side
     chat on the next message (previous chat stays persisted).
   - ⬜ Filter-context awareness — the orchestrator already accepts a `filters`
-    arg; the widget still sends `{}` (not yet wired to the live dashboard filters).
+    arg; the manager widget still sends `{}` (not yet wired to the live filters).
   - ⬜ Full chat-list / history sidebar (switch between past chats, delete).
+- **Guest surface** — ✅ **done**. Personal (guest) toolkit bound to `user_id`,
+  `GUEST_SYSTEM_PROMPT`, scope-aware guardrails, `/me/chat*` routes, `scope`
+  column, RBAC gate, `guest-chat.tsx` + `guest-score-trend.tsx` on the
+  returning-guest landing (shown only when `records.length > 0`).
+- **RBAC** — ✅ **done**. Every tool call gated by `TOOL_ACCESS` against the
+  trusted `ChatAuth`; org data is prompt-injection-proof from the guest surface.
 - **Phase 3** — ⬜ output guardrail judge, feedback (thumbs), rate limiting,
   answer/result caching for Mithra to cut latency.
 
 ## Non-goals / explicit exclusions
 
-- No free-form SQL or arbitrary data access — only the fixed tools.
-- No individual-level data, ever — no per-person scores, transcripts,
-  biometrics, or identities.
+- No free-form SQL or arbitrary data access — only the fixed, RBAC-gated tools.
+- No cross-boundary data: managers never see individual-level data; guests never
+  see anyone else's data or org aggregates. Enforced structurally + by RBAC.
 - No diagnosis, treatment or prescription — consistent with the app-wide
   wellness-tool disclaimer.
 - Not a replacement for the voice agent or the report pipeline — a separate,
-  text-only, manager-facing surface.
+  text-only chat surface.

@@ -130,10 +130,20 @@ async def init_db() -> None:
                 chat_id    TEXT PRIMARY KEY,
                 user_id    TEXT NOT NULL REFERENCES users(user_id),
                 title      TEXT,
+                scope      TEXT NOT NULL DEFAULT 'manager',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
         """)
+        # 'scope' separates the manager (org) surface from the personal (guest)
+        # surface so a user's two chat lists never mix. Additive migration for
+        # DBs created before the column existed (defaults to 'manager').
+        try:
+            await db.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN scope TEXT NOT NULL DEFAULT 'manager'"
+            )
+        except aiosqlite.OperationalError:
+            pass  # column already present
         await db.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
                 message_id TEXT PRIMARY KEY,

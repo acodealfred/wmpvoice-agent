@@ -17,33 +17,14 @@ import os
 
 import aiohttp
 
-from ciq.chat.tools import TOOL_SCHEMAS, dispatch_tool
+from ciq.chat.rbac import ChatAuth
+from ciq.chat.tools import dispatch_tool
 
 logger = logging.getLogger("voicerag")
 
 MAX_TOOL_ITERS = int(os.environ.get("MANAGER_CHAT_MAX_TOOL_ITERS", "3"))
 # Match the consultative-summary chat path (AzureChatClient) for resource compat.
 _API_VERSION = "2024-08-01-preview"  # tool calling + streaming
-
-SYSTEM_PROMPT = (
-    "You are the CIQ Wellbeing Assistant for an organisation's manager dashboard. "
-    "You help managers understand aggregate, de-identified burnout signals and act on them.\n\n"
-    "GROUNDING — you have no built-in knowledge of this org or of burnout science. Every claim "
-    "must come from a tool:\n"
-    "- For any NUMBER (counts, %, scores, trends) call the operational tools "
-    "(get_org_overview, get_department_breakdown, get_score_trend). Never invent or estimate figures.\n"
-    "- For any 'why', cause, risk factor or 'what should I do' / intervention, call search_research "
-    "and base your reasoning ONLY on the evidence it returns, citing it. If it returns no evidence, "
-    "say so plainly rather than using general knowledge.\n"
-    "- Blend the two: explain what the numbers show, then what the evidence suggests about causes and actions.\n\n"
-    "BOUNDARIES:\n"
-    "- Only aggregate, grouped data exists. You cannot and must not identify or discuss any individual, "
-    "their report, score, transcript or biometrics. If asked, decline and offer an aggregate view.\n"
-    "- This is a wellbeing aid, not a clinical tool. Do not diagnose, treat, prescribe, or make clinical claims.\n"
-    "- Stay on organisational wellbeing / burnout. Politely redirect off-topic questions.\n\n"
-    "STYLE: concise, warm, practical. Prefer short paragraphs and, where helpful, tight bullet lists. "
-    "Lead with the answer."
-)
 
 
 def _endpoint_deployment(rtmt) -> tuple[str, str]:
@@ -73,9 +54,9 @@ def _completions_url(endpoint: str, deployment: str) -> str:
     )
 
 
-def build_messages(history: list[dict], user_message: str, filters: dict | None) -> list[dict]:
+def build_messages(system_prompt: str, history: list[dict], user_message: str, filters: dict | None) -> list[dict]:
     """System prompt + prior turns + optional current dashboard filter context + new message."""
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
     for m in history:
         role = m.get("role")
         if role in ("user", "assistant") and m.get("content"):
@@ -85,7 +66,7 @@ def build_messages(history: list[dict], user_message: str, filters: dict | None)
         if active:
             messages.append({
                 "role": "system",
-                "content": "The manager's dashboard currently has these filters applied: "
+                "content": "The dashboard currently has these filters applied: "
                            + json.dumps(active) + ". Consider them the default lens unless they ask otherwise.",
             })
     messages.append({"role": "user", "content": user_message})
@@ -106,7 +87,15 @@ async def _post(session, url, headers, payload):
         return await resp.json(content_type=None)
 
 
-async def run_chat(rtmt, history: list[dict], user_message: str, filters: dict | None):
+async def run_chat(
+    rtmt,
+    auth: ChatAuth,
+    history: list[dict],
+    user_message: str,
+    filters: dict | None,
+    system_prompt: str,
+    tool_schemas: list,
+):
     """Async generator of events:
         {"type": "tool", "name": str}
         {"type": "token", "delta": str}
@@ -121,7 +110,7 @@ async def run_chat(rtmt, history: list[dict], user_message: str, filters: dict |
         return
     url = _completions_url(endpoint, deployment)
 
-    messages = build_messages(history, user_message, filters)
+    messages = build_messages(system_prompt, history, user_message, filters)
     citations: list = []
     tool_trace: list = []
 
@@ -133,7 +122,7 @@ async def run_chat(rtmt, history: list[dict], user_message: str, filters: dict |
             for _ in range(MAX_TOOL_ITERS):
                 data = await _post(session, url, headers, {
                     "messages": messages,
-                    "tools": TOOL_SCHEMAS,
+                    "tools": tool_schemas,
                     "tool_choice": "auto",
                     "temperature": 0.3,
                     "max_tokens": 800,
@@ -157,7 +146,7 @@ async def run_chat(rtmt, history: list[dict], user_message: str, filters: dict |
                     except Exception:
                         args = {}
                     yield {"type": "tool", "name": name}
-                    result, cites = await dispatch_tool(name, args)
+                    result, cites = await dispatch_tool(name, args, auth)
                     if cites:
                         for c in cites:
                             if c not in citations:
