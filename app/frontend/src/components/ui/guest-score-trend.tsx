@@ -34,7 +34,7 @@ export function GuestScoreTrend({ records }: { records: SurveyRecord[] }) {
     const latest = points[points.length - 1];
 
     return (
-        <div className="bg-[color:var(--ciq-card)]/70 overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+        <div className="bg-[color:var(--ciq-card)]/70 flex h-[460px] flex-col overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl">
             <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <LineChartIcon className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
@@ -45,14 +45,17 @@ export function GuestScoreTrend({ records }: { records: SurveyRecord[] }) {
                 </span>
             </div>
 
-            {points.length < 2 ? (
-                <p className="py-16 text-center text-sm text-[color:var(--ciq-text-60)]">
-                    {points.length === 0
-                        ? "No scored assessments yet."
-                        : "One assessment so far — your trend line appears after your next check-in."}
-                </p>
-            ) : (
-                <div style={{ height: 260 }}>
+            <div className="relative min-h-0 flex-1">
+                {points.length < 2 ? (
+                    <div className="flex h-full items-center justify-center">
+                        <p className="text-center text-sm text-[color:var(--ciq-text-60)]">
+                            {points.length === 0
+                                ? "No scored assessments yet."
+                                : "One assessment so far — your trend line appears after your next check-in."}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="absolute inset-0">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -12 }}>
                             <CartesianGrid stroke="var(--ciq-divider)" vertical={false} />
@@ -75,8 +78,9 @@ export function GuestScoreTrend({ records }: { records: SurveyRecord[] }) {
                                 activeDot={{ r: 5 }} />
                         </LineChart>
                     </ResponsiveContainer>
-                </div>
-            )}
+                    </div>
+                )}
+            </div>
 
             {latest && (
                 <p className="mt-3 text-xs text-[color:var(--ciq-text-40)]">
