@@ -52,7 +52,7 @@ is `INSERT OR IGNORE`, so whichever write fires first creates the row safely.
 |---|---|---|
 | DB schema | `app/backend/db_init.py` | `survey_records` table + index |
 | DB access | `app/backend/db.py` | `ensure_survey_record`, `save_survey_record_results`, `save_survey_record_snapshot`, `update_survey_record_ssot`, `get_user_survey_records`; admin count now per survey |
-| Endpoints | `app/backend/app.py` | `/analyze-report`, `/ssot-report`, `/api/history` keyed by `survey_run_id` |
+| Endpoints | `ciq/reports/routes.py` (`/analyze-report`, `/ssot-report`), `ciq/api/history_routes.py` (`/api/history`) | keyed by `survey_run_id`; registered in `ciq/server.py` |
 | State | `app/frontend/src/App.tsx` | `surveyRunId` state, regenerated per assessment |
 | Report | `app/frontend/src/components/ui/detailed-report.tsx` | sends `survey_run_id` + `survey_type` |
 | Types | `app/frontend/src/types.ts` | `UserSession` → `SurveyRecord` |

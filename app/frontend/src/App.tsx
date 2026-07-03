@@ -777,6 +777,34 @@ function App() {
                                                 {cameraView === "avatar" ? "AI Avatar" : "Camera Feed"}
                                             </h2>
                                             <div className="ml-auto flex items-center gap-2">
+                                                {enableSurvey && surveyTypeConfig && (
+                                                    <div className="flex items-center gap-1.5">
+                                                        {surveyTypeConfig.surveyTypeOverridden ? (
+                                                            <span
+                                                                className="rounded px-2 py-1 text-[10px] font-medium text-[color:var(--ciq-text-strong)]"
+                                                                title="Survey type locked by deployment"
+                                                            >
+                                                                {surveyTypeConfig.activeSurveyType}
+                                                            </span>
+                                                        ) : (
+                                                            surveyTypeConfig.availableSurveyTypes.map(type => (
+                                                                <button
+                                                                    key={type}
+                                                                    onClick={() => handleSurveyTypeChange(type)}
+                                                                    disabled={isRecording}
+                                                                    title="Survey type"
+                                                                    className={`rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                                                        surveyTypeConfig.activeSurveyType === type
+                                                                            ? "bg-[#5ee5a1] text-[#0d1a14]"
+                                                                            : "bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)]"
+                                                                    }`}
+                                                                >
+                                                                    {type}
+                                                                </button>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
                                                 <button
                                                     onClick={() => setCameraView(v => (v === "camera" ? "avatar" : "camera"))}
                                                     aria-label={cameraView === "camera" ? "Switch to AI avatar" : "Switch to camera feed"}
@@ -815,15 +843,7 @@ function App() {
                                     <div className="relative p-4">
                                         {/* The camera stays mounted underneath in avatar mode so MediaPipe
                                             biometric capture is never interrupted — the avatar just overlays it. */}
-                                        <VideoPanel
-                                            isRecording={isRecording}
-                                            expanded={videoExpanded}
-                                            surveyQuestions={surveyQuestions}
-                                            surveyTotal={surveyTotal}
-                                            surveyCompleted={surveyCompleted}
-                                            surveyOptions={surveyOptions}
-                                            onVideoReady={setVideoElement}
-                                        />
+                                        <VideoPanel isRecording={isRecording} expanded={videoExpanded} onVideoReady={setVideoElement} />
                                         {cameraView === "avatar" && (
                                             <div className="absolute inset-0 p-4">
                                                 <div className={`mx-auto aspect-video w-full ${videoExpanded ? "max-w-none" : "max-w-xl"}`}>
@@ -834,36 +854,43 @@ function App() {
                                     </div>
                                     <div className="border-t border-[color:var(--ciq-divider)] px-5 py-4">
                                         <div className="flex flex-col gap-2">
-                                            {enableSurvey && surveyTypeConfig && (
+                                            {enableSurvey && (
                                                 <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
-                                                    <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">
-                                                        Survey Type
-                                                    </p>
-                                                    {surveyTypeConfig.surveyTypeOverridden ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-[color:var(--ciq-text-strong)]">
-                                                                {surveyTypeConfig.activeSurveyType}
-                                                            </span>
-                                                            <span className="text-[9px] text-[color:var(--ciq-text-40)]">(locked by deployment)</span>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex gap-2">
-                                                            {surveyTypeConfig.availableSurveyTypes.map(type => (
-                                                                <button
-                                                                    key={type}
-                                                                    onClick={() => handleSurveyTypeChange(type)}
-                                                                    disabled={isRecording}
-                                                                    className={`rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                                                                        surveyTypeConfig.activeSurveyType === type
-                                                                            ? "bg-[#5ee5a1] text-[#0d1a14]"
-                                                                            : "bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)]"
-                                                                    }`}
-                                                                >
-                                                                    {type}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    )}
+                                                    <div className="space-y-2">
+                                                        <div className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Survey Assessment</div>
+                                                        {surveyTotal && surveyTotal > 0 && surveyQuestions && surveyQuestions.length > 0 ? (
+                                                            <>
+                                                                <div className="text-xs text-[color:var(--ciq-text-60)]">
+                                                                    Progress: {surveyCompleted ?? 0}/{surveyTotal}
+                                                                </div>
+                                                                <div className="text-xs text-[color:var(--ciq-text-strong)]">
+                                                                    {surveyQuestions[surveyQuestions.length - 1].text}
+                                                                </div>
+                                                                {surveyOptions && surveyOptions.length > 0 && (
+                                                                    <div className="mt-1 flex flex-wrap gap-2">
+                                                                        {surveyOptions.map(opt => (
+                                                                            <span
+                                                                                key={opt.value}
+                                                                                className="rounded bg-[color:var(--ciq-tile-strong)] px-2 py-0.5 text-xs text-[color:var(--ciq-text-68)]"
+                                                                            >
+                                                                                {opt.label}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                                <div className="mt-2">
+                                                                    <div className="h-1 w-full overflow-hidden rounded-full bg-[color:var(--ciq-tile-strong)]">
+                                                                        <div
+                                                                            className="h-full bg-purple-500 transition-all duration-300"
+                                                                            style={{ width: `${((surveyCompleted ?? 0) / surveyTotal) * 100}%` }}
+                                                                        ></div>
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <div className="text-xs text-[color:var(--ciq-text-60)]">No active survey</div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             )}
                                             {/* Controls — desktop: [Restart][Start/Continue][Stop] on one row.

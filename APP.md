@@ -5,7 +5,7 @@
   
   "limitations": "Generative AI is used selectively and only where necessary. Speech functionality is supported by AI-based models. Final report generation combines generative AI with a curated, domain-specific knowledge base. This application does not provide medical advice and is not a substitute for professional healthcare consultation.",
   
-  "privacy": "This early version of the application does not store biometric data, survey responses, location data, or personally identifiable information in persistent databases. Camera feeds, survey inputs, and derived biometrics are processed temporarily in memory or short-lived files and are not retained.",
+  "privacy": "The application stores account information (usernames and organisational attributes such as department, shift and role), survey responses and scores, derived biometric indicators (e.g. blink-rate change and stress snapshots captured per question), generated reports, and assistant chat history in a persistent SQLite database. This data is retained across sessions and deployments (made durable via Litestream replication to encrypted cloud storage) so users can review their history and managers can view de-identified organisational aggregates. Raw camera video is NOT stored: frames are processed transiently in memory (locally via MediaPipe and, for emotion detection, sent to AWS Rekognition) and are not retained. Location data is not collected.",
   
   "biometrics_note": "The application can capture and analyze selected biometric indicators, including pupil size and eye blink rate. Additional derived metrics may include head posture, eye openness, and stress indicators inferred from blink patterns.",
   

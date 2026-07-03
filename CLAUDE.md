@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **CIQ** is a voice-enabled burnout assessment application. Users speak to an AI agent that administers the BAT (Burnout Assessment Tool) survey, while the browser optionally captures facial biometrics (blink rate via MediaPipe, emotions via AWS Rekognition). After the survey, a two-stage LLM pipeline generates a behavioral analysis report and a spoken consultative response.
 
-The app originated from the Azure VoiceRAG sample and has been extended significantly. RAG (Azure AI Search) is currently disabled but the code is preserved in `ragtools.py` and commented out in `app.py`.
+The app originated from the Azure VoiceRAG sample and has been extended significantly. RAG (Azure AI Search) is currently disabled but the code is preserved in `ragtools.py` and commented out where tools are wired in `ciq/server.py`.
 
 ## Commands
 
@@ -98,12 +98,20 @@ their latest assessment; trends stay assessment-based) are documented in
 ```
 Browser mic → useAudioRecorder → WebSocket /realtime
                                        ↓
-                              RTMiddleTier (rtmt.py)
+                    RTMiddleTier (ciq/realtime/middle_tier.py)
                                        ↓
                        Azure OpenAI GPT-4o Realtime API (WebSocket)
 ```
 
-`RTMiddleTier` (`app/backend/rtmt.py`) is the core: it opens a WebSocket to Azure OpenAI and proxies messages between the frontend and the model. It intercepts `function_call` and `function_call_arguments_done` events to handle three custom tools:
+> **Package layout (post-refactor).** The backend was decomposed from the two
+> former god-files (`app.py`, `rtmt.py`) into the `app/backend/ciq/` package —
+> see `docs/refactoring.md`. `app/backend/app.py` and `app/backend/rtmt.py` are
+> now thin shims that re-export `ciq.server.create_app` and
+> `ciq.realtime.middle_tier.RTMiddleTier` respectively (kept so the gunicorn
+> entrypoint and legacy imports still work). Route table lives in
+> `ciq/server.py`; behavior/wire-protocol are unchanged.
+
+`RTMiddleTier` (`app/backend/ciq/realtime/middle_tier.py`) is the core: it opens a WebSocket to Azure OpenAI and proxies messages between the frontend and the model. It intercepts `function_call` and `function_call_arguments_done` events to handle three custom tools:
 
 | Tool | Trigger | What it does |
 |---|---|---|
@@ -122,7 +130,7 @@ Current biometrics (`_current_blink_rate_change`, `_current_face_emotion`) are c
 
 ### Report generation (two-stage LLM)
 
-`POST /analyze-report` (in `app.py`) performs two sequential `rtmt.analyze_with_prompt()` calls:
+`POST /analyze-report` (handler in `ciq/reports/routes.py`) performs two sequential `rtmt.analyze_with_prompt()` calls:
 
 1. **Behavioral analysis**: Strict JSON output — correlations, contradictions, patterns derived only from blink-rate research rules + survey snapshot data.
 2. **Consultative response**: Spoken summary for the user, referencing the behavioral analysis. Stored as conversation state (`report_delivered`) so the agent can answer follow-up questions.
@@ -146,9 +154,12 @@ During frontend dev (`npm run dev`), `vite.config.ts` proxies `/realtime` to `ws
 
 | File | Purpose |
 |---|---|
-| `app/backend/rtmt.py` | RTMiddleTier — WebSocket proxy + tool interception + biometric state |
-| `app/backend/app.py` | aiohttp server — REST endpoints + app wiring |
-| `app/backend/biometric_interpreter.py` | BiometricInterpreter singleton — blink-rate stress detection |
+| `app/backend/ciq/server.py` | `create_app()` — composition root + full route table (43 routes) |
+| `app/backend/ciq/realtime/middle_tier.py` | RTMiddleTier — WebSocket proxy + tool interception + biometric state |
+| `app/backend/ciq/reports/routes.py` | Report endpoints — `/analyze-report`, scoring |
+| `app/backend/ciq/chat/` | Wellbeing Assistant chat engine (`rbac`, `tools`, `prompts`, `guardrails`, `orchestrator`, `routes`) — see `docs/manager-chat.md` |
+| `app/backend/app.py` / `app/backend/rtmt.py` | Thin shims re-exporting `ciq.server.create_app` / `RTMiddleTier` (entrypoint + legacy imports) |
+| `app/backend/biometric_interpreter.py` | BiometricInterpreter singleton — blink-rate stress detection (legacy module, imported by `ciq`) |
 | `app/backend/ragtools.py` | RAG/Azure Search integration (currently disabled) |
 | `app/frontend/src/App.tsx` | Root React component — survey/biometric/sentiment state |
 | `app/frontend/src/hooks/useRealtime.tsx` | WebSocket client + message dispatch |
