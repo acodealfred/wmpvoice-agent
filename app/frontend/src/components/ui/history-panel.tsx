@@ -26,7 +26,7 @@ export default function HistoryPanel({ show, history, onClosed, onSelectedGround
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: "100%" }}
                     transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                    className="fixed inset-y-0 right-0 z-40 w-full overflow-y-auto bg-white shadow-lg sm:w-96"
+                    className="fixed inset-y-0 right-0 z-40 w-full overflow-y-auto bg-[color:var(--ciq-card)] shadow-lg sm:w-96"
                 >
                     <div className="p-4">
                         <div className="mb-4 flex items-center justify-between">
@@ -37,9 +37,9 @@ export default function HistoryPanel({ show, history, onClosed, onSelectedGround
                         </div>
                         {history.length > 0 ? (
                             history.map((item, index) => (
-                                <div key={index} className="mb-6 border-b border-gray-200 pb-6">
+                                <div key={index} className="mb-6 border-b border-[color:var(--ciq-line)] pb-6">
                                     <h3 className="mb-2 font-semibold">{item.id}</h3>
-                                    <pre className="mb-2 overflow-x-auto whitespace-pre-wrap rounded-md bg-gray-100 p-3 text-sm">
+                                    <pre className="mb-2 overflow-x-auto whitespace-pre-wrap rounded-md bg-[color:var(--ciq-card-2)] p-3 text-sm">
                                         <code className="block h-24 overflow-y-auto">{item.transcript}</code>
                                     </pre>
                                     <div className="mt-2 flex flex-wrap gap-2">
@@ -50,7 +50,7 @@ export default function HistoryPanel({ show, history, onClosed, onSelectedGround
                                 </div>
                             ))
                         ) : (
-                            <p className="text-gray-500">{t("history.noHistory")}</p>
+                            <p className="text-[color:var(--ciq-text-muted)]">{t("history.noHistory")}</p>
                         )}
                     </div>
                 </motion.div>

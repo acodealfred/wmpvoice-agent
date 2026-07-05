@@ -1,3 +1,4 @@
+
 import asyncio
 import uuid
 import logging
@@ -11,10 +12,23 @@ from db import DB_PATH
 
 logger = logging.getLogger("voicerag")
 
+# (name, password, role, department, shift, job_title). role is "admin",
+# "manager" or "employee" (the assessed staff — formerly "guest"). Admins reach
+# /admin/*, managers reach /manager/*; employees are blocked from both.
+# Department/shift/job give the seed employees a place in the dashboard's
+# departmental views. Admins/managers carry no department (not assessed staff).
 SEED_USERS = [
-    ("system1", "sys123"),
-    ("system2", "sys123"),
-    ("system3", "sys123"),
+    ("system1", "sys123", "admin", None, None, None),
+    ("system2", "sys123", "admin", None, None, None),
+    ("system3", "sys123", "admin", None, None, None),
+    ("admin1", "sys123", "admin", None, None, None),
+    ("admin2", "sys123", "admin", None, None, None),
+    ("admin3", "sys123", "admin", None, None, None),
+    ("guest1", "sys123", "employee", "Emergency", "Day", "ER Nurse"),
+    ("guest2", "sys123", "employee", "ICU", "Night", "ICU Nurse"),
+    ("guest3", "sys123", "employee", "Surgery", "Evening", "Scrub Nurse"),
+    ("manager1", "sys123", "manager", None, None, None),
+    ("manager2", "sys123", "manager", None, None, None),
 ]
 
 
@@ -34,9 +48,34 @@ async def init_db() -> None:
                 user_id       TEXT PRIMARY KEY,
                 name          TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
+                role          TEXT NOT NULL DEFAULT 'employee',
+                department    TEXT,
+                shift         TEXT,
+                job_title     TEXT,
+                is_demo       INTEGER NOT NULL DEFAULT 0,
+                active        INTEGER NOT NULL DEFAULT 1,
                 created_at    TEXT NOT NULL
             )
         """)
+
+        # Migrations for databases created before a column existed.
+        # CREATE TABLE IF NOT EXISTS won't add a column to an existing table, so
+        # add each explicitly and ignore the "duplicate column" error on re-run.
+        for stmt in (
+            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'employee'",
+            "ALTER TABLE users ADD COLUMN department TEXT",
+            "ALTER TABLE users ADD COLUMN shift TEXT",
+            "ALTER TABLE users ADD COLUMN job_title TEXT",
+            "ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
+        ):
+            try:
+                await db.execute(stmt)
+            except aiosqlite.OperationalError:
+                pass  # column already present
+
+        # Rename the assessed-staff role from the old "guest" to "employee".
+        await db.execute("UPDATE users SET role = 'employee' WHERE role = 'guest'")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 session_token   TEXT PRIMARY KEY,
@@ -50,14 +89,103 @@ async def init_db() -> None:
             )
         """)
 
+        # One row per completed survey run. A single login (user_sessions row)
+        # can own many survey_records, so a user's full assessment history is
+        # preserved instead of each survey overwriting the last.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS survey_records (
+                survey_run_id    TEXT PRIMARY KEY,
+                user_id          TEXT NOT NULL REFERENCES users(user_id),
+                session_token    TEXT,
+                session_id       TEXT,
+                survey_type      TEXT,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL,
+                survey_results   TEXT,
+                technical_report TEXT,
+                prompt_info      TEXT,
+                is_demo          INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        try:
+            await db.execute(
+                "ALTER TABLE survey_records ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0"
+            )
+        except aiosqlite.OperationalError:
+            pass  # column already present
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_survey_records_user
+            ON survey_records(user_id, created_at DESC)
+        """)
+
+        # One calibrated biometric baseline per user (pupil size + blink rate),
+        # keyed by user_id so it follows the user across devices/browsers. A new
+        # recording upserts this row; "Re-record" deletes it so a fresh one is taken.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_baselines (
+                user_id    TEXT PRIMARY KEY REFERENCES users(user_id),
+                pupil_size REAL NOT NULL,
+                blink_rate REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Manager "Wellbeing Assistant" chat history. One chat_sessions row per
+        # conversation; many chat_messages per chat. See docs/manager-chat.md.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                chat_id    TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL REFERENCES users(user_id),
+                title      TEXT,
+                scope      TEXT NOT NULL DEFAULT 'manager',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        # 'scope' separates the manager (org) surface from the personal (guest)
+        # surface so a user's two chat lists never mix. Additive migration for
+        # DBs created before the column existed (defaults to 'manager').
+        try:
+            await db.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN scope TEXT NOT NULL DEFAULT 'manager'"
+            )
+        except aiosqlite.OperationalError:
+            pass  # column already present
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                message_id TEXT PRIMARY KEY,
+                chat_id    TEXT NOT NULL REFERENCES chat_sessions(chat_id),
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                citations  TEXT,
+                tool_trace TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_chat
+            ON chat_messages(chat_id, created_at)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_user
+            ON chat_sessions(user_id, updated_at DESC)
+        """)
+
         now = datetime.utcnow().isoformat()
-        for name, password in SEED_USERS:
+        for name, password, role, department, shift, job_title in SEED_USERS:
             user_id = str(uuid.uuid4())
             password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
             await db.execute(
-                """INSERT OR IGNORE INTO users (user_id, name, password_hash, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                (user_id, name, password_hash, now),
+                """INSERT OR IGNORE INTO users
+                   (user_id, name, password_hash, role, department, shift, job_title, active, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)""",
+                (user_id, name, password_hash, role, department, shift, job_title, now),
+            )
+            # Keep an existing seed account's role/attributes in sync (idempotent).
+            await db.execute(
+                "UPDATE users SET role = ?, department = ?, shift = ?, job_title = ? WHERE name = ?",
+                (role, department, shift, job_title, name),
             )
 
         await db.commit()

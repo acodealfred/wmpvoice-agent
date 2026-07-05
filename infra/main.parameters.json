@@ -39,7 +39,7 @@
       "value": "${ENABLE_SENTIMENT_ANALYSIS=true}"
     },
     "enableSurveyMode": {
-      "value": "${ENABLE_SURVEY_MODE=false}"
+      "value": "${ENABLE_SURVEY_MODE=true}"
     },
     "awsRegion": {
       "value": "${AWS_REGION=us-east-1}"
@@ -49,6 +49,21 @@
     },
     "awsSecretAccessKey": {
       "value": "${AWS_SECRET_ACCESS_KEY}"
+    },
+    "mithraApiBaseUrl": {
+      "value": "${MITHRA_API_BASE_URL=https://api.dev.mithra.shelterzoom.com}"
+    },
+    "mithraAppToken": {
+      "value": "${MITHRA_APP_TOKEN}"
+    },
+    "reportOpenAiEndpoint": {
+      "value": "${REPORT_OPENAI_ENDPOINT}"
+    },
+    "reportOpenAiApiKey": {
+      "value": "${REPORT_OPENAI_API_KEY}"
+    },
+    "reportOpenAiDeployment": {
+      "value": "${REPORT_OPENAI_DEPLOYMENT=gpt-4o}"
     },
     "storageAccountName": {
       "value": "${AZURE_STORAGE_ACCOUNT}"

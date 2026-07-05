@@ -132,6 +132,12 @@ resource app 'Microsoft.App/containerApps@2023-05-02-preview' = {
         external: external
         targetPort: targetPort
         transport: 'auto'
+        // Session affinity: the app keeps per-user session state in-memory, so every
+        // request from a given client (WebSocket + REST) must reach the same replica.
+        // Without this, scaling beyond one replica splits a user's state across processes.
+        stickySessions: {
+          affinity: 'sticky'
+        }
         corsPolicy: {
           allowedOrigins: union([ 'https://portal.azure.com', 'https://ms.portal.azure.com' ], allowedOrigins)
         }

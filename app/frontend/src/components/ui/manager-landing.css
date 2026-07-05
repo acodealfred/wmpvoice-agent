@@ -1,0 +1,604 @@
+/* ─── Manager Landing — scoped under .ml ─────────────────────────────── */
+
+/* Dark theme CSS variables (default) */
+.ml {
+  --bg: #071622; --bg2: #0a2336; --panel: rgba(12,38,57,.72); --panel2: rgba(10,30,47,.6);
+  --line: rgba(84,167,221,.18); --line2: rgba(84,167,221,.3);
+  --text: #dceffb; --bright: #eaf6ff; --muted: #7fa6c0; --faint: #5d7e98;
+  --cyan: #54a7dd; --teal: #25b5ad;
+  --green: #19c993; --amber: #f0bd54; --rose: #ff7088;
+  --glow: rgba(84,167,221,.5);
+  --bgEnd: #05111b; --halo1: #0e2c42; --halo2: #0c3030; --gridline: rgba(84,167,221,.035);
+  --glass: rgba(7,22,34,.66); --glassBorder: rgba(84,167,221,.18); --legendText: #bfe0f2;
+  --fade: #05111b;
+  --font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Light theme */
+.ml.ml-light {
+  --bg: #eaf3fc; --bg2: #ffffff; --panel: rgba(255,255,255,.78); --panel2: rgba(255,255,255,.6);
+  --line: rgba(37,99,150,.16); --line2: rgba(37,99,150,.3);
+  --text: #214863; --bright: #0c2a40; --muted: #5b7d96; --faint: #8aa6bd;
+  --cyan: #1f7fbf; --teal: #138f88;
+  --green: #0e9b6c; --amber: #bd8419; --rose: #e0556e;
+  --glow: rgba(31,127,191,.35);
+  --bgEnd: #cfe0f2; --halo1: #dceef9; --halo2: #dbf0ee; --gridline: rgba(37,99,150,.06);
+  --glass: rgba(255,255,255,.72); --glassBorder: rgba(37,99,150,.18); --legendText: #33536d;
+  --fade: #dce8f6;
+  --holoBg: linear-gradient(160deg,rgba(255,255,255,.92),rgba(238,245,252,.94));
+}
+
+/* Green-tinted dark — matches the app's existing "dark" mode (assessment tab) */
+.ml.ml-dark {
+  --bg: #0d1411; --bg2: #182634; --panel: rgba(24,38,52,.72); --panel2: rgba(16,28,38,.6);
+  --line: rgba(255,255,255,.12); --line2: rgba(255,255,255,.2);
+  --text: #cad7e5; --bright: #fffaf2; --muted: #93a4b8; --faint: #6b7d92;
+  --cyan: #7cb0ff; --teal: #5ee5a1;
+  --green: #5ee5a1; --amber: #fbd585; --rose: #ff8a8a;
+  --glow: rgba(124,176,255,.4);
+  --bgEnd: #0a0f0c; --halo1: #14241c; --halo2: #122018; --gridline: rgba(255,255,255,.03);
+  --glass: rgba(13,20,17,.6); --glassBorder: rgba(255,255,255,.16); --legendText: #cad7e5;
+  --fade: #0a0f0c;
+}
+
+/* ─── Root container ─── */
+.ml {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  font-family: var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(circle at 12% 0%, var(--halo1) 0, transparent 42%),
+    radial-gradient(circle at 88% 8%, var(--halo2) 0, transparent 40%),
+    linear-gradient(160deg, var(--bg), var(--bgEnd));
+}
+
+/* Grid dot overlay */
+.ml::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image:
+    linear-gradient(var(--gridline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--gridline) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+/* ─── Scroll container ─── (the whole dashboard scrolls; the 3D canvas is a
+   sticky background that the cards rise over, mirroring the reference) */
+.ml .ml-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.ml .ml-scroll::-webkit-scrollbar { width: 6px; }
+.ml .ml-scroll::-webkit-scrollbar-track { background: transparent; }
+.ml .ml-scroll::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 3px; }
+
+/* ─── Canvas (Three.js) — sticky full-viewport background ─── */
+.ml .ml-canvas {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  width: 100%;
+  display: block;
+  z-index: 0;
+}
+
+/* ─── Overlay (content that scrolls over the sticky canvas) ─── */
+.ml .ml-overlay {
+  position: relative;
+  z-index: 2;
+  margin-top: -100vh;   /* cancel the canvas's flow height so content overlaps it */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none; /* drags fall through to the canvas; children re-enable */
+}
+.ml .ml-cards,
+.ml .ml-grid,
+.ml .ml-note,
+.ml .ml-map-legend,
+.ml .ml-zoom-controls { pointer-events: auto; }
+
+/* ─── Header ─── */
+.ml .ml-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 24px 12px;
+  pointer-events: auto;
+  flex-shrink: 0;
+}
+
+.ml .ml-brand { display: flex; gap: 13px; align-items: center; }
+
+.ml .ml-mark {
+  width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center;
+  font-weight: 900; color: #fff; font-size: 19px;
+  background: linear-gradient(145deg, var(--cyan), var(--teal));
+  box-shadow: 0 0 26px var(--glow);
+}
+
+.ml .ml-head h1 { margin: 0; font-size: 20px; letter-spacing: -.02em; color: var(--bright); }
+.ml .ml-head .ml-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.ml .ml-head .ml-right { display: flex; gap: 10px; align-items: center; }
+
+.ml .ml-pill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+  background: rgba(25,201,147,.12); color: var(--green); border: 1px solid rgba(25,201,147,.25);
+}
+
+.ml .ml-ghost {
+  border-radius: 999px; border: 1px solid var(--line2);
+  background: rgba(84,167,221,.08); color: var(--cyan);
+  padding: 9px 16px; font: 800 12px var(--font); cursor: pointer; transition: .18s;
+}
+.ml .ml-ghost:hover { background: rgba(84,167,221,.18); transform: translateY(-1px); }
+
+/* ─── Hero (transparent window over the map) ─── */
+.ml .ml-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: min(100%, 1320px);
+  margin: 0 auto;
+  padding: 18px 16px 16px;
+  min-height: 86vh;     /* map dominates initially; cards scroll up over it */
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+/* Cards region below the hero */
+.ml .ml-cards { padding: 0 0 40px; }
+
+.ml .ml-map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+
+.ml .ml-eyebrow {
+  font-size: 10px; letter-spacing: .32em; text-transform: uppercase;
+  color: var(--muted); font-weight: 800;
+}
+
+.ml .ml-map-head h2 {
+  margin: 3px 0 0; font-size: 22px; letter-spacing: -.03em; color: var(--bright);
+  text-shadow: 0 2px 22px rgba(5,17,27,.8);
+}
+
+.ml .ml-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+  pointer-events: auto;
+}
+.ml .ml-b-cyan { background: rgba(84,167,221,.14); color: var(--cyan); }
+.ml .ml-b-amber { background: rgba(240,189,84,.14); color: var(--amber); }
+.ml .ml-b-muted { background: rgba(127,166,192,.12); color: var(--muted); }
+
+.ml .ml-map-controls {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 14px;
+  pointer-events: auto;
+}
+
+.ml .ml-map-legend {
+  display: inline-flex; gap: 16px; align-self: flex-start;
+  background: var(--glass); border: 1px solid var(--line); border-radius: 12px;
+  padding: 9px 13px; backdrop-filter: blur(8px);
+}
+.ml .ml-map-legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; color: var(--legendText); }
+.ml .ml-map-legend i { width: 10px; height: 10px; border-radius: 4px; box-shadow: 0 0 8px currentColor; }
+
+.ml .ml-zoom-controls { display: inline-flex; align-items: center; gap: 8px; }
+
+.ml .ml-drag-note {
+  font-size: 11px; color: var(--muted); font-weight: 700;
+  background: var(--glass); border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 12px; backdrop-filter: blur(8px);
+}
+
+.ml .ml-zoom-btn {
+  width: 38px; height: 38px; border-radius: 12px; cursor: pointer; font-size: 20px;
+  font-weight: 800; line-height: 1; color: var(--cyan); background: var(--glass);
+  border: 1px solid var(--line2); backdrop-filter: blur(8px);
+  display: grid; place-items: center; transition: .16s;
+  box-shadow: 0 6px 18px rgba(0,0,0,.3);
+}
+.ml .ml-zoom-btn:hover { background: rgba(84,167,221,.18); transform: translateY(-1px); color: var(--bright); }
+.ml .ml-zoom-btn:active { transform: translateY(0); }
+
+/* ─── 12-col grid ─── (shares the hero's 1320px / 16px gutter so they align) */
+.ml .ml-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+  width: min(100%, 1320px);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* ─── Card base ─── */
+.ml .ml-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.32);
+  backdrop-filter: blur(14px);
+  position: relative;
+  overflow: hidden;
+}
+.ml .ml-card.ml-pad { padding: 20px 22px; }
+
+.ml .ml-sec-h {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; margin-bottom: 16px;
+}
+.ml .ml-sec-h h2 { margin: 0; font-size: 15px; letter-spacing: -.02em; color: var(--bright); }
+
+/* ─── Focus actions ─── */
+.ml .ml-focus-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+.ml .ml-act { display: flex; gap: 12px; align-items: flex-start; padding: 13px 0; border-top: 1px solid var(--line); }
+.ml .ml-act:first-child { border-top: none; padding-top: 0; }
+.ml .ml-act .ml-n {
+  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+  flex: none; font-weight: 900; font-size: 13px;
+  background: rgba(84,167,221,.12); color: var(--cyan); border: 1px solid var(--line2);
+}
+.ml .ml-act b { display: block; font-size: 13px; color: var(--bright); }
+.ml .ml-act span { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+
+/* ─── Risk bars ─── */
+.ml .ml-risk {
+  display: grid; grid-template-columns: 78px 1fr 60px;
+  gap: 11px; align-items: center; margin-bottom: 13px;
+}
+.ml .ml-risk:last-child { margin-bottom: 0; }
+.ml .ml-risk label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.ml .ml-rtrack { height: 9px; border-radius: 99px; background: rgba(84,167,221,.14); overflow: hidden; }
+.ml .ml-rfill { height: 100%; border-radius: 99px; }
+.ml .ml-rfill-low { background: linear-gradient(90deg, #13a87b, var(--green)); }
+.ml .ml-rfill-mod { background: linear-gradient(90deg, #d4a23f, var(--amber)); }
+.ml .ml-rfill-high { background: linear-gradient(90deg, #e25068, var(--rose)); }
+.ml .ml-risk b { font: 800 13px var(--mono); text-align: right; color: var(--bright); }
+.ml .ml-risk b small { color: var(--faint); font-weight: 500; }
+
+/* ─── Participation donut ─── */
+.ml .ml-donut-wrap { display: flex; align-items: center; gap: 18px; }
+.ml .ml-donut { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.ml .ml-donut .ml-inner {
+  width: 82px; height: 82px; border-radius: 50%; background: var(--bg2);
+  display: grid; place-items: center; text-align: center; border: 1px solid var(--line);
+}
+.ml .ml-donut .ml-inner b { font: 800 24px var(--font); color: var(--bright); line-height: 1; }
+.ml .ml-donut .ml-inner span { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.ml .ml-pcov { font-size: 12.5px; color: var(--text); margin-bottom: 10px; line-height: 1.5; }
+.ml .ml-pcov b { font-family: var(--mono); }
+.ml .ml-leg { display: flex; gap: 14px; font-size: 11px; color: var(--muted); }
+.ml .ml-leg i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+/* ─── Org snapshot (combined totals card) ─── */
+.ml .ml-snap { display: flex; flex-direction: column; }
+.ml .ml-snap-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 14px 0; border-top: 1px solid var(--line);
+}
+.ml .ml-snap-row:first-child { border-top: none; padding-top: 2px; }
+.ml .ml-snap-row:last-child { padding-bottom: 2px; }
+.ml .ml-snap-k { font-size: 12.5px; font-weight: 700; color: var(--bright); margin: 0; }
+.ml .ml-snap-t { font-size: 11px; color: var(--muted); margin: 3px 0 0; }
+.ml .ml-snap-v { font: 800 28px var(--font); color: var(--bright); line-height: 1; letter-spacing: -.03em; }
+
+/* ─── Trend chart ─── */
+.ml .ml-trend-svg { width: 100%; height: auto; }
+.ml .ml-axis { font-size: 10px; fill: var(--faint); font-family: var(--mono); }
+.ml .ml-ribbon {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted);
+  background: rgba(84,167,221,.08); border: 1px dashed var(--line2);
+  border-radius: 10px; padding: 7px 12px; margin-bottom: 14px;
+}
+
+/* ─── Span helpers ─── */
+.ml .ml-span6 { grid-column: span 6; }
+.ml .ml-span4 { grid-column: span 4; }
+.ml .ml-span8 { grid-column: span 8; }
+.ml .ml-span12 { grid-column: span 12; }
+
+/* ─── Footer note ─── */
+.ml .ml-note { font-size: 11px; color: var(--faint); text-align: center; margin: 26px auto 0; max-width: 760px; line-height: 1.6; }
+
+/* ─── Holo card ─── */
+.ml .ml-holo {
+  position: absolute; top: 92px; right: 8px; width: 280px; z-index: 5;
+  opacity: 0; visibility: hidden; transition: opacity .3s ease;
+  --hc: #54a7dd;
+  pointer-events: none;
+}
+.ml .ml-holo.show { opacity: 1; visibility: visible; pointer-events: auto; }
+
+.ml .ml-holo-card {
+  position: relative; pointer-events: auto; border-radius: 16px; overflow: hidden;
+  background: var(--holoBg, linear-gradient(160deg, rgba(10,32,49,.82), rgba(7,22,34,.86)));
+  border: 1px solid color-mix(in srgb, var(--hc) 55%, transparent);
+  box-shadow: 0 0 0 1px rgba(84,167,221,.08), 0 18px 50px rgba(0,0,0,.5),
+    0 0 28px color-mix(in srgb, var(--hc) 30%, transparent);
+  backdrop-filter: blur(13px);
+  padding: 16px 17px 17px;
+  animation: ml-holo-in .34s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes ml-holo-in {
+  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
+
+.ml .ml-holo-card::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(84,167,221,.06) 0 1px, transparent 1px 4px);
+  mix-blend-mode: screen; opacity: .5;
+}
+.ml .ml-holo-card::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--hc), transparent);
+}
+
+.ml .ml-holo .ml-close {
+  position: absolute; top: 11px; right: 11px; width: 24px; height: 24px;
+  border-radius: 8px; cursor: pointer; background: rgba(84,167,221,.14);
+  border: 1px solid color-mix(in srgb, var(--hc) 40%, transparent);
+  color: #dceffb; font-size: 14px; line-height: 1; display: grid; place-items: center;
+  transition: .2s; z-index: 2;
+}
+.ml .ml-holo .ml-close:hover { background: rgba(84,167,221,.3); transform: rotate(90deg); }
+
+.ml .ml-holo .ml-tag {
+  display: inline-block; font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  font-weight: 900; padding: 4px 9px; border-radius: 999px; margin-bottom: 9px;
+  background: color-mix(in srgb, var(--hc) 18%, transparent); color: var(--hc);
+}
+.ml .ml-holo h2 { margin: 0 0 2px; font-size: 18px; letter-spacing: -.03em; color: var(--bright); }
+.ml .ml-holo .ml-hsub { color: var(--muted); font-size: 11px; font-weight: 700; margin: 0 0 13px; line-height: 1.45; }
+
+.ml .ml-holo .ml-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.ml .ml-holo .ml-cell {
+  background: rgba(84,167,221,.08); border: 1px solid rgba(84,167,221,.16);
+  border-radius: 10px; padding: 8px 9px;
+}
+.ml .ml-holo .ml-cell .ml-ck { display: block; font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 800; margin-bottom: 3px; }
+.ml .ml-holo .ml-cell .ml-cv { font-size: 16px; font-weight: 900; letter-spacing: -.03em; color: var(--hc); }
+
+.ml .ml-holo .ml-meter { height: 6px; border-radius: 99px; background: rgba(84,167,221,.16); overflow: hidden; margin-bottom: 12px; }
+.ml .ml-holo .ml-meter i { display: block; height: 100%; border-radius: 99px; transition: width .8s ease; background: var(--hc); box-shadow: 0 0 12px var(--hc); }
+.ml .ml-holo .ml-desc { font-size: 11.5px; line-height: 1.55; color: var(--legendText); font-weight: 600; margin: 0 0 11px; }
+.ml .ml-holo .ml-foot {
+  font-size: 9.5px; color: var(--muted); line-height: 1.5; font-weight: 700;
+  border-top: 1px solid rgba(84,167,221,.16); padding-top: 9px; margin: 0;
+}
+
+/* ─── Loader ─── */
+.ml .ml-loader {
+  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center;
+  background: var(--bg); transition: opacity .6s ease;
+}
+.ml .ml-loader.gone { opacity: 0; pointer-events: none; }
+.ml .ml-loader .ml-ring {
+  width: 54px; height: 54px; border-radius: 50%;
+  border: 3px solid rgba(84,167,221,.2); border-top-color: var(--teal);
+  animation: ml-spin 1s linear infinite;
+}
+@keyframes ml-spin { to { transform: rotate(360deg); } }
+.ml .ml-loader p {
+  position: absolute; bottom: 42%;
+  font-size: 11px; letter-spacing: .3em; text-transform: uppercase;
+  color: var(--muted); font-weight: 800;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1080px) {
+  .ml .ml-span8 { grid-column: span 12; }
+  .ml .ml-span6 { grid-column: span 12; }
+  .ml .ml-span4 { grid-column: span 6; }
+  .ml .ml-focus-grid { grid-template-columns: 1fr; }
+  .ml .ml-hero { min-height: 32vh; }
+}
+@media (max-width: 640px) {
+  .ml .ml-span4 { grid-column: span 12; }
+  .ml .ml-head { flex-direction: column; align-items: flex-start; }
+  .ml .ml-map-controls { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .ml .ml-hero { min-height: 26vh; }
+}
+
+/* ─── Assessment Analytics card (replaces Recent Assessments) ─── */
+.ml .ml-an-filters {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end;
+  margin: 4px 0 18px; pointer-events: auto;
+}
+.ml .ml-an-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ml .ml-an-field > span {
+  font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.ml .ml-an-field select {
+  appearance: none; -webkit-appearance: none;
+  background: var(--panel2); color: var(--text);
+  border: 1px solid var(--line2); border-radius: 10px;
+  padding: 8px 28px 8px 11px; font-size: 12.5px; font-weight: 600; font-family: var(--font);
+  cursor: pointer; min-width: 124px; transition: border-color .15s, box-shadow .15s;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 53%, calc(100% - 10px) 53%;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
+.ml .ml-an-field select:hover { border-color: var(--cyan); }
+.ml .ml-an-field select:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px var(--glow); }
+.ml .ml-an-clear {
+  background: transparent; color: var(--cyan); border: 1px solid var(--line2);
+  border-radius: 10px; padding: 8px 14px; font-size: 12px; font-weight: 800; cursor: pointer;
+  font-family: var(--font); transition: background .15s, border-color .15s;
+}
+.ml .ml-an-clear:hover { background: rgba(84,167,221,.12); border-color: var(--cyan); }
+
+/* Lede: one editorial summary line + risk legend, divided from the ledger. */
+.ml .ml-an-lede {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; flex-wrap: wrap;
+  padding-bottom: 14px; margin-bottom: 6px; border-bottom: 1px solid var(--line);
+}
+.ml .ml-an-headline {
+  margin: 0; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  font-size: 13.5px; color: var(--muted); font-weight: 600; line-height: 1.45; max-width: 56ch;
+}
+.ml .ml-an-headline b { color: var(--bright); font-weight: 800; font-variant-numeric: tabular-nums; }
+.ml .ml-an-pct {
+  font-size: 34px; font-weight: 900; letter-spacing: -.03em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ml .ml-an-headline-txt { flex: 1 1 280px; min-width: 220px; }
+
+.ml .ml-an-legend { display: flex; flex-wrap: wrap; gap: 14px; }
+.ml .ml-an-legend span {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted);
+  font-weight: 700; letter-spacing: .02em;
+}
+.ml .ml-an-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* The hero: full-width ranked risk ledger, one row per department. */
+.ml .ml-an-ledger { list-style: none; margin: 6px 0 0; padding: 0; pointer-events: auto; }
+.ml .ml-an-row {
+  display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 16px;
+  padding: 14px 8px 14px 4px; border-bottom: 1px solid var(--line);
+  border-radius: 10px; transition: background .15s;
+}
+.ml .ml-an-row:last-child { border-bottom: none; }
+.ml .ml-an-row:hover { background: color-mix(in srgb, var(--cyan) 7%, transparent); }
+.ml .ml-an-rank {
+  font-size: 12px; font-weight: 800; color: var(--faint); font-variant-numeric: tabular-nums;
+  text-align: right; font-family: var(--mono); letter-spacing: -.02em;
+}
+.ml .ml-an-row-main { min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+.ml .ml-an-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; }
+.ml .ml-an-dept {
+  font-size: 14.5px; font-weight: 800; color: var(--bright); letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ml .ml-an-rmeta { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.ml .ml-an-rmeta b { font-weight: 900; font-variant-numeric: tabular-nums; }
+.ml .ml-an-rmeta em { font-style: normal; color: var(--faint); margin-left: 4px; }
+
+/* Proportional Low/Moderate/High ribbon — flex-grows to fill the row width. */
+.ml .ml-an-ribbon {
+  display: flex; width: 100%; height: 15px; border-radius: 8px; overflow: hidden;
+  background: var(--panel2); box-shadow: inset 0 0 0 1px var(--line);
+}
+.ml .ml-an-seg { display: block; min-width: 3px; height: 100%; transition: filter .15s; }
+.ml .ml-an-seg:hover { filter: brightness(1.12); }
+.ml .ml-an-seg-high { box-shadow: inset 0 0 10px color-mix(in srgb, var(--rose) 55%, transparent); }
+.ml .ml-an-ribbon i + i { border-left: 1px solid var(--bg2); }
+
+.ml .ml-an-note { color: var(--muted); font-size: 12.5px; margin: 8px 0; }
+.ml .ml-an-empty { color: var(--muted); font-size: 13px; padding: 24px 0; text-align: center; }
+.ml .ml-an-foot { color: var(--faint); font-size: 11px; margin: 18px 0 0; line-height: 1.5; }
+
+/* ─── Score-trend chart + wellbeing chat (side-by-side, 6:4) ─── */
+/* The row has a DEFINITE height so the inner panels (chart body, chat log) fill
+   it and scroll internally instead of growing the page. */
+.ml .ml-duo { display: flex; gap: 16px; align-items: stretch; height: 616px; }
+.ml .ml-duo > .ml-chart { flex: 6; min-width: 0; }
+.ml .ml-duo > .ml-chat { flex: 4; min-width: 0; }
+.ml .ml-chart, .ml .ml-chat { display: flex; flex-direction: column; height: 100%; }
+
+/* Chart body fills the remaining card height. It's the positioning context for
+   the chart, which is absolutely stretched inside it — that gives Recharts'
+   ResponsiveContainer a definite pixel height to measure (percentage heights on
+   flex items don't reliably resolve), so the plot grows with the taller card. */
+.ml .ml-chart-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; justify-content: center; }
+.ml .ml-chart-fill { position: absolute; inset: 0; }
+
+/* ── Chat ── */
+/* min-height:0 lets this flex child shrink below its content so overflow scrolls;
+   overscroll-behavior:contain keeps the wheel inside the log (no page scroll-chaining). */
+.ml .ml-chat-log {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column;
+  gap: 10px; padding: 4px 2px 6px; margin: 6px 0 12px;
+}
+.ml .ml-chat-log::-webkit-scrollbar { width: 5px; }
+.ml .ml-chat-log::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 3px; }
+.ml .ml-chat-msg { display: flex; }
+.ml .ml-chat-user { justify-content: flex-end; }
+.ml .ml-chat-bubble {
+  max-width: 84%; padding: 9px 12px; border-radius: 13px; font-size: 12.5px;
+  line-height: 1.5; font-weight: 500;
+}
+.ml .ml-chat-assistant .ml-chat-bubble {
+  background: rgba(84,167,221,.1); border: 1px solid rgba(84,167,221,.18);
+  color: var(--text); border-bottom-left-radius: 4px;
+}
+.ml .ml-chat-user .ml-chat-bubble {
+  background: linear-gradient(145deg, var(--cyan), var(--teal));
+  color: #04121c; font-weight: 600; border-bottom-right-radius: 4px;
+}
+/* Citation chips under an assistant answer */
+.ml .ml-chat-cites { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.ml .ml-chat-cite {
+  font-size: 10px; font-weight: 700; line-height: 1.3; max-width: 100%;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  background: rgba(84,167,221,.14); color: var(--cyan);
+  border: 1px solid rgba(84,167,221,.24);
+}
+/* Header controls: New chat button + badge */
+.ml .ml-chat-head-right { display: flex; align-items: center; gap: 8px; }
+.ml .ml-chat-new {
+  background: rgba(84,167,221,.14); color: var(--cyan); border: 1px solid var(--line2);
+  border-radius: 999px; padding: 4px 11px; font: 800 11px var(--font); cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.ml .ml-chat-new:hover:not(:disabled) { background: rgba(84,167,221,.24); border-color: var(--cyan); }
+.ml .ml-chat-new:disabled { opacity: .45; cursor: default; }
+
+/* Transient tool/thinking status line */
+.ml .ml-chat-status {
+  font-size: 11.5px; font-weight: 600; color: var(--muted); font-style: italic;
+  padding: 2px 4px; align-self: flex-start;
+}
+/* Animated ellipsis: cycles . → .. → ... after the label. */
+.ml .ml-chat-status .ml-dots::after {
+  content: ".";
+  animation: ml-dots 1.2s steps(1, end) infinite;
+}
+@keyframes ml-dots {
+  0%   { content: "."; }
+  33%  { content: ".."; }
+  66%  { content: "..."; }
+  100% { content: "."; }
+}
+
+.ml .ml-chat-input { display: flex; gap: 8px; margin-top: auto; }
+.ml .ml-chat-input input {
+  flex: 1; min-width: 0; background: var(--panel2); color: var(--text);
+  border: 1px solid var(--line2); border-radius: 10px; padding: 10px 13px;
+  font-size: 12.5px; font-family: var(--font); transition: border-color .15s, box-shadow .15s;
+}
+.ml .ml-chat-input input::placeholder { color: var(--faint); }
+.ml .ml-chat-input input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px var(--glow); }
+.ml .ml-chat-input button {
+  background: rgba(84,167,221,.14); color: var(--cyan); border: 1px solid var(--line2);
+  border-radius: 10px; padding: 0 16px; font-size: 12.5px; font-weight: 800;
+  font-family: var(--font); cursor: pointer; transition: background .15s, border-color .15s;
+}
+.ml .ml-chat-input button:hover:not(:disabled) { background: rgba(84,167,221,.24); border-color: var(--cyan); }
+.ml .ml-chat-input button:disabled { opacity: .45; cursor: default; }
+
+@media (max-width: 1080px) {
+  /* Stacked: drop the fixed row height and give each panel its own so the chat
+     log still scrolls internally. */
+  .ml .ml-duo { flex-direction: column; height: auto; }
+  .ml .ml-duo > .ml-chart, .ml .ml-duo > .ml-chat { height: auto; }
+  .ml .ml-chart-body { min-height: 300px; }
+  .ml .ml-chat-log { height: 420px; }
+}

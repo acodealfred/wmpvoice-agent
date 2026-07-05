@@ -53,6 +53,11 @@ export default {
                     5: "hsl(var(--chart-5))"
                 }
             },
+            fontFamily: {
+                display: ["var(--font-display)"],
+                sans: ["var(--font-body)"],
+                mono: ["var(--font-mono)"]
+            },
             fontSize: {
                 "7xl": ["4.5rem", { lineHeight: "1.3" }],
                 "4xl": ["2.5rem", { lineHeight: "3.2rem" }],

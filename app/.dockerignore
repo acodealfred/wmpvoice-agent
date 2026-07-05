@@ -2,6 +2,13 @@
 **/*.pyc
 **/.env
 
+# Local SQLite database — must NOT ship in the image. The DB is created fresh
+# (init_db) or restored from blob by Litestream at container start, and
+# `litestream restore` refuses to run if the file already exists.
+**/data/*.db
+**/data/*.db-wal
+**/data/*.db-shm
+
 ## Will be built by multistage docker build
 **/static
 

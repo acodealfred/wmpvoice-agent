@@ -4,7 +4,9 @@
         "footer": "CIQ Voice Agent - Demo Web Application",
         "stopRecording": "Stop Recording",
         "startRecording": "Start Conversation",
-        "stopConversation": "Stop Conversation"
+        "stopConversation": "Stop Conversation",
+        "continueConversation": "Continue Conversation",
+        "startNewSurvey": "Start New Survey"
     },
     "status": {
         "notRecordingMessage": "Your Burnout Assistant",

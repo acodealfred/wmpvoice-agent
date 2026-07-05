@@ -3,12 +3,35 @@
 @tailwind utilities;
 
 :root {
-    font-family: "Segoe UI", Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+    /* Display = Candara with a humanist fallback chain (Candara is Windows-only and
+       not redistributable, so non-Windows users land on the closest humanist face). */
+    --font-display: "Candara", "Gill Sans", "Gill Sans MT", "Trebuchet MS", "Segoe UI", sans-serif;
+    --font-body: "Ubuntu", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+    --font-mono: "Ubuntu Mono", "SFMono-Regular", "Roboto Mono", ui-monospace, "Cascadia Code", monospace;
+
+    font-family: var(--font-body);
 
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: var(--font-body);
+}
+
+/* Candara carries the headings. Apply via .font-display (wired into Tailwind too). */
+.font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+}
+
+/* Instrument typeface for the numeric biometric readouts — steady digit widths so
+   values don't jitter as they tick. */
+.font-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
 }
 
 @layer base {
@@ -105,17 +128,208 @@
     animation: fade-in 0.3s ease-out forwards;
 }
 
-/* ── CIQ glass card — design tokens from cio-voice-agent.vercel.app ── */
-.ciq-glass-card {
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 1.25rem;
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
-        rgba(12, 18, 17, 0.50);
+/* ── CIQ theme tokens — light (default) + dark, toggled via [data-theme] ── */
+:root,
+[data-theme="light"] {
+    --ciq-page-from: #eef5fd;
+    --ciq-page-to: #d8e7f8;
+    --ciq-text-strong: #0c2440;
+    --ciq-text-86: rgba(12, 36, 64, 0.9);
+    --ciq-text-68: rgba(12, 36, 64, 0.74);
+    --ciq-text-60: rgba(12, 36, 64, 0.66);
+    --ciq-text-46: rgba(12, 36, 64, 0.58);
+    --ciq-text-40: rgba(12, 36, 64, 0.52);
+    --ciq-tile: rgba(86, 132, 200, 0.12);
+    --ciq-tile-strong: rgba(86, 132, 200, 0.2);
+    --ciq-hover: rgba(86, 132, 200, 0.24);
+    --ciq-track: rgba(86, 132, 200, 0.2);
+    --ciq-divider: rgba(70, 110, 170, 0.24);
+    --ciq-border: rgba(70, 110, 170, 0.32);
+    --ciq-header-bg: rgba(255, 255, 255, 0.55);
+    --ciq-accent-green: #15803d;
+    --ciq-accent-red: #dc2626;
+    --ciq-accent-amber: #b45309;
+    --ciq-accent-purple: #6d28d9;
+    --ciq-accent-blue: #2563eb;
+    --ciq-logo-filter: brightness(0) saturate(100%);
+    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
+    --ciq-card: #ffffff;
+    --ciq-card-2: #eef3fa;
+    --ciq-card-3: #dfe8f4;
+    --ciq-text-body: #33485f;
+    --ciq-text-muted: #5f7488;
+    --ciq-text-faint: #8aa0b8;
+    --ciq-line: #d3e0ee;
+    --ciq-glass-border: rgba(255, 255, 255, 0.75);
+    --ciq-glass-grad-1: rgba(255, 255, 255, 0.78);
+    --ciq-glass-grad-2: rgba(223, 237, 252, 0.55);
+    --ciq-glass-base: rgba(214, 232, 250, 0.45);
+    --ciq-glass-shadow: 0 22px 55px rgba(86, 132, 200, 0.16), inset 0 1px 1px rgba(255, 255, 255, 0.92), inset 0 -1px 1px rgba(120, 160, 210, 0.1);
+}
+
+[data-theme="dark"] {
+    --ciq-page-from: #0d1411;
+    --ciq-page-to: #11211b;
+    --ciq-text-strong: #fffaf2;
+    --ciq-text-86: rgba(255, 250, 242, 0.9);
+    --ciq-text-68: rgba(255, 250, 242, 0.78);
+    --ciq-text-60: rgba(255, 250, 242, 0.7);
+    --ciq-text-46: rgba(255, 250, 242, 0.56);
+    --ciq-text-40: rgba(255, 250, 242, 0.5);
+    --ciq-tile: rgba(255, 255, 255, 0.08);
+    --ciq-tile-strong: rgba(255, 255, 255, 0.14);
+    --ciq-hover: rgba(255, 255, 255, 0.2);
+    --ciq-track: #243445;
+    --ciq-divider: rgba(255, 255, 255, 0.16);
+    --ciq-border: rgba(255, 255, 255, 0.24);
+    --ciq-header-bg: rgba(18, 25, 23, 0.28);
+    --ciq-accent-green: #5ee5a1;
+    --ciq-accent-red: #ff8a8a;
+    --ciq-accent-amber: #fbd585;
+    --ciq-accent-purple: #e4c3ff;
+    --ciq-accent-blue: #7cb0ff;
+    --ciq-logo-filter: none;
+    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
+    --ciq-card: #101c26;
+    --ciq-card-2: #182634;
+    --ciq-card-3: #243445;
+    --ciq-text-body: #cad7e5;
+    --ciq-text-muted: #93a4b8;
+    --ciq-text-faint: #6b7d92;
+    --ciq-line: #2c3c4e;
+    --ciq-glass-border: rgba(255, 255, 255, 0.16);
+    --ciq-glass-grad-1: rgba(255, 255, 255, 0.14);
+    --ciq-glass-grad-2: rgba(255, 255, 255, 0.05);
+    --ciq-glass-base: rgba(12, 18, 17, 0.5);
+    --ciq-glass-shadow: 0 30px 100px rgba(0, 0, 0, 0.42), inset 0 1px 1px rgba(255, 255, 255, 0.2), inset 0 -1px 1px rgba(255, 255, 255, 0.06);
+}
+
+/* Ocean — a deep blue dark theme (matches the manager dashboard's digital twin) */
+[data-theme="ocean"] {
+    --ciq-page-from: #071622;
+    --ciq-page-to: #05111b;
+    --ciq-text-strong: #eaf6ff;
+    --ciq-text-86: rgba(220, 239, 251, 0.9);
+    --ciq-text-68: rgba(220, 239, 251, 0.78);
+    --ciq-text-60: rgba(220, 239, 251, 0.7);
+    --ciq-text-46: rgba(220, 239, 251, 0.56);
+    --ciq-text-40: rgba(220, 239, 251, 0.5);
+    --ciq-tile: rgba(84, 167, 221, 0.1);
+    --ciq-tile-strong: rgba(84, 167, 221, 0.18);
+    --ciq-hover: rgba(84, 167, 221, 0.26);
+    --ciq-track: rgba(84, 167, 221, 0.18);
+    --ciq-divider: rgba(84, 167, 221, 0.2);
+    --ciq-border: rgba(84, 167, 221, 0.28);
+    --ciq-header-bg: rgba(7, 22, 34, 0.4);
+    --ciq-accent-green: #19c993;
+    --ciq-accent-red: #ff7088;
+    --ciq-accent-amber: #f0bd54;
+    --ciq-accent-purple: #9cc2ff;
+    --ciq-accent-blue: #54a7dd;
+    --ciq-logo-filter: none;
+    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
+    --ciq-card: #0a2336;
+    --ciq-card-2: #0c2a40;
+    --ciq-card-3: #103247;
+    --ciq-text-body: #cfe4f3;
+    --ciq-text-muted: #7fa6c0;
+    --ciq-text-faint: #5d7e98;
+    --ciq-line: #173347;
+    --ciq-glass-border: rgba(84, 167, 221, 0.18);
+    --ciq-glass-grad-1: rgba(84, 167, 221, 0.12);
+    --ciq-glass-grad-2: rgba(84, 167, 221, 0.04);
+    --ciq-glass-base: rgba(7, 22, 34, 0.5);
+    --ciq-glass-shadow: 0 30px 100px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.12), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
+}
+
+.ciq-page {
+    background: linear-gradient(135deg, var(--ciq-page-from), var(--ciq-page-to));
+}
+
+/* The logo asset is white; darken it to a silhouette in light mode so it stays visible. */
+.ciq-logo {
+    filter: var(--ciq-logo-filter);
+}
+
+/* ── Futuristic biometric metric cell — gradient surface, accent top-rail,
+   glow on hover. Per-cell accent comes from the --ciq-metric-accent var. ── */
+.ciq-metric {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid var(--ciq-border);
+    background: linear-gradient(160deg, var(--ciq-tile-strong), var(--ciq-tile));
+    padding: 0.55rem 0.7rem;
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        transform 0.2s ease;
+}
+.ciq-metric::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--ciq-metric-accent, var(--ciq-accent-purple)), transparent);
+    opacity: 0.75;
+}
+.ciq-metric:hover {
+    border-color: var(--ciq-metric-accent, var(--ciq-accent-purple));
     box-shadow:
-        0 30px 100px rgba(0, 0, 0, 0.42),
-        inset 0 1px 1px rgba(255, 255, 255, 0.20),
-        inset 0 -1px 1px rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(30px) saturate(155%);
+        0 0 0 1px color-mix(in srgb, var(--ciq-metric-accent, var(--ciq-accent-purple)) 32%, transparent),
+        0 10px 26px rgba(0, 0, 0, 0.18);
+    transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ciq-metric:hover {
+        transform: none;
+    }
+    .animate-pulse-glow,
+    .animate-fade-in {
+        animation: none;
+    }
+}
+
+/* ── Themed range slider (Admin text-size control) ── */
+.ciq-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--ciq-track);
+    outline: none;
+}
+.ciq-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: var(--ciq-accent-purple);
+    border: 2px solid var(--ciq-card);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+.ciq-range::-moz-range-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: var(--ciq-accent-purple);
+    border: 2px solid var(--ciq-card);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+.ciq-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ciq-accent-purple) 40%, transparent);
+}
+
+/* ── CIQ glass card — frosted surface driven by theme tokens ── */
+.ciq-glass-card {
+    border: 1px solid var(--ciq-glass-border);
+    border-radius: 1.25rem;
+    background: linear-gradient(135deg, var(--ciq-glass-grad-1), var(--ciq-glass-grad-2)), var(--ciq-glass-base);
+    box-shadow: var(--ciq-glass-shadow);
+    backdrop-filter: blur(26px) saturate(150%);
     overflow: hidden;
 }

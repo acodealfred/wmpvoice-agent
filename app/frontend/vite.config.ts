@@ -8,7 +8,9 @@ export default defineConfig({
     build: {
         outDir: "../backend/static",
         emptyOutDir: true,
-        sourcemap: true
+        // Source maps aren't useful inside the production container and added ~4 MB
+        // per build (and to the image). Disable for faster, leaner deploys.
+        sourcemap: false
     },
     resolve: {
         preserveSymlinks: true,

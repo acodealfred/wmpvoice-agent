@@ -1,17 +1,30 @@
 # Stage 1: Build the Vite app
 FROM node:20-slim AS build-stage
-
-# Set the working directory inside the container
-COPY frontend ./
-
 WORKDIR /frontend
-RUN npm install
+
+# Install dependencies first so this layer is cached across deploys and only
+# re-runs when package.json / package-lock.json change (not on every source edit).
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Then copy the rest of the frontend and build (node_modules is .dockerignored).
+COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Serve the built app with a static file server
 FROM python:3.12-slim AS production-stage
 
 WORKDIR /app
+
+# Litestream: streaming SQLite replication to Azure Blob (durable persistence
+# across deployments). Pulled from the official image — single static binary,
+# no extra OS packages needed. See docs/persistence.md for the rationale.
+# NOTE: 0.5.x is required for Azure MANAGED-IDENTITY auth (added in 0.5.0). The
+# storage account has allowSharedKeyAccess=false, so account-key auth is
+# impossible; on 0.3.x this meant replication silently failed. Use >= 0.5.1 —
+# the entrypoint's `-if-replica-exists` flag was dropped in 0.5.0, restored in 0.5.1.
+COPY --from=litestream/litestream:0.5.2 /usr/local/bin/litestream /usr/local/bin/litestream
+
 COPY --from=build-stage /backend/static /app/static
 COPY ./backend/ /app
 
@@ -22,4 +35,8 @@ RUN python -m pip install -r requirements.txt
 
 RUN python -m pip install gunicorn
 
-CMD ["python3", "-m", "gunicorn", "app:create_app", "-b", "0.0.0.0:8000", "--worker-class", "aiohttp.GunicornWebWorker"]
+RUN chmod +x /app/entrypoint.sh
+
+# entrypoint restores the DB from blob, then launches the app under Litestream
+# replication. With LITESTREAM_REPLICA_URL unset it just runs the app directly.
+CMD ["/app/entrypoint.sh"]

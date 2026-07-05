@@ -96,6 +96,7 @@ export interface BiometricSnapshot {
     score: number;
     voiceSentiment: "positive" | "neutral" | "negative";
     blinkRateChange: number;
+    pupilMmChange?: number;
     gazePosition: string;
     responseLatencyMs?: number | null;
 }
@@ -196,10 +197,24 @@ export type AnalysisInsight = {
 };
 
 export type AnalysisResult = {
-    correlations: AnalysisInsight[];
-    contradictions: AnalysisInsight[];
-    patterns: AnalysisInsight[];
-    summary: string;
+    correlations?: AnalysisInsight[];
+    contradictions?: AnalysisInsight[];
+    patterns?: AnalysisInsight[];
+    summary?: string;
+    // Fallback when the LLM returns prose / markdown-wrapped JSON the backend
+    // couldn't parse into the structured groups above.
+    raw?: string;
+};
+
+// Response from POST /analyze-report — the data-driven technical report.
+export type AnalyzeReportResponse = {
+    analysis: AnalysisResult;
+    agentResponse: string;
+    totalScore: number;
+    maxScore: number;
+    riskLevel: "Low" | "Moderate" | "High";
+    interpretation: string;
+    domainTotals: Record<string, number>;
 };
 
 export type KBDocument = {
@@ -228,10 +243,13 @@ export type SurveyTypeConfig = {
     availableSurveyTypes: string[];
 };
 
+export type UserRole = "admin" | "manager" | "employee";
+
 export type AuthUser = {
     user_id: string;
     name: string;
     session_id: string;
+    role: UserRole;
 };
 
 export type AuthState = "checking" | "unauthenticated" | "authenticated";
@@ -245,19 +263,23 @@ export type AdminUser = {
     last_session_id: string | null;
 };
 
-export type UserSession = {
-    session_token: string;
+export type SurveyRecord = {
+    survey_run_id: string;
     session_id: string;
+    survey_type: string | null;
     created_at: string;
-    last_active_at: string;
-    survey_results: Record<string, {
-        score: number;
-        domain: string;
-        voiceSentiment: string;
-        blinkRateChange: number;
-        gazePosition: string;
-        responseLatencyMs?: number | null;
-    }> | null;
+    updated_at: string;
+    survey_results: Record<
+        string,
+        {
+            score: number;
+            domain: string;
+            voiceSentiment: string;
+            blinkRateChange: number;
+            gazePosition: string;
+            responseLatencyMs?: number | null;
+        }
+    > | null;
     technical_report: {
         totalScore: number;
         riskLevel: "Low" | "Moderate" | "High";

@@ -17,6 +17,14 @@ logger = logging.getLogger("voicerag")
 _PUBLIC_PATHS = {"/login", "/logout", "/config", "/"}
 _PUBLIC_PREFIXES = ("/static/", "/assets/")
 
+# Paths under these prefixes require the "admin" role, not just a valid session.
+# /admin/* is the admin namespace; /kb/chats is the Test Generator's chat API,
+# which is an admin-only feature (its tab is hidden from guests in the UI).
+_ADMIN_PREFIXES = ("/admin/", "/kb/chats")
+
+# Paths accessible to managers (and admins) but not guests.
+_MANAGER_PREFIXES = ("/manager/",)
+
 SESSION_MAX_AGE = 4 * 3600  # 4 hours, matching RTMiddleTier TTL
 
 
@@ -46,6 +54,20 @@ async def auth_middleware(request: web.Request, handler):
     request["auth_session"] = session
     request["session_token"] = token
 
+    role = session.get("role")
+
+    # Role gate: admin-only paths reject anyone who isn't admin.
+    if any(path.startswith(p) for p in _ADMIN_PREFIXES) and role != "admin":
+        logger.warning("[Auth] 403 non-admin (role=%s) on %s %s",
+                       role, request.method, request.path)
+        return web.json_response({"error": "Forbidden"}, status=403)
+
+    # Manager paths: accessible by admins and managers, but not guests.
+    if any(path.startswith(p) for p in _MANAGER_PREFIXES) and role not in ("admin", "manager"):
+        logger.warning("[Auth] 403 non-manager (role=%s) on %s %s",
+                       role, request.method, request.path)
+        return web.json_response({"error": "Forbidden"}, status=403)
+
     return await handler(request)
 
 
@@ -72,7 +94,7 @@ async def login(request: web.Request) -> web.Response:
 
     response = web.json_response({
         "ok": True,
-        "user": {"user_id": user["user_id"], "name": user["name"]},
+        "user": {"user_id": user["user_id"], "name": user["name"], "role": user["role"]},
         "session_id": session_id,
     })
     response.set_cookie(
@@ -104,4 +126,5 @@ async def me(request: web.Request) -> web.Response:
     return web.json_response({
         "user_id": session["user_id"],
         "session_id": session["session_id"],
+        "role": session.get("role"),
     })

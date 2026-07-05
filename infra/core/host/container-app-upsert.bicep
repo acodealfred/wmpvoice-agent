@@ -110,12 +110,20 @@ module app 'container-app.bicep' = {
     keyvaultIdentities: keyvaultIdentities
     allowedOrigins: allowedOrigins
     external: external
-    env: [
-      for key in objectKeys(env): {
-        name: key
-        value: '${env[key]}'
-      }
-    ]
+    // Values prefixed with 'secretref:' must be emitted as Container Apps secretRef
+    // entries, not literal values — otherwise the env var holds the placeholder string
+    // ("secretref:mithra-app-token") instead of the resolved secret. Split the env map
+    // into plain values and secret references accordingly.
+    env: union(
+      map(filter(items(env), kv => !startsWith(string(kv.value), 'secretref:')), kv => {
+        name: kv.key
+        value: string(kv.value)
+      }),
+      map(filter(items(env), kv => startsWith(string(kv.value), 'secretref:')), kv => {
+        name: kv.key
+        secretRef: replace(string(kv.value), 'secretref:', '')
+      })
+    )
     imageName: !empty(imageName) ? imageName : exists ? existingApp.properties.template.containers[0].image : ''
     targetPort: targetPort
     serviceBinds: serviceBinds

@@ -1,0 +1,75 @@
+' CIQ Manager "Wellbeing Assistant" chat — component / data-flow view.
+' Render with any PlantUML tool (plantuml.com, VS Code PlantUML extension).
+@startuml ciq-manager-chat-component
+title CIQ Manager Chat — Hybrid Grounded Agent (Components)
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+actor "Manager\n(role: manager/admin)" as Mgr
+
+package "Browser" {
+  [manager-chat.tsx\n(SSE reader, message list)] as FE
+}
+
+package "Backend (aiohttp)" {
+  [auth_middleware\n(/manager/* role gate)] as AUTH
+  [manager_chat route\nPOST /manager/chat (SSE)] as ROUTE
+  [Chat Orchestrator\n(tool loop + synthesis)] as ORCH
+
+  package "Guardrails (hybrid)" {
+    [Input guard\n(scope + red-flag regex)] as GIN
+    [Output guard\n(citation + safety + provenance)] as GOUT
+  }
+
+  package "Grounding tools (PII-safe, fixed set)" {
+    [get_org_overview] as T1
+    [get_department_breakdown] as T2
+    [get_score_trend] as T3
+    [search_research] as T4
+  }
+
+  [db.py\n(aggregate queries + chat store)] as DB
+}
+
+package "Operational SSoT" {
+  database "SQLite\n(users, survey_records,\nchat_sessions, chat_messages)" as SQL
+}
+
+package "Evidential SSoT" {
+  cloud "Mithra KB RAG\n(research papers + citations)" as MITHRA
+}
+
+package "LLM engine (reused)" {
+  cloud "Azure OpenAI\ngpt-4o  (REPORT_OPENAI_*)" as AOAI
+}
+
+Mgr --> FE
+FE --> AUTH : cookie session
+AUTH --> ROUTE
+ROUTE --> GIN
+GIN --> ORCH
+ORCH --> AOAI : chat/completions\n(+ tool schemas)
+AOAI ..> ORCH : tool_call | tokens
+ORCH --> T1
+ORCH --> T2
+ORCH --> T3
+ORCH --> T4
+T1 --> DB
+T2 --> DB
+T3 --> DB
+T4 --> MITHRA : call_mithra_kb_chat()
+DB --> SQL
+ORCH --> GOUT
+GOUT --> ROUTE : final answer + citations
+ROUTE ..> FE : text/event-stream (tokens, citations, done)
+ORCH --> DB : persist user + assistant msg
+DB --> SQL
+
+note bottom of T1
+  Every tool returns AGGREGATES ONLY.
+  No user_id / name / transcript / biometric
+  can leave the DB layer — structural guardrail.
+end note
+
+@enduml

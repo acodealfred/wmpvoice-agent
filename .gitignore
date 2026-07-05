@@ -152,3 +152,13 @@ static/
 data/**/*.md5
 
 .DS_Store
+
+/home/maheshdila/WowMedia/wmpvoice-agent/docs/architecture.html
+/home/maheshdila/WowMedia/wmpvoice-agent/docs/survey-history.md
+
+docs/biometrics-inventory.md
+docs/critical-tests-guide.md
+app/draftui
+
+docs/ai-observability-plan.html
+

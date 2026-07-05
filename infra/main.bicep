@@ -1,4 +1,4 @@
-targetScope = 'subscription'
+targetScope = 'resourceGroup'
 
 @minLength(1)
 @maxLength(64)
@@ -129,24 +129,11 @@ param containerRegistryName string = '${replace(environmentName, '-', '')}acr'
 // Figure out if we're running as a user or service principal
 var principalType = empty(runningOnGh) && empty(runningOnAdo) ? 'User' : 'ServicePrincipal'
 
-// Organize resources in a resource group
-resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
-  name: !empty(resourceGroupName) ? resourceGroupName : '${abbrs.resourcesResourceGroups}${environmentName}'
-  location: location
-  tags: tags
-}
 
-resource openAiResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(openAiResourceGroupName)) {
-  name: !empty(openAiResourceGroupName) ? openAiResourceGroupName : resourceGroup.name
-}
-
-resource storageResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(storageResourceGroupName)) {
-  name: !empty(storageResourceGroupName) ? storageResourceGroupName : resourceGroup.name
-}
 
 module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.7.0' = {
   name: 'loganalytics'
-  scope: resourceGroup
+  scope: resourceGroup()
   params: {
     name: !empty(logAnalyticsName) ? logAnalyticsName : '${abbrs.operationalInsightsWorkspaces}${resourceToken}'
     location: location
@@ -164,7 +151,7 @@ module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.7.0' = {
 // User-assigned identity for pulling images from ACR
 module acaIdentity 'core/security/aca-identity.bicep' = {
   name: 'aca-identity'
-  scope: resourceGroup
+  scope: resourceGroup()
   params: {
     identityName: acaIdentityName
     location: location
@@ -173,7 +160,7 @@ module acaIdentity 'core/security/aca-identity.bicep' = {
 
 module containerApps 'core/host/container-apps.bicep' = {
   name: 'container-apps'
-  scope: resourceGroup
+  scope: resourceGroup()
   params: {
     name: 'app'
     tags: tags
@@ -188,7 +175,7 @@ module containerApps 'core/host/container-apps.bicep' = {
 // Container Apps for the web application (Python Quart app with JS frontend)
 module acaBackend 'core/host/container-app-upsert.bicep' = {
   name: 'aca-web'
-  scope: resourceGroup
+  scope: resourceGroup()
   dependsOn: [
     containerApps
     acaIdentity
@@ -206,6 +193,12 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
     targetPort: 8000
     containerCpuCoreCount: '1.0'
     containerMemory: '2Gi'
+    // Pin to a single replica. Auth sessions and survey state live in a local
+    // SQLite file + in-memory RTMiddleTier state, both per-process. With >1
+    // replica, a login written on one replica is invisible to another, causing
+    // intermittent "Session expired" 401s. One replica keeps all state coherent.
+    containerMinReplicas: 1
+    containerMaxReplicas: 1
     secrets: union(
       !empty(awsSecretAccessKey)  ? { 'aws-secret-key': awsSecretAccessKey }           : {},
       !empty(mithraAppToken)      ? { 'mithra-app-token': mithraAppToken }              : {},
@@ -238,6 +231,12 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       RUNNING_IN_PRODUCTION: 'true'
       // For using managed identity to access Azure resources. See https://github.com/microsoft/azure-container-apps/issues/442
       AZURE_CLIENT_ID: acaIdentity.outputs.clientId
+      // Litestream: durable SQLite persistence across deployments. The DB lives
+      // on the container's ephemeral disk; Litestream streams its WAL to this
+      // blob container and restores it on boot. Auth is via the managed identity
+      // above (no keys). The name is the deterministic litestreamStorageName so
+      // this env doesn't depend on the storage module (avoids a deploy cycle).
+      LITESTREAM_REPLICA_URL: 'abs://${litestreamStorageName}@${litestreamContainerName}/ciq'
     }
   }
 }
@@ -254,6 +253,21 @@ var openAiDeployments = [
     sku: {
       name: 'GlobalStandard'
       capacity: realtimeDeploymentCapacity
+    }
+  }
+  // Chat-completions deployment used by /analyze-report (behavioral analysis +
+  // consultative summary). AZURE_OPENAI_CHAT_DEPLOYMENT must match this name.
+  // NOTE: index 0 must stay 'gpt-realtime' — it backs AZURE_OPENAI_REALTIME_DEPLOYMENT.
+  {
+    name: openAiChatDeployment
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-4o'
+      version: '2024-11-20'
+    }
+    sku: {
+      name: 'GlobalStandard'
+      capacity: 30
     }
   }
   // RAG features disabled - embedding deployment no longer needed
@@ -273,7 +287,6 @@ var openAiDeployments = [
 
 module openAi 'br/public:avm/res/cognitive-services/account:0.8.0' = if (!reuseExistingOpenAi) {
   name: 'openai'
-  scope: openAiResourceGroup
   params: {
     name: !empty(openAiServiceName) ? openAiServiceName : '${abbrs.cognitiveServicesAccounts}${resourceToken}'
     location: openAiServiceLocation
@@ -332,7 +345,6 @@ module openAi 'br/public:avm/res/cognitive-services/account:0.8.0' = if (!reuseE
 
 module storage 'br/public:avm/res/storage/storage-account:0.9.1' = if (!empty(storageAccountName)) {
   name: 'storage'
-  scope: storageResourceGroup
   params: {
     name: !empty(storageAccountName) ? storageAccountName : '${abbrs.storageStorageAccounts}${resourceToken}'
     location: storageResourceGroupLocation
@@ -372,10 +384,55 @@ module storage 'br/public:avm/res/storage/storage-account:0.9.1' = if (!empty(st
   }
 }
 
+// ── Litestream durable persistence ─────────────────────────────────────────
+// Dedicated, always-on storage account whose single private blob container
+// holds the streamed SQLite backup. The name is computed deterministically so
+// the container app's LITESTREAM_REPLICA_URL env can reference it without
+// creating a module dependency cycle (the role assignment below depends on the
+// backend identity, and the backend env would otherwise depend on this module).
+// Shared-key auth is disabled — Litestream authenticates with the backend's
+// user-assigned managed identity via the Storage Blob Data Contributor role.
+var litestreamStorageName = '${abbrs.storageStorageAccounts}ls${resourceToken}'
+var litestreamContainerName = 'litestream'
+
+module litestreamStorage 'br/public:avm/res/storage/storage-account:0.9.1' = {
+  name: 'litestream-storage'
+  params: {
+    name: litestreamStorageName
+    location: location
+    tags: tags
+    kind: 'StorageV2'
+    skuName: 'Standard_LRS'
+    publicNetworkAccess: 'Enabled'
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    networkAcls: {
+      defaultAction: 'Allow'
+      bypass: 'AzureServices'
+    }
+    blobServices: {
+      deleteRetentionPolicyEnabled: true
+      deleteRetentionPolicyDays: 7
+      containers: [
+        {
+          name: litestreamContainerName
+          publicAccess: 'None'
+        }
+      ]
+    }
+    roleAssignments: [
+      {
+        roleDefinitionIdOrName: 'Storage Blob Data Contributor'
+        principalId: acaBackend.outputs.identityPrincipalId
+        principalType: 'ServicePrincipal'
+      }
+    ]
+  }
+}
+
 // RAG features disabled - roles for search service removed
 // Roles for the backend to access other services
 module openAiRoleBackend 'core/security/role.bicep' = {
-  scope: openAiResourceGroup
   name: 'openai-role-backend'
   params: {
     principalId: acaBackend.outputs.identityPrincipalId
@@ -398,8 +455,7 @@ module openAiRoleBackend 'core/security/role.bicep' = {
 
 // Necessary for integrated vectorization, for search service to access storage
 // module storageRoleSearchService 'core/security/role.bicep' = if (!reuseExistingSearch) {
-//   scope: storageResourceGroup
-//   name: 'storage-role-searchservice'
+// //   name: 'storage-role-searchservice'
 //   params: {
 //     principalId: !reuseExistingSearch ? searchService.outputs.systemAssignedMIPrincipalId : ''
 //     roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1' // Storage Blob Data Reader
@@ -409,8 +465,7 @@ module openAiRoleBackend 'core/security/role.bicep' = {
 
 // Necessary for integrated vectorization, for search service to access OpenAI embeddings
 // module openAiRoleSearchService 'core/security/role.bicep' = if (!reuseExistingSearch) {
-//   scope: openAiResourceGroup
-//   name: 'openai-role-searchservice'
+// //   name: 'openai-role-searchservice'
 //   params: {
 //     principalId: !reuseExistingSearch ? searchService.outputs.systemAssignedMIPrincipalId : ''
 //     roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
@@ -420,7 +475,7 @@ module openAiRoleBackend 'core/security/role.bicep' = {
 
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenantId
-output AZURE_RESOURCE_GROUP string = resourceGroup.name
+output AZURE_RESOURCE_GROUP string = resourceGroup().name
 
 output AZURE_OPENAI_ENDPOINT string = reuseExistingOpenAi ? openAiEndpoint : openAi.outputs.endpoint
 output AZURE_OPENAI_REALTIME_DEPLOYMENT string = reuseExistingOpenAi
@@ -444,9 +499,13 @@ output AZURE_OPENAI_EMBEDDING_MODEL string = embedModel
 
 output AZURE_STORAGE_ENDPOINT string = !empty(storageAccountName) ? 'https://${storage.outputs.name}.blob.core.windows.net' : ''
 output AZURE_STORAGE_ACCOUNT string = !empty(storageAccountName) ? storage.outputs.name : ''
-output AZURE_STORAGE_CONNECTION_STRING string = !empty(storageAccountName) ? 'ResourceId=/subscriptions/${subscription().subscriptionId}/resourceGroups/${storageResourceGroup.name}/providers/Microsoft.Storage/storageAccounts/${storage.outputs.name}' : ''
+output AZURE_STORAGE_CONNECTION_STRING string = !empty(storageAccountName) ? 'ResourceId=/subscriptions/${subscription().subscriptionId}/resourceGroups/${resourceGroup().name}/providers/Microsoft.Storage/storageAccounts/${storage.outputs.name}' : ''
 output AZURE_STORAGE_CONTAINER string = !empty(storageAccountName) ? storageContainerName : ''
-output AZURE_STORAGE_RESOURCE_GROUP string = !empty(storageAccountName) ? storageResourceGroup.name : ''
+output AZURE_STORAGE_RESOURCE_GROUP string = !empty(storageAccountName) ? resourceGroup().name : ''
+
+// Litestream durable-persistence target (SQLite backup blob container).
+output LITESTREAM_STORAGE_ACCOUNT string = litestreamStorage.outputs.name
+output LITESTREAM_REPLICA_URL string = 'abs://${litestreamStorageName}@${litestreamContainerName}/ciq'
 
 output BACKEND_URI string = acaBackend.outputs.uri
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerApps.outputs.registryLoginServer

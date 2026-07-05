@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument, AdminUser } from "@/types";
+import { apiFetch } from "@/lib/api";
+import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
+import { PILL, BANNER } from "@/lib/badges";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -15,7 +18,7 @@ export function AdminPanel() {
         setRegStatus("loading");
         setRegMessage("");
         try {
-            const resp = await fetch("/admin/kb/settings", { credentials: "same-origin" });
+            const resp = await apiFetch("/admin/kb/settings", { credentials: "same-origin" });
             if (resp.ok) {
                 const data = await resp.json();
                 if (typeof data.minCitationsCount === "number") {
@@ -54,7 +57,7 @@ export function AdminPanel() {
         setRegistering(true);
         setRegMessage("");
         try {
-            const resp = await fetch("/admin/kb/settings", {
+            const resp = await apiFetch("/admin/kb/settings", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
@@ -68,7 +71,9 @@ export function AdminPanel() {
                 setRegMessage("Unauthorized — MITHRA_APP_TOKEN is missing or invalid in container configuration.");
             } else if (resp.status === 404) {
                 setRegStatus("error");
-                setRegMessage("Mithra returned 404. The MITHRA_APP_TOKEN may be missing, or the company does not exist in Mithra yet. Check container env vars.");
+                setRegMessage(
+                    "Mithra returned 404. The MITHRA_APP_TOKEN may be missing, or the company does not exist in Mithra yet. Check container env vars."
+                );
             } else {
                 const body = await resp.text().catch(() => "");
                 setRegStatus("error");
@@ -91,26 +96,24 @@ export function AdminPanel() {
         setDocsLoading(true);
         setDocsError(null);
         try {
-            const resp = await fetch("/admin/kb/papers/search", {
+            const resp = await apiFetch("/admin/kb/papers/search", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify({ limit: 100 }),
+                body: JSON.stringify({ limit: 100 })
             });
             if (resp.ok) {
                 const data = await resp.json();
-                const papers: KBDocument[] = (data.papers ?? []).map((p: {
-                    id: string; title: string; updatedAt?: string;
-                    lifeCycleState?: string;
-                    contentMetadata?: { sizeSi?: string; type?: string };
-                }) => ({
-                    paperId: p.id,
-                    title: p.title,
-                    uploadedAt: p.updatedAt ?? "",
-                    lifeCycleState: p.lifeCycleState,
-                    sizeSi: p.contentMetadata?.sizeSi,
-                    fileType: p.contentMetadata?.type,
-                }));
+                const papers: KBDocument[] = (data.papers ?? []).map(
+                    (p: { id: string; title: string; updatedAt?: string; lifeCycleState?: string; contentMetadata?: { sizeSi?: string; type?: string } }) => ({
+                        paperId: p.id,
+                        title: p.title,
+                        uploadedAt: p.updatedAt ?? "",
+                        lifeCycleState: p.lifeCycleState,
+                        sizeSi: p.contentMetadata?.sizeSi,
+                        fileType: p.contentMetadata?.type
+                    })
+                );
                 setDocuments(papers);
             } else if (resp.status === 401 || resp.status === 403) {
                 setDocsError("Unauthorized — check MITHRA_APP_TOKEN.");
@@ -125,7 +128,9 @@ export function AdminPanel() {
         }
     }, []);
 
-    useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
+    useEffect(() => {
+        fetchDocuments();
+    }, [fetchDocuments]);
 
     // ── User Management ───────────────────────────────────────────────
     const [users, setUsers] = useState<AdminUser[]>([]);
@@ -136,7 +141,7 @@ export function AdminPanel() {
         setUsersLoading(true);
         setUsersError(null);
         try {
-            const resp = await fetch("/admin/users", { credentials: "same-origin" });
+            const resp = await apiFetch("/admin/users", { credentials: "same-origin" });
             if (resp.ok) {
                 const data = await resp.json();
                 setUsers(data.users);
@@ -150,7 +155,104 @@ export function AdminPanel() {
         }
     }, []);
 
-    useEffect(() => { fetchUsers(); }, [fetchUsers]);
+    useEffect(() => {
+        fetchUsers();
+    }, [fetchUsers]);
+
+    // ── Biometric guardrail toggle ───────────────────────────────────
+    const [guardrailEnabled, setGuardrailEnabled] = useState<boolean | null>(null);
+    const [guardrailSaving, setGuardrailSaving] = useState(false);
+    const [guardrailError, setGuardrailError] = useState<string | null>(null);
+
+    useEffect(() => {
+        apiFetch("/config")
+            .then(r => (r.ok ? r.json() : Promise.reject()))
+            .then(data => setGuardrailEnabled(data.biometricGuardrailEnabled ?? true))
+            .catch(() => setGuardrailEnabled(null));
+    }, []);
+
+    const toggleGuardrail = useCallback(async () => {
+        if (guardrailEnabled === null) return;
+        const prev = guardrailEnabled;
+        const next = !guardrailEnabled;
+        setGuardrailError(null);
+        setGuardrailEnabled(next); // optimistic — instant visual feedback
+        setGuardrailSaving(true);
+        try {
+            const resp = await apiFetch("/admin/biometric-guardrail", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: next })
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            setGuardrailEnabled(data.biometricGuardrailEnabled);
+        } catch (err) {
+            setGuardrailEnabled(prev); // revert on failure
+            setGuardrailError(err instanceof Error ? `Couldn't update (${err.message})` : "Couldn't update");
+        } finally {
+            setGuardrailSaving(false);
+        }
+    }, [guardrailEnabled]);
+
+    // ── Demo data (E2E) ───────────────────────────────────────────────
+    const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
+    const [demoCounts, setDemoCounts] = useState<{ userCount: number; surveyCount: number }>({ userCount: 0, surveyCount: 0 });
+    const [demoSaving, setDemoSaving] = useState(false);
+    const [demoError, setDemoError] = useState<string | null>(null);
+
+    useEffect(() => {
+        apiFetch("/admin/demo-data", { credentials: "same-origin" })
+            .then(r => (r.ok ? r.json() : Promise.reject()))
+            .then(d => { setDemoEnabled(!!d.enabled); setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 }); })
+            .catch(() => setDemoEnabled(null));
+    }, []);
+
+    const toggleDemo = useCallback(async () => {
+        if (demoEnabled === null || demoSaving) return;
+        const next = !demoEnabled;
+        setDemoError(null);
+        setDemoSaving(true);
+        try {
+            const resp = await apiFetch("/admin/demo-data", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: next }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const d = await resp.json();
+            setDemoEnabled(!!d.enabled);
+            setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 });
+        } catch (err) {
+            setDemoError(err instanceof Error ? `Couldn't update (${err.message})` : "Couldn't update");
+        } finally {
+            setDemoSaving(false);
+        }
+    }, [demoEnabled, demoSaving]);
+
+    // Explicit "clear" that wipes seeded demo rows regardless of toggle state.
+    // Hits the same endpoint with enabled:false (clear_demo_data only ever
+    // deletes is_demo=1 rows, so real data is never touched).
+    const clearDemo = useCallback(async () => {
+        if (demoSaving) return;
+        setDemoError(null);
+        setDemoSaving(true);
+        try {
+            const resp = await apiFetch("/admin/demo-data", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: false }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const d = await resp.json();
+            setDemoEnabled(!!d.enabled);
+            setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 });
+        } catch (err) {
+            setDemoError(err instanceof Error ? `Couldn't clear (${err.message})` : "Couldn't clear");
+        } finally {
+            setDemoSaving(false);
+        }
+    }, [demoSaving]);
 
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
@@ -173,7 +275,7 @@ export function AdminPanel() {
             form.append("title", effectiveTitle);
             form.append("file", uploadFile);
 
-            const resp = await fetch("/admin/kb/upload", { method: "POST", credentials: "same-origin", body: form });
+            const resp = await apiFetch("/admin/kb/upload", { method: "POST", credentials: "same-origin", body: form });
             const data = await resp.json();
 
             if (resp.ok) {
@@ -200,7 +302,7 @@ export function AdminPanel() {
         setDeletingId(doc.paperId);
         setDeleteMsg(null);
         try {
-            const resp = await fetch(`/admin/kb/documents/${doc.paperId}`, { method: "DELETE", credentials: "same-origin" });
+            const resp = await apiFetch(`/admin/kb/documents/${doc.paperId}`, { method: "DELETE", credentials: "same-origin" });
             if (resp.status === 204 || resp.ok) {
                 setDeleteMsg({ paperId: doc.paperId, text: `"${doc.title}" deleted.`, ok: true });
                 await fetchDocuments(); // refresh from server
@@ -215,23 +317,166 @@ export function AdminPanel() {
         }
     };
 
+    // ── Text size (app-wide) ──────────────────────────────────────────
+    const [fontScale, setFontScaleState] = useState<FontScale>(getFontScale);
+    const changeFontScale = (scale: FontScale) => {
+        setFontScale(scale);
+        setFontScaleState(scale);
+    };
+    const fontScaleIndex = FONT_SCALES.indexOf(fontScale);
+
     // ── Render ─────────────────────────────────────────────────────────
     return (
-        <div className="space-y-6 p-6">
+        <div className="space-y-6">
+            {/* ── Section: Text Size ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <Type className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Text Size</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    Scales text across the whole app. Applies instantly and is remembered on this device.
+                </p>
+                <div className="max-w-md">
+                    <input
+                        type="range"
+                        min={0}
+                        max={FONT_SCALES.length - 1}
+                        step={1}
+                        value={fontScaleIndex}
+                        onChange={e => changeFontScale(FONT_SCALES[Number(e.target.value)])}
+                        aria-label="Text size"
+                        className="ciq-range w-full"
+                    />
+                    <div className="mt-2 flex justify-between">
+                        {FONT_SCALES.map(scale => (
+                            <button
+                                key={scale}
+                                onClick={() => changeFontScale(scale)}
+                                className={`text-xs font-medium transition-colors ${
+                                    scale === fontScale
+                                        ? "text-[color:var(--ciq-accent-purple)]"
+                                        : "text-[color:var(--ciq-text-muted)] hover:text-[color:var(--ciq-text-body)]"
+                                }`}
+                            >
+                                {FONT_SCALE_LABEL[scale]}
+                                <span className="ml-1 text-[color:var(--ciq-text-faint)]">({FONT_SCALE_PCT[scale]})</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* ── Section: Biometric Guardrail ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <Eye className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometric Guardrail</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    When ON, the agent may only <strong>describe</strong> biometric readings and declines any interpretive, causal, predictive, or prescriptive
+                    question about them. Burnout score explanations and recommendations are unaffected. Applies to new conversation turns.
+                </p>
+                <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
+                        {guardrailEnabled === null ? "Loading…" : guardrailEnabled ? "Guardrail is ON (descriptive-only)" : "Guardrail is OFF"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        {guardrailSaving && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={guardrailEnabled === true}
+                            disabled={guardrailEnabled === null || guardrailSaving}
+                            onClick={toggleGuardrail}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                guardrailEnabled ? "bg-green-500" : "bg-[color:var(--ciq-card-3)]"
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    guardrailEnabled ? "translate-x-6" : "translate-x-1"
+                                }`}
+                            />
+                        </button>
+                    </div>
+                </div>
+                {guardrailError && <p className="mt-2 text-xs text-red-500">{guardrailError}</p>}
+                <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
+                    Takes effect on new conversations — toggle, then Stop and Start the conversation to apply.
+                </p>
+            </div>
+
+            {/* ── Demo Data (E2E) ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <Database className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Demo Data (E2E)</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    When ON, the database is seeded with six departments of synthetic staff and burnout assessments so the
+                    Manager dashboard can be demoed end-to-end. When OFF, <strong>all</strong> seeded demo data is deleted and the
+                    app shows real data only. Real users and real assessments are never touched.
+                </p>
+                <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
+                        {demoEnabled === null
+                            ? "Loading…"
+                            : demoEnabled
+                                ? `Demo data is ON — ${demoCounts.userCount} staff · ${demoCounts.surveyCount} assessments`
+                                : "Demo data is OFF (real data only)"}
+                    </span>
+                    <div className="flex items-center gap-3">
+                        {demoSaving && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
+                        <button
+                            type="button"
+                            disabled={demoEnabled !== true || demoSaving}
+                            onClick={clearDemo}
+                            title="Delete all seeded demo rows (real data untouched)"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-2.5 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Clear
+                        </button>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={demoEnabled === true}
+                            disabled={demoEnabled === null || demoSaving}
+                            onClick={toggleDemo}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                demoEnabled ? "bg-green-500" : "bg-[color:var(--ciq-card-3)]"
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    demoEnabled ? "translate-x-6" : "translate-x-1"
+                                }`}
+                            />
+                        </button>
+                    </div>
+                </div>
+                {demoError && <p className="mt-2 text-xs text-red-500">{demoError}</p>}
+                <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
+                    Seeding may take a moment. Refresh the Manager dashboard after toggling to see the change.
+                </p>
+            </div>
 
             {/* ── Section A: KB Registration ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
-                    <ShieldCheck className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-white">Knowledge Base Registration</h2>
+                    <ShieldCheck className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Registration</h2>
                 </div>
 
                 <div className="mb-4 flex items-center gap-3">
-                    {regStatus === "loading" && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
-                    {regStatus === "registered" && <CheckCircle2 className="h-4 w-4 text-green-400" />}
-                    {(regStatus === "unregistered" || regStatus === "error") && <XCircle className="h-4 w-4 text-amber-400" />}
+                    {regStatus === "loading" && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
+                    {regStatus === "registered" && <CheckCircle2 className="h-4 w-4 text-[color:var(--ciq-accent-green)]" />}
+                    {(regStatus === "unregistered" || regStatus === "error") && <XCircle className="h-4 w-4 text-[color:var(--ciq-accent-amber)]" />}
                     {regStatus === "unknown" && <span className="h-4 w-4" />}
-                    <span className={`text-sm ${regStatus === "registered" ? "text-green-300" : regStatus === "error" ? "text-red-300" : "text-slate-300"}`}>
+                    <span
+                        className={`text-sm ${regStatus === "registered" ? "text-[color:var(--ciq-accent-green)]" : regStatus === "error" ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-text-body)]"}`}
+                    >
                         {regStatus === "loading" ? "Checking registration…" : regMessage || "—"}
                     </span>
                     <Button
@@ -239,7 +484,7 @@ export function AdminPanel() {
                         size="sm"
                         onClick={checkRegistration}
                         disabled={regStatus === "loading"}
-                        className="ml-auto border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                        className="ml-auto border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                     >
                         <RefreshCw className="mr-1 h-3 w-3" />
                         Refresh
@@ -247,11 +492,7 @@ export function AdminPanel() {
                 </div>
 
                 {regStatus !== "registered" && (
-                    <Button
-                        onClick={handleRegister}
-                        disabled={registering || regStatus === "loading"}
-                        className="bg-purple-600 text-white hover:bg-purple-700"
-                    >
+                    <Button onClick={handleRegister} disabled={registering || regStatus === "loading"} className="bg-purple-600 text-white hover:bg-purple-700">
                         {registering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {registering ? "Registering…" : "Register Company"}
                     </Button>
@@ -259,27 +500,27 @@ export function AdminPanel() {
             </div>
 
             {/* ── Section B: Upload Document ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
-                    <Upload className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-white">Upload Document</h2>
+                    <Upload className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Upload Document</h2>
                 </div>
 
                 <div className="space-y-3">
                     <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-400">Document Title</label>
+                        <label className="mb-1 block text-xs font-medium text-[color:var(--ciq-text-muted)]">Document Title</label>
                         <input
                             type="text"
                             value={uploadTitle}
                             onChange={e => setUploadTitle(e.target.value)}
                             placeholder="e.g. Company Policy 2025"
-                            className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+                            className="w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none"
                         />
                     </div>
                     <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-400">
+                        <label className="mb-1 block text-xs font-medium text-[color:var(--ciq-text-muted)]">
                             File (PDF, DOCX, TXT)
-                            <span className="ml-1 text-purple-400">*</span>
+                            <span className="ml-1 text-[color:var(--ciq-accent-purple)]">*</span>
                         </label>
                         <input
                             ref={fileInputRef}
@@ -294,26 +535,22 @@ export function AdminPanel() {
                                     setUploadTitle(nameWithoutExt);
                                 }
                             }}
-                            className="w-full text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-purple-600 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-purple-700"
+                            className="w-full text-sm text-[color:var(--ciq-text-body)] file:mr-3 file:rounded file:border-0 file:bg-purple-600 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-purple-700"
                         />
                         {uploadFile && (
-                            <p className="mt-1 text-xs text-slate-400">
+                            <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">
                                 {uploadFile.name} ({(uploadFile.size / 1024).toFixed(1)} KB)
                             </p>
                         )}
                     </div>
 
-                    <Button
-                        onClick={handleUpload}
-                        disabled={uploading || !uploadFile}
-                        className="bg-purple-600 text-white hover:bg-purple-700"
-                    >
+                    <Button onClick={handleUpload} disabled={uploading || !uploadFile} className="bg-purple-600 text-white hover:bg-purple-700">
                         {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                         {uploading ? "Uploading…" : "Upload to Knowledge Base"}
                     </Button>
 
                     {uploadMsg && (
-                        <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${uploadMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                        <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${uploadMsg.ok ? BANNER.green : BANNER.red}`}>
                             {uploadMsg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                             {uploadMsg.text}
                         </div>
@@ -322,12 +559,12 @@ export function AdminPanel() {
             </div>
 
             {/* ── Section C: Document List (live from Mithra) ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center gap-2">
-                    <Database className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-base font-semibold text-white">Knowledge Base Documents</h2>
+                    <Database className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Knowledge Base Documents</h2>
                     {!docsLoading && (
-                        <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                        <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs text-[color:var(--ciq-text-body)]">
                             {documents.length} file{documents.length !== 1 ? "s" : ""}
                         </span>
                     )}
@@ -336,70 +573,68 @@ export function AdminPanel() {
                         size="sm"
                         onClick={fetchDocuments}
                         disabled={docsLoading}
-                        className="ml-auto border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                        className="ml-auto border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                     >
-                        {docsLoading
-                            ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                            : <RefreshCw className="mr-1 h-3 w-3" />}
+                        {docsLoading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
                         Refresh
                     </Button>
                 </div>
 
                 {docsError && (
-                    <div className="mb-3 flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-2 text-sm text-red-300">
+                    <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
                         <XCircle className="h-4 w-4 shrink-0" />
                         {docsError}
                     </div>
                 )}
 
                 {docsLoading && documents.length === 0 ? (
-                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <div className="flex items-center gap-2 text-sm text-[color:var(--ciq-text-muted)]">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading documents from Knowledge Base…
                     </div>
                 ) : documents.length === 0 && !docsError ? (
-                    <p className="text-sm text-slate-500">No documents found in the Knowledge Base. Upload a file above to get started.</p>
+                    <p className="text-sm text-[color:var(--ciq-text-muted)]">No documents found in the Knowledge Base. Upload a file above to get started.</p>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full border-collapse text-sm">
                             <thead>
-                                <tr className="bg-slate-800 text-left text-xs text-slate-400">
-                                    <th className="border border-slate-700 px-3 py-2">Title</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden sm:table-cell">Paper ID</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden md:table-cell">Size</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden md:table-cell">State</th>
-                                    <th className="border border-slate-700 px-3 py-2 hidden lg:table-cell">Updated</th>
-                                    <th className="border border-slate-700 px-3 py-2 text-center">Delete</th>
+                                <tr className="bg-[color:var(--ciq-card-2)] text-left text-xs text-[color:var(--ciq-text-muted)]">
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2">Title</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 sm:table-cell">Paper ID</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 md:table-cell">Size</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 md:table-cell">State</th>
+                                    <th className="hidden border border-[color:var(--ciq-line)] px-3 py-2 lg:table-cell">Updated</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">Delete</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {documents.map((doc, i) => (
-                                    <tr key={doc.paperId} className={i % 2 === 0 ? "bg-slate-900" : "bg-slate-800/40"}>
-                                        <td className="border border-slate-700 px-3 py-2">
+                                    <tr key={doc.paperId} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2">
                                             <div className="flex items-center gap-2">
-                                                <FileText className="h-3.5 w-3.5 shrink-0 text-purple-400" />
-                                                <span className="font-medium text-white">{doc.title}</span>
+                                                <FileText className="h-3.5 w-3.5 shrink-0 text-[color:var(--ciq-accent-purple)]" />
+                                                <span className="font-medium text-[color:var(--ciq-text-strong)]">{doc.title}</span>
                                             </div>
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden sm:table-cell">
-                                            <span className="font-mono text-xs text-slate-400">{doc.paperId}</span>
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 sm:table-cell">
+                                            <span className="font-mono text-xs text-[color:var(--ciq-text-muted)]">{doc.paperId}</span>
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden md:table-cell text-xs text-slate-400">
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 text-xs text-[color:var(--ciq-text-muted)] md:table-cell">
                                             {doc.sizeSi ?? "—"}
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden md:table-cell">
-                                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                                doc.lifeCycleState === "active"
-                                                    ? "bg-green-900/50 text-green-300"
-                                                    : "bg-slate-700 text-slate-400"
-                                            }`}>
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 md:table-cell">
+                                            <span
+                                                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                                    doc.lifeCycleState === "active" ? PILL.green : PILL.neutral
+                                                }`}
+                                            >
                                                 {doc.lifeCycleState ?? "—"}
                                             </span>
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 hidden lg:table-cell text-xs text-slate-400">
+                                        <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 text-xs text-[color:var(--ciq-text-muted)] lg:table-cell">
                                             {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "—"}
                                         </td>
-                                        <td className="border border-slate-700 px-3 py-2 text-center">
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
                                             <Button
                                                 variant="destructive"
                                                 size="sm"
@@ -407,9 +642,7 @@ export function AdminPanel() {
                                                 disabled={deletingId === doc.paperId}
                                                 className="h-7 px-2"
                                             >
-                                                {deletingId === doc.paperId
-                                                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                                                    : <Trash2 className="h-3 w-3" />}
+                                                {deletingId === doc.paperId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                                             </Button>
                                         </td>
                                     </tr>
@@ -418,7 +651,7 @@ export function AdminPanel() {
                         </table>
 
                         {deleteMsg && (
-                            <div className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                            <div className={`mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${deleteMsg.ok ? BANNER.green : BANNER.red}`}>
                                 {deleteMsg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                                 {deleteMsg.text}
                             </div>
@@ -431,13 +664,13 @@ export function AdminPanel() {
             <DeleteByPaperId onDeleted={fetchDocuments} />
 
             {/* ── Section E: User Management ── */}
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-4 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <Users className="h-5 w-5 text-purple-400" />
-                        <h2 className="text-base font-semibold text-white">User Management</h2>
+                        <Users className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                        <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">User Management</h2>
                         {!usersLoading && (
-                            <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-300">
+                            <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-text-body)]">
                                 {users.length}
                             </span>
                         )}
@@ -447,7 +680,7 @@ export function AdminPanel() {
                         size="sm"
                         onClick={fetchUsers}
                         disabled={usersLoading}
-                        className="border-slate-600 bg-transparent text-slate-300 hover:bg-slate-800"
+                        className="border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
                     >
                         <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${usersLoading ? "animate-spin" : ""}`} />
                         Refresh
@@ -455,24 +688,24 @@ export function AdminPanel() {
                 </div>
 
                 {usersError && (
-                    <div className="mb-3 flex items-center gap-2 rounded-md bg-red-900/40 px-3 py-2 text-sm text-red-300">
+                    <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
                         <XCircle className="h-4 w-4 shrink-0" />
                         {usersError}
                     </div>
                 )}
 
                 {usersLoading && users.length === 0 ? (
-                    <div className="flex items-center justify-center py-8 text-slate-500">
+                    <div className="flex items-center justify-center py-8 text-[color:var(--ciq-text-muted)]">
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Loading users…
                     </div>
                 ) : users.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-slate-500">No users found.</p>
+                    <p className="py-6 text-center text-sm text-[color:var(--ciq-text-muted)]">No users found.</p>
                 ) : (
-                    <div className="overflow-x-auto rounded-lg border border-slate-700">
+                    <div className="overflow-x-auto rounded-lg border border-[color:var(--ciq-line)]">
                         <table className="w-full text-sm">
                             <thead>
-                                <tr className="bg-slate-800 text-xs font-medium uppercase tracking-wide text-slate-400">
+                                <tr className="bg-[color:var(--ciq-card-2)] text-xs font-medium uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
                                     <th className="px-4 py-3 text-left">User</th>
                                     <th className="px-4 py-3 text-center">Sessions</th>
                                     <th className="hidden px-4 py-3 text-left sm:table-cell">Last Session ID</th>
@@ -482,36 +715,30 @@ export function AdminPanel() {
                             </thead>
                             <tbody>
                                 {users.map((u, i) => (
-                                    <tr
-                                        key={u.user_id}
-                                        className={i % 2 === 0 ? "bg-slate-900" : "bg-slate-800/40"}
-                                    >
-                                        <td className="px-4 py-3 font-medium text-white">{u.name}</td>
+                                    <tr key={u.user_id} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
+                                        <td className="px-4 py-3 font-medium text-[color:var(--ciq-text-strong)]">{u.name}</td>
                                         <td className="px-4 py-3 text-center">
-                                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                u.session_count > 0
-                                                    ? "bg-purple-900/50 text-purple-300"
-                                                    : "bg-slate-700 text-slate-400"
-                                            }`}>
+                                            <span
+                                                className={`font-data rounded-full px-2 py-0.5 text-xs font-semibold ${u.session_count > 0 ? PILL.purple : PILL.neutral}`}
+                                            >
                                                 {u.session_count}
                                             </span>
                                         </td>
                                         <td className="hidden px-4 py-3 sm:table-cell">
                                             {u.last_session_id ? (
-                                                <span className="font-mono text-xs text-slate-400">
-                                                    {u.last_session_id.slice(0, 8)}…
-                                                </span>
+                                                <span className="font-mono text-xs text-[color:var(--ciq-text-muted)]">{u.last_session_id.slice(0, 8)}…</span>
                                             ) : (
-                                                <span className="text-slate-600">—</span>
+                                                <span className="text-[color:var(--ciq-text-body)]">—</span>
                                             )}
                                         </td>
-                                        <td className="hidden px-4 py-3 text-slate-400 md:table-cell">
-                                            {u.last_active_at
-                                                ? new Date(u.last_active_at).toLocaleString()
-                                                : <span className="text-slate-600">—</span>
-                                            }
+                                        <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] md:table-cell">
+                                            {u.last_active_at ? (
+                                                new Date(u.last_active_at).toLocaleString()
+                                            ) : (
+                                                <span className="text-[color:var(--ciq-text-body)]">—</span>
+                                            )}
                                         </td>
-                                        <td className="hidden px-4 py-3 text-slate-400 lg:table-cell">
+                                        <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] lg:table-cell">
                                             {new Date(u.created_at).toLocaleDateString()}
                                         </td>
                                     </tr>
@@ -537,7 +764,7 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
         setDeleting(true);
         setMsg(null);
         try {
-            const resp = await fetch(`/admin/kb/documents/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
+            const resp = await apiFetch(`/admin/kb/documents/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
             if (resp.status === 204 || resp.ok) {
                 setMsg({ text: `Document ${id} deleted successfully.`, ok: true });
                 setPaperId("");
@@ -554,14 +781,14 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
     };
 
     return (
-        <div className="rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-md">
+        <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
             <div className="mb-4 flex items-center gap-2">
-                <Hash className="h-5 w-5 text-purple-400" />
-                <h2 className="text-base font-semibold text-white">Delete by Paper ID</h2>
+                <Hash className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Delete by Paper ID</h2>
             </div>
-            <p className="mb-3 text-xs text-slate-400">
-                Use this to delete a document from the Knowledge Base using its Paper ID directly —
-                useful for documents uploaded from another device or before tracking was enabled.
+            <p className="mb-3 text-xs text-[color:var(--ciq-text-muted)]">
+                Use this to delete a document from the Knowledge Base using its Paper ID directly — useful for documents uploaded from another device or before
+                tracking was enabled.
             </p>
             <div className="flex gap-2">
                 <input
@@ -569,19 +796,15 @@ function DeleteByPaperId({ onDeleted }: { onDeleted: () => void }) {
                     value={paperId}
                     onChange={e => setPaperId(e.target.value)}
                     placeholder="Paste paper ID…"
-                    className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none"
+                    className="flex-1 rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none"
                     onKeyDown={e => e.key === "Enter" && !deleting && paperId.trim() && handleDelete()}
                 />
-                <Button
-                    variant="destructive"
-                    onClick={handleDelete}
-                    disabled={deleting || !paperId.trim()}
-                >
+                <Button variant="destructive" onClick={handleDelete} disabled={deleting || !paperId.trim()}>
                     {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                 </Button>
             </div>
             {msg && (
-                <div className={`mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${msg.ok ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300"}`}>
+                <div className={`mt-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${msg.ok ? BANNER.green : BANNER.red}`}>
                     {msg.ok ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
                     {msg.text}
                 </div>

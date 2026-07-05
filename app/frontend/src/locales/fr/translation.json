@@ -4,7 +4,9 @@
         "footer": "Créée avec Azure AI Search + Azure OpenAI",
         "stopRecording": "Arrêter l'enregistrement",
         "startRecording": "Commencer l'enregistrement",
-        "stopConversation": "Arrêter la conversation"
+        "stopConversation": "Arrêter la conversation",
+        "continueConversation": "Continuer la conversation",
+        "startNewSurvey": "Démarrer une nouvelle évaluation"
     },
     "status": {
         "notRecordingMessage": "Posez des questions sur les avantages sociaux des employés de Contoso",

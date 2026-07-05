@@ -38,6 +38,9 @@ type Parameters = {
     onReceivedSentimentUpdate?: (message: SentimentUpdate) => void;
     onReceivedSurveyUpdate?: (message: SurveyUpdate) => void;
     onReceivedSurveyBiometricUpdate?: (message: SurveyBiometricUpdate) => void;
+    // Fired every time Azure signals session.created (initial connect AND each reconnect).
+    // Lets the caller know the fresh session is live — e.g. to lift a reset audio guard.
+    onReceivedSessionReady?: () => void;
     onReceivedError?: (message: Message) => void;
 };
 
@@ -61,6 +64,7 @@ export default function useRealTime({
     onReceivedSentimentUpdate,
     onReceivedSurveyUpdate,
     onReceivedSurveyBiometricUpdate,
+    onReceivedSessionReady,
     onReceivedError
 }: Parameters) {
     const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
@@ -74,6 +78,11 @@ export default function useRealTime({
     // connection yet. The right moment is when Azure signals it is ready via session.created.
     const hasConnectedRef = useRef(false);
     const pendingRestoreRef = useRef(false);
+    // Set by startSession() so the agent opens the conversation itself instead of
+    // waiting for the user to speak. Fired once the session is ready (immediately if the
+    // socket is already open, otherwise after the session.created restore). NOT set by a
+    // genuine dropped-socket reconnect, so reconnects never trigger an unwanted greeting.
+    const pendingGreetingRef = useRef(false);
 
     const buildSessionUpdateCommand = (): SessionUpdateCommand => {
         const command: SessionUpdateCommand = {
@@ -86,7 +95,7 @@ export default function useRealTime({
         return command;
     };
 
-    const { sendJsonMessage } = useWebSocket(wsEndpoint, {
+    const { sendJsonMessage, getWebSocket } = useWebSocket(wsEndpoint, {
         onOpen: () => {
             console.log("[Realtime] WebSocket connected");
             if (hasConnectedRef.current) {
@@ -101,12 +110,50 @@ export default function useRealTime({
         onClose: () => onWebSocketClose?.(),
         onError: event => onWebSocketError?.(event),
         onMessage: event => onMessageReceived(event),
-        shouldReconnect: () => true
+        shouldReconnect: () => true,
+        // The library default is 5000ms — far too slow for our intentional reset reconnects
+        // (Start New Survey / post-report hard reset), which manifested as a ~5s silence
+        // before the fresh agent spoke. Reopen almost immediately, backing off only if a
+        // genuine network drop keeps failing.
+        reconnectInterval: (attempt: number) => Math.min(250 * 2 ** attempt, 5000),
+        reconnectAttempts: 20
     });
+
+    // Send response.create so the agent produces an opening turn (greeting + warm-up).
+    // Only fires while the socket is open and a greeting is pending; clears the flag so it
+    // can never double-fire (e.g. on the post-baseline refresh or a later reconnect).
+    const maybeSendGreeting = () => {
+        const socket = getWebSocket();
+        if (pendingGreetingRef.current && socket && socket.readyState === WebSocket.OPEN) {
+            pendingGreetingRef.current = false;
+            console.log("[Realtime] Triggering agent opening turn (response.create)");
+            sendJsonMessage({ type: "response.create" });
+        }
+    };
 
     const startSession = () => {
         hasConnectedRef.current = true;
         sendJsonMessage(buildSessionUpdateCommand());
+    };
+
+    // Ask the agent to open the conversation itself. Call this AFTER the caller has armed
+    // audio playback/recording so the opening turn isn't dropped. Fires immediately if the
+    // socket is open; if it is still reopening (new-survey reset reconnects first), it is
+    // deferred to the next session.created.
+    const requestGreeting = () => {
+        pendingGreetingRef.current = true;
+        maybeSendGreeting();
+    };
+
+    // Force a clean reconnect: close the live socket so react-use-websocket reopens
+    // it (shouldReconnect is always true). The backend opens a brand-new Azure realtime
+    // WS per connection, so this wipes Azure's prior conversation memory; persisted
+    // context (survey results / report) is re-injected via the session.created →
+    // session.update restore path. Used for the new-survey reset and the post-report
+    // "answer strictly from the saved report" hard reset.
+    const reconnect = () => {
+        const socket = getWebSocket();
+        socket?.close();
     };
 
     const refreshSession = () => {
@@ -164,6 +211,13 @@ export default function useRealTime({
                     console.log("[Realtime] session.created — sending session.update to restore context");
                     sendJsonMessage(buildSessionUpdateCommand());
                 }
+                // Fire any deferred opening turn now the session is ready (new-survey path,
+                // where startSession ran while the socket was mid-reconnect). A no-op unless
+                // startSession armed it, so genuine reconnects stay silent.
+                maybeSendGreeting();
+                // The fresh session is live: any audio from here on belongs to the new
+                // conversation, so the caller can lift its reset audio guard.
+                onReceivedSessionReady?.();
                 break;
             case "response.done":
                 onReceivedResponseDone?.(message as ResponseDone);
@@ -198,5 +252,5 @@ export default function useRealTime({
         }
     };
 
-    return { startSession, refreshSession, addUserAudio, inputAudioBufferClear };
+    return { startSession, requestGreeting, refreshSession, reconnect, addUserAudio, inputAudioBufferClear };
 }

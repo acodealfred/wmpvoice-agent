@@ -1,0 +1,138 @@
+' CIQ Voice Agent — current runtime behavior (sequence)
+' Render with any PlantUML tool (plantuml.com, VS Code PlantUML extension).
+@startuml ciq-voice-agent-sequence
+title CIQ Voice Agent — End-to-End Behavior (Sequence)
+
+actor User
+participant "Browser\n(App.tsx + hooks)" as FE
+participant "useBiometrics\n(MediaPipe)" as BIO
+participant "WS /realtime\n(RTMiddleTier)" as RTMT
+participant "Azure OpenAI\nRealtime API" as AOAI
+participant "Backend REST\n(aiohttp)" as API
+database "DB\n(sessions/baseline/survey records)" as DB
+participant "Report engines\n(Azure Chat / Mithra KB)" as RPT
+
+== Authentication ==
+User -> FE : open app
+FE -> API : GET /me  (session cookie)
+alt no/expired session
+  API --> FE : 401
+  User -> FE : login (username/password)
+  FE -> API : POST /login
+  API -> DB : verify bcrypt, create session
+  API --> FE : Set-Cookie session_token
+else valid session
+  API --> FE : { user_id, session_id }
+end
+
+== Start conversation (onStartListening) ==
+User -> FE : click "Start Conversation"
+FE -> RTMT : WS connect /realtime?session_id
+RTMT -> RTMT : connection_count++ (first connect)
+RTMT -> DB : get_user_baseline(user_id)
+alt baseline exists & not expired (returning user)
+  RTMT -> RTMT : survey_phase = "survey"\nis_returning_user = true
+else no/expired baseline
+  RTMT -> RTMT : survey_phase = "warmup"
+end
+RTMT -> AOAI : open Azure realtime WS
+FE -> RTMT : session.update (turn_detection=server_vad)
+FE -> RTMT : response.create (request greeting)
+FE -> API : GET /baseline (resolveBaseline)
+FE -> FE : start mic (useAudioRecorder)
+AOAI --> RTMT : session.created
+RTMT -> AOAI : session.update (instructions from survey_phase)
+AOAI --> RTMT : response.audio.delta (greeting)
+RTMT --> FE : audio deltas
+FE -> User : agent speaks greeting
+
+== Baseline calibration (warmup branch) ==
+alt no stored baseline -> 30s recording
+  FE -> BIO : auto-start baseline session
+  loop ~30s
+    BIO -> BIO : collect pupil + blink samples
+    AOAI -> User : agent makes neutral small talk
+  end
+  BIO --> FE : baseline { pupilSize, blinkRate }
+  FE -> API : POST /baseline (persist)
+  FE -> API : POST /survey-phase {phase:"survey"}
+  API -> RTMT : unlock_survey_for_session
+  FE -> RTMT : session.update (refreshSession)
+  RTMT -> AOAI : updated instructions -> enter survey
+else returning user
+  note over RTMT : starts unlocked in "survey" with brief welcome-back
+end
+
+== Survey loop (per question) ==
+loop until all questions answered
+  User -> FE : speak answer
+  FE -> RTMT : input_audio_buffer.append (PCM)
+  RTMT -> AOAI : forward audio
+  AOAI --> RTMT : function_call report_sentiment
+  RTMT --> FE : sentiment_update
+  AOAI --> RTMT : function_call record_survey_response
+  RTMT -> RTMT : store score + biometric snapshot\n(idempotent on questionId)
+  RTMT --> FE : survey_biometric_update (score, completed/total)
+  AOAI --> RTMT : response.audio.delta (next question)
+  RTMT --> FE : audio deltas -> User
+
+  par continuous biometrics
+    BIO -> API : POST /biometrics (blink/pupil/gaze/sentiment)
+    BIO -> API : POST /analyze-stress (blink rate -> stressed/relaxed/normal)
+    FE  -> API : POST /analyze (frame -> Rekognition emotion)
+  end
+end
+
+== Completion -> deterministic report ==
+FE -> API : POST /analyze-report (snapshots)
+API -> API : compute_survey_summary (SSOT, no LLM)
+API -> DB : persist survey record
+API -> RTMT : set state = report_delivered (+context)
+API --> FE : { totalScore, riskLevel, domainTotals, interpretation }
+FE -> User : render report (score, risk, per-question bands)
+
+== On-demand AI reports (tabs) ==
+alt Behavioral Analysis
+  FE -> API : POST /report/behavioral-analysis
+  API -> RPT : Azure Chat (grounded on SSOT + rules)
+  RPT --> API : analysis JSON
+  API -> DB : merge analysis
+  API --> FE : analysis
+else Consultative Summary
+  FE -> API : POST /report/consultative-summary
+  API -> RPT : Azure Chat (score + biometrics + optional analysis)
+  RPT --> API : spoken summary text
+  API --> FE : agentResponse
+else AI Report (KB / RAG)
+  FE -> API : POST /ssot-report
+  API -> RPT : Mithra KB chat (RAG, query from SSOT) -> citations
+  API -> RPT : Report LLM reformat (optional)
+  RPT --> API : { answer, citations }
+  API -> DB : persist SSoT result
+  API --> FE : ssotReport
+end
+
+== Post-report guardrail reset (strict Q&A) ==
+FE -> FE : onReportReady -> arm guardrail reset
+AOAI --> RTMT : response.done
+FE -> RTMT : reconnect() (close -> reopen, fast)
+note over RTMT, AOAI : new Azure session wipes prior memory;\ncontext re-injected from saved report -> strict report-only Q&A
+
+== Start New Survey (reset) ==
+User -> FE : click "Start New Survey"
+FE -> FE : stopAudioPlayer() (silence agent BEFORE confirm)
+FE -> User : confirm dialog
+alt confirmed
+  FE -> FE : suppress stale audio guard ON
+  FE -> API : POST /clear-conversation
+  API -> RTMT : reset_for_new_survey\n(clear results, connection_count=0, phase=warmup)
+  FE -> API : GET /baseline (resolveBaseline)
+  FE -> RTMT : reconnect() (~250ms) -> fresh session
+  RTMT -> RTMT : re-resolve survey_phase from baseline
+  AOAI --> RTMT : session.created -> lift audio guard
+  FE -> RTMT : response.create (fresh greeting)
+else cancelled
+  note over FE : session untouched; conversation continues
+end
+
+@enduml
