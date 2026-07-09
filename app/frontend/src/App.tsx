@@ -17,6 +17,7 @@ import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
 import { GuestLanding } from "@/components/ui/guest-landing";
 import { Button } from "@/components/ui/button";
+import ConsentModal from "@/components/ui/consent-modal";
 import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
 import { applyFontScale, getFontScale } from "@/lib/fontScale";
 
@@ -91,6 +92,14 @@ function App() {
     const suppressAgentAudioRef = useRef(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [surveyTypeConfig, setSurveyTypeConfig] = useState<SurveyTypeConfig | null>(null);
+    // Informed-consent gate for the pilot study. Required once per login session — after
+    // the user agrees, starting/restarting the conversation proceeds without re-prompting.
+    const [showConsent, setShowConsent] = useState(false);
+    const [consentGiven, setConsentGiven] = useState(false);
+    // Holds whichever start action (onStartListening / onStartNewSurvey) triggered the
+    // consent gate, so ConsentModal's onAgree can resume exactly that action.
+    const pendingStartActionRef = useRef<(() => void) | null>(null);
+    const requiresConsent = surveyTypeConfig?.activeSurveyType === "PILOT";
     const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [isReasonExpanded, setIsReasonExpanded] = useState(false);
     // Toggles the camera feed between compact (centered, max-width) and full card width.
@@ -181,6 +190,7 @@ function App() {
         setAuthState("unauthenticated");
         setCurrentUser(null);
         setSessionId(crypto.randomUUID());
+        setConsentGiven(false);
     }, []);
 
     useEffect(() => {
@@ -198,26 +208,47 @@ function App() {
             .catch(err => console.error("Failed to fetch config:", err));
     }, [authState]);
 
-    const handleSurveyTypeChange = useCallback(async (type: string) => {
-        try {
-            const res = await apiFetch("/survey-type", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ surveyType: type })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setSurveyTypeConfig(prev => (prev ? { ...prev, activeSurveyType: data.activeSurveyType } : prev));
-            }
-        } catch (err) {
-            console.error("Failed to set survey type:", err);
-        }
-    }, []);
+    // Tracks the in-flight POST /survey-type request so Start can await it (see below) —
+    // otherwise the very first thing onStartListening/onStartNewSurvey do is send
+    // session.update over the ALREADY-OPEN WebSocket (a synchronous, near-instant call),
+    // which reliably wins the race against this fetch's HTTP round-trip. That meant the
+    // agent would build its question script from whichever survey type was bound
+    // BEFORE this POST resolved, while anything read later (e.g. the progress bar's
+    // question count) would already see the new type — exactly the "progress bar says
+    // 7, agent asks the 5 TEST questions" symptom.
+    const surveyTypeChangeRef = useRef<Promise<void> | null>(null);
+
+    const handleSurveyTypeChange = useCallback(
+        (type: string) => {
+            const promise = (async () => {
+                try {
+                    const res = await apiFetch("/survey-type", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ surveyType: type, session_id: sessionId })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        setSurveyTypeConfig(prev => (prev ? { ...prev, activeSurveyType: data.activeSurveyType } : prev));
+                    }
+                } catch (err) {
+                    console.error("Failed to set survey type:", err);
+                }
+            })();
+            surveyTypeChangeRef.current = promise;
+            return promise;
+        },
+        [sessionId]
+    );
 
     // Baseline is loaded from localStorage by useBiometrics hook itself
 
     const { startSession, requestGreeting, reconnect, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         sessionId,
+        // Belt-and-suspenders: also carried on the WS connect URL itself so the survey
+        // type is known ATOMICALLY with connection setup, not dependent on the
+        // /survey-type POST above having already landed by the time the socket opens.
+        surveyType: surveyTypeConfig?.activeSurveyType,
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
         onWebSocketClose: () => console.log("WebSocket connection closed"),
         onWebSocketError: event => console.error("WebSocket error:", event),
@@ -439,6 +470,24 @@ function App() {
         }
     }, [baselineSessionStatus, baselineData, sessionId, refreshSession]);
 
+    // Gates a start action (Start/Continue or Restart) behind informed consent for the
+    // pilot survey. If consent is required and hasn't been given yet, the action is
+    // stashed and the modal is shown instead; ConsentModal's onAgree resumes it.
+    // `force` re-prompts even if consent was already given this session — used for
+    // "Start New Survey", since each fresh attempt is a distinct participation event
+    // and shouldn't ride on consent given for a previous run.
+    const runWithConsent = useCallback(
+        (action: () => void, force: boolean = false) => {
+            if (requiresConsent && (force || !consentGiven)) {
+                pendingStartActionRef.current = action;
+                setShowConsent(true);
+                return;
+            }
+            action();
+        },
+        [requiresConsent, consentGiven]
+    );
+
     // Primary toggle: start / stop / resume. It never resets — a stopped survey
     // (mid-way) is left untouched so pressing it again resumes, and after completion
     // it simply reconnects the user for report Q&A. Starting a brand-new assessment
@@ -446,6 +495,12 @@ function App() {
     const onStartListening = async () => {
         if (isRecording) return;
         setIsRecording(true);
+        // Make sure any survey-type selection has actually landed server-side before
+        // we send session.update — otherwise the agent's question script can be built
+        // from the PREVIOUS survey type (see surveyTypeChangeRef above).
+        if (surveyTypeChangeRef.current) {
+            await surveyTypeChangeRef.current;
+        }
         // Open the session, arm playback and ask the agent to greet IMMEDIATELY, so its
         // opening line is already generating while the baseline fetch and mic init run in
         // parallel below. The agent doesn't need the mic to talk, and the survey phase is
@@ -508,6 +563,9 @@ function App() {
         // so it agrees with the phase the backend resolves from the same baseline on the
         // fresh connection below (DB hit → returning-user "survey"; miss → "warmup").
         await resolveBaseline();
+        if (surveyTypeChangeRef.current) {
+            await surveyTypeChangeRef.current;
+        }
 
         setIsRecording(true);
         reconnect();
@@ -897,7 +955,7 @@ function App() {
                                             Mobile: [Start/Continue][Stop] on top, [Restart] full-width below. */}
                                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                                                 <Button
-                                                    onClick={onStartNewSurvey}
+                                                    onClick={() => runWithConsent(onStartNewSurvey, true)}
                                                     variant="outline"
                                                     disabled={!hasAssessment && !isRecording}
                                                     className="order-3 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:opacity-40 sm:order-1 sm:col-span-1"
@@ -906,7 +964,7 @@ function App() {
                                                     {t("app.startNewSurvey") || "Restart"}
                                                 </Button>
                                                 <Button
-                                                    onClick={onStartListening}
+                                                    onClick={() => runWithConsent(onStartListening)}
                                                     disabled={isRecording}
                                                     className="order-1 flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-sm font-semibold text-white shadow-lg shadow-purple-500/20 transition-all hover:from-purple-500 hover:to-pink-500 focus-visible:ring-2 focus-visible:ring-purple-400 disabled:opacity-40 sm:order-2"
                                                 >
@@ -1324,6 +1382,21 @@ function App() {
                     </div>
                 </main>
             )}
+
+            <ConsentModal
+                isOpen={showConsent}
+                onAgree={() => {
+                    setConsentGiven(true);
+                    setShowConsent(false);
+                    pendingStartActionRef.current?.();
+                    pendingStartActionRef.current = null;
+                }}
+                onDecline={() => {
+                    setShowConsent(false);
+                    pendingStartActionRef.current = null;
+                }}
+                studyName="Burnout Assessment — Pilot Study"
+            />
         </div>
     );
 }

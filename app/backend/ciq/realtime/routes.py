@@ -12,16 +12,24 @@ logger = logging.getLogger("voicerag")
 
 
 async def set_survey_type(request):
-    """POST /survey-type — update the active survey type (blocked when overridden by ENV)."""
+    """POST /survey-type — bind ONE session to a survey type (blocked when overridden by ENV).
+
+    Per-session, not global: this only affects the given session_id's SessionState
+    (see RTMiddleTier.set_survey_type_for_session), so concurrent sessions/tabs
+    running different survey types never race or bleed into each other.
+    """
     rtmt = request.app.get("rtmt")
     if not rtmt:
         return web.json_response({"error": "Service not available"}, status=503)
     if rtmt.survey_type_overridden:
         return web.json_response({"error": "Survey type is locked by environment configuration"}, status=403)
     data = await request.json()
+    session_id = data.get("session_id", "")
+    if not session_id:
+        return web.json_response({"error": "session_id is required"}, status=400)
     survey_type = data.get("surveyType", "TEST").upper()
-    rtmt.set_survey_type(survey_type)
-    return web.json_response({"activeSurveyType": rtmt.active_survey_type})
+    resolved_type = rtmt.set_survey_type_for_session(session_id, survey_type)
+    return web.json_response({"activeSurveyType": resolved_type, "sessionId": session_id})
 
 
 async def set_biometric_guardrail(request):

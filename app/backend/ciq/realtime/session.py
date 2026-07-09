@@ -30,6 +30,13 @@ class SessionState:
     connection_count: int = 0  # incremented on every WS reconnect
 
     survey_results: dict = field(default_factory=dict)
+    # Per-session survey binding. Empty/None means "not yet resolved" — the
+    # WS handler falls back to the server default (see RTMiddleTier.default_survey_type)
+    # the first time it sees an unset session. Deliberately per-session (not a shared
+    # attribute on RTMiddleTier) so concurrent sessions/tabs can each run a different
+    # survey type without racing or bleeding into one another.
+    survey_type: str | None = None
+    survey_config: dict = field(default_factory=dict)
     stress_state: str = "normal"
     current_sentiment: str = "neutral"
     current_blink_rate_change: float = 0.0
@@ -55,6 +62,25 @@ class SessionState:
     # a survey question) and the user starting to speak their answer.
     last_agent_turn_end_at: float | None = None
     current_response_latency_ms: float | None = None
+
+    # ── survey binding ────────────────────────────────────────────────────────
+    def set_survey_type(self, survey_type: str, config: dict) -> None:
+        """Bind this session to a specific survey type/config.
+
+        Resets survey_results whenever the type actually changes so stale
+        answered-question IDs from a previous survey type on this same session_id
+        (e.g. switching TEST -> PILOT without a full /clear-conversation reset)
+        can't leak into reconnect_instructions()'s "X/Y answered" framing or the
+        completion count — those are only meaningful within a single survey type.
+        """
+        if self.survey_type is not None and self.survey_type != survey_type and self.survey_results:
+            logger.info(
+                "[RTMT] ★ Survey type changed %s -> %s (session=%s) — clearing stale survey_results",
+                self.survey_type, survey_type, self.session_id,
+            )
+            self.survey_results.clear()
+        self.survey_type = survey_type
+        self.survey_config = config
 
     # ── stress / conversation state ──────────────────────────────────────────
     def set_stress_state(self, state: str) -> None:

@@ -7,6 +7,7 @@ logger = logging.getLogger("voicerag")
 SURVEY_MAP: dict[str, str] = {
     "TEST":    "surveys/test-survey.json",
     "BATFULL": "surveys/bat-full-survey.json",
+    "PILOT":   "surveys/pilot-survey.json",
     "CBTFULL": "surveys/cbt-full-survey.json",
 }
 

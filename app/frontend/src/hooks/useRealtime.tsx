@@ -18,6 +18,13 @@ import {
 
 type Parameters = {
     sessionId?: string;
+    // Carried on the /realtime WS connect URL so the backend can resolve this
+    // session's survey type ATOMICALLY with connection setup (see
+    // RTMiddleTier._websocket_handler) instead of depending on a separate
+    // POST /survey-type call having already landed first. Only takes effect the
+    // FIRST time the backend sees this session_id — later reconnects (and later
+    // changes to this value while already connected) are ignored server-side.
+    surveyType?: string;
     useDirectAoaiApi?: boolean;
     aoaiEndpointOverride?: string;
     aoaiApiKeyOverride?: string;
@@ -46,6 +53,7 @@ type Parameters = {
 
 export default function useRealTime({
     sessionId,
+    surveyType,
     useDirectAoaiApi,
     aoaiEndpointOverride,
     aoaiApiKeyOverride,
@@ -67,7 +75,10 @@ export default function useRealTime({
     onReceivedSessionReady,
     onReceivedError
 }: Parameters) {
-    const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+    const connectParams = new URLSearchParams();
+    if (sessionId) connectParams.set("session_id", sessionId);
+    if (surveyType) connectParams.set("survey_type", surveyType);
+    const sessionParam = connectParams.toString() ? `?${connectParams.toString()}` : "";
     const wsEndpoint = useDirectAoaiApi
         ? `${aoaiEndpointOverride}/openai/realtime?api-key=${aoaiApiKeyOverride}&deployment=${aoaiModelOverride}&api-version=2024-10-01-preview`
         : `/realtime${sessionParam}`;

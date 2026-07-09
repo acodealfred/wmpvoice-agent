@@ -45,7 +45,7 @@ async def analyze_report(request):
         rtmt = request.app.get("rtmt")
         if not rtmt:
             return web.json_response({"error": "Analysis service not available"}, status=503)
-        survey_config = rtmt._survey_config
+        survey_config = rtmt.get_survey_config_for_session(session_id)
 
         # ── Deterministic scoring (no LLM) via the shared source of truth. ──
         summary = compute_survey_summary(survey_config, snapshots)
@@ -114,7 +114,7 @@ async def report_behavioral_analysis(request):
         rtmt = request.app.get("rtmt")
         if not rtmt:
             return web.json_response({"error": "Analysis service not available"}, status=503)
-        survey_config = rtmt._survey_config
+        survey_config = rtmt.get_survey_config_for_session(session_id)
 
         analysis_result_str = await rtmt.analyze_with_prompt(build_analysis_prompt(survey_config, snapshots))
         analysis_result_str = strip_llm_error(analysis_result_str)
@@ -163,7 +163,7 @@ async def report_consultative_summary(request):
         rtmt = request.app.get("rtmt")
         if not rtmt:
             return web.json_response({"error": "Analysis service not available"}, status=503)
-        survey_config = rtmt._survey_config
+        survey_config = rtmt.get_survey_config_for_session(session_id)
 
         summary = compute_survey_summary(survey_config, snapshots)
         biometric_facts = build_biometric_facts(snapshots)
@@ -214,7 +214,7 @@ async def generate_ssot_report(request):
 
         # Canonical, reverse-aware scoring — same source of truth as /analyze-report.
         rtmt = request.app.get("rtmt")
-        survey_config = rtmt._survey_config if rtmt else {}
+        survey_config = rtmt.get_survey_config_for_session(session_id) if rtmt else {}
         summary = compute_survey_summary(survey_config, snapshots) if snapshots else {
             "totalScore": 0, "riskLevel": "Low", "interpretation": "Low burnout risk", "domainTotals": {}
         }

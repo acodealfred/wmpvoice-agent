@@ -49,8 +49,7 @@ def build_rtmt() -> RTMiddleTier:
             logger.warning("Unknown SURVEY_TYPE=%s, defaulting to TEST", survey_type_env)
             survey_type_env = "TEST"
         rtmt.survey_type_overridden = override
-        rtmt.active_survey_type = survey_type_env
-        rtmt.enable_survey(load_survey(survey_type_env))
+        rtmt.enable_survey(load_survey(survey_type_env), survey_type=survey_type_env)
         logger.info("Survey mode is enabled (type=%s, overridden=%s)", survey_type_env, override)
 
     # Meta intent is identical for both modes; persona differs.

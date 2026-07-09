@@ -59,9 +59,13 @@ class RTMiddleTier:
     meta_intent_config: dict | None = None
     api_version: str = "2024-10-01-preview"
     _token_provider = None
-    # Shared survey config (same for all sessions)
-    _survey_config: dict
-    active_survey_type: str = "TEST"
+    # Server default survey config/type — used only to seed a NEW session that hasn't
+    # picked its own type yet (no query param, no /survey-type call). The actual,
+    # authoritative config for an in-flight conversation always lives on that
+    # session's SessionState (survey_type/survey_config), never here — see
+    # _websocket_handler / set_survey_type_for_session.
+    default_survey_config: dict
+    default_survey_type: str = "TEST"
     survey_type_overridden: bool = False
     # Descriptive-only biometric guardrail (toggled from the Admin tab).
     biometric_guardrail_enabled: bool = True
@@ -77,7 +81,7 @@ class RTMiddleTier:
         self.deployment = deployment
         self.voice_choice = voice_choice
         self.tools = {}
-        self._survey_config = {}
+        self.default_survey_config = {}
         # Per-session state store
         self._store = SessionStore()
         # Per-connection tool call tracking (initialized fresh in _forward_messages)
@@ -134,26 +138,57 @@ class RTMiddleTier:
         )
         logger.info("Sentiment analysis enabled with report_sentiment tool")
 
-    def enable_survey(self, survey_config: dict | None = None) -> None:
-        """Enable survey mode for conversational surveys like burnout assessment."""
+    def enable_survey(self, survey_config: dict | None = None, survey_type: str = "TEST") -> None:
+        """Enable survey mode for conversational surveys like burnout assessment.
+
+        ``survey_config``/``survey_type`` become the server DEFAULT, used only to seed
+        sessions that haven't picked (or been assigned) a type of their own — the tool
+        closures below always read the CURRENT session's own config at call time.
+        """
         self.enable_survey_mode = True
         self.tools["record_survey_response"] = Tool(
             schema=SURVEY_SCHEMA,
-            target=lambda args: survey_tool(current_session(), self._survey_config, args),
+            target=lambda args: survey_tool(current_session(), current_session().survey_config, args),
         )
         self.tools["query_survey_results"] = Tool(
             schema=QUERY_SURVEY_SCHEMA,
-            target=lambda args: query_survey_tool(current_session(), self._survey_config, args),
+            target=lambda args: query_survey_tool(current_session(), current_session().survey_config, args),
         )
-        self._survey_config = survey_config or {}
+        self.default_survey_config = survey_config or {}
+        self.default_survey_type = survey_type
         logger.info("Survey mode enabled with record_survey_response and query_survey_results tools")
 
-    def set_survey_type(self, survey_type: str) -> None:
-        from survey_loader import load_survey
-        config = load_survey(survey_type)
-        self._survey_config = config
-        self.active_survey_type = survey_type
-        logger.info("[RTMT] Survey type set to %s", survey_type)
+    def _resolve_survey_config(self, survey_type: str | None) -> tuple[str, dict]:
+        """Load a survey config by type, falling back to TEST for an unknown type."""
+        from survey_loader import SURVEY_MAP, load_survey
+        resolved_type = (survey_type or self.default_survey_type).upper()
+        if resolved_type not in SURVEY_MAP:
+            logger.warning("[RTMT] Unknown survey type '%s' requested, defaulting to TEST", resolved_type)
+            resolved_type = "TEST"
+        return resolved_type, load_survey(resolved_type)
+
+    def set_survey_type_for_session(self, session_id: str, survey_type: str) -> str:
+        """Bind ONE session (e.g. from POST /survey-type) to a survey type.
+
+        Per-session — never touches shared/default state, so concurrent sessions or
+        browser tabs choosing different survey types can't race or bleed into each
+        other the way a single shared ``_survey_config`` used to.
+        """
+        resolved_type, config = self._resolve_survey_config(survey_type)
+        self._store.get_or_create(session_id).set_survey_type(resolved_type, config)
+        logger.info("[RTMT] Survey type set to %s (session=%s)", resolved_type, session_id)
+        return resolved_type
+
+    def get_survey_config_for_session(self, session_id: str) -> dict:
+        """Resolve the survey config actually bound to a session (report endpoints).
+
+        Falls back to the server default for sessions that never went through the
+        realtime WS (e.g. missing session_id) or haven't picked a type yet.
+        """
+        if not session_id:
+            return self.default_survey_config
+        sess = self._store.get_or_create(session_id)
+        return sess.survey_config or self.default_survey_config
 
     def set_biometric_guardrail(self, enabled: bool) -> None:
         self.biometric_guardrail_enabled = bool(enabled)
@@ -395,18 +430,18 @@ class RTMiddleTier:
                                     score = survey_result.get("score")
                                     sess = self._sess
 
-                                    total_questions = len(self._survey_config.get("questions", []))
+                                    total_questions = len(sess.survey_config.get("questions", []))
                                     completed = len(sess.survey_results)
 
                                     question_text = next(
                                         (
                                             q.get("prompt", q.get("text", ""))
-                                            for q in self._survey_config.get("questions", [])
+                                            for q in sess.survey_config.get("questions", [])
                                             if q.get("id") == question_id
                                         ),
                                         "",
                                     )
-                                    survey_options = self._survey_config.get("options", [])
+                                    survey_options = sess.survey_config.get("options", [])
                                     await client_ws.send_json(
                                         {
                                             "type": "survey.update",
@@ -445,7 +480,7 @@ class RTMiddleTier:
                                             "type": "survey.biometric.update",
                                             "snapshot": {
                                                 "questionId": question_id,
-                                                "domain": get_question_domain(question_id, self._survey_config),
+                                                "domain": get_question_domain(question_id, sess.survey_config),
                                                 "score": score,
                                                 "voiceSentiment": voice_sentiment,
                                                 "blinkRateChange": blink_change,
@@ -615,7 +650,7 @@ class RTMiddleTier:
                         session["instructions"] = build_session_instructions(
                             base_message=self.system_message,
                             sess=sess,
-                            survey_config=self._survey_config,
+                            survey_config=sess.survey_config,
                             enable_meta_intent=self.enable_meta_intent,
                             meta_intent_config=self.meta_intent_config,
                             enable_sentiment=self.enable_sentiment_analysis,
@@ -785,6 +820,20 @@ class RTMiddleTier:
             logger.info("[RTMT] New session connected: %s", session_id)
             if self.enable_survey_mode:
                 await self._resolve_survey_phase(sess, request)
+
+        # Resolve this session's survey type ATOMICALLY with connection setup, from a
+        # query param on the /realtime URL itself — not a separate POST /survey-type
+        # call, which races the WS connect with no ordering guarantee (the type could
+        # still be in flight when the first session.update bakes the question script
+        # into the model's instructions). Guarded by `not sess.survey_config` so it's a
+        # no-op once a type has been bound (via this same query param, an earlier
+        # POST /survey-type, or a previous connection on this session_id) — reconnects
+        # keep whatever type the session already has, same as survey_phase above.
+        if self.enable_survey_mode and not sess.survey_config:
+            requested_type = self.default_survey_type
+            if not self.survey_type_overridden:
+                requested_type = request.rel_url.query.get("survey_type") or requested_type
+            self.set_survey_type_for_session(session_id, requested_type)
 
         # Set context var — inherited by both gather tasks in _forward_messages
         token = set_active_session(sess)

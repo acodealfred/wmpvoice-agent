@@ -12,6 +12,9 @@ class StubRtmt:
         self._survey_config = survey_config
         self.states = {}
 
+    def get_survey_config_for_session(self, session_id):
+        return self._survey_config
+
     def set_conversation_state_for_session(self, session_id, state, report_context=None):
         self.states[session_id] = (state, report_context)
 

@@ -1,0 +1,65 @@
+{
+  "name": "Pilot Study Burnout Assessment",
+  "type": "PILOT",
+  "options": [
+    {"value": 1, "label": "Never"},
+    {"value": 2, "label": "Rarely"},
+    {"value": 3, "label": "Sometimes"},
+    {"value": 4, "label": "Often"},
+    {"value": 5, "label": "Always"}
+  ],
+  "questions": [
+    {
+      "id": "bat_q1",
+      "text": "Emotional Exhaustion",
+      "domain": "Emotional Exhaustion",
+      "prompt": "At work, I feel mentally exhausted."
+    },
+    {
+      "id": "bat_q2",
+      "text": "Mental Distance",
+      "domain": "Mental Distance",
+      "prompt": "I struggle to find any enthusiasm for my work."
+    },
+    {
+      "id": "bat_q3",
+      "text": "Cognitive Impairment",
+      "domain": "Cognitive Impairment",
+      "prompt": "At work, I have trouble staying focused."
+    },
+    {
+      "id": "bat_q4",
+      "text": "Emotional Impairment",
+      "domain": "Emotional Impairment",
+      "prompt": "At work, I feel unable to control my emotions."
+    },
+    {
+      "id": "cbi_q1",
+      "text": "Work Emotionally Exhausting",
+      "domain": "Work-Related Burnout (Item 7)",
+      "prompt": "Is your work emotionally exhausting?"
+    },
+    {
+      "id": "cbi_q2",
+      "text": "Morning Exhaustion Feel",
+      "domain": "Work-Related Burnout (Item 11)",
+      "prompt": "Are you exhausted in the morning at the thought of another day at work?"
+    },
+    {
+      "id": "cbi_q3",
+      "text": "Leisure Energy Availability",
+      "domain": "Work-Related Burnout (Item 13)",
+      "prompt": "Do you have enough energy for family and friends during leisure time?",
+      "reverse": true
+    }
+  ],
+  "thresholds": {
+    "low_max": 17,
+    "moderate_max": 31
+  },
+  "interpretation": {
+    "low": "Low burnout risk - Keep up the great work!",
+    "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.",
+    "high": "High burnout risk - Please consider reaching out to HR or a mental health professional."
+  }
+}

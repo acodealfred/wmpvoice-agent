@@ -239,7 +239,7 @@ export type SSoTReport = {
 
 export type SurveyTypeConfig = {
     surveyTypeOverridden: boolean;
-    activeSurveyType: "TEST" | "BATFULL" | "CBTFULL";
+    activeSurveyType: "TEST" | "BATFULL" | "PILOT" | "CBTFULL";
     availableSurveyTypes: string[];
 };
 
