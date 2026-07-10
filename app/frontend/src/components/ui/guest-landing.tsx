@@ -148,12 +148,16 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
         // Burnout scoring: a lower score is an improvement.
         const trend: "up" | "down" | "flat" | null =
             lastScore == null || prevScore == null ? null : lastScore < prevScore ? "up" : lastScore > prevScore ? "down" : "flat";
+        // Surveys with independent scoringSections (e.g. PILOT's BAT-4/CBI-WRB3) have no
+        // single totalScore/riskLevel to show in this compact card — fall back to the
+        // "still processing" state rather than rendering "undefined risk".
+        const lastReport = last?.technical_report?.totalScore != null ? last.technical_report : null;
         return {
             total: recs.length,
             streak: monthlyStreak(dated),
             months: lastSixMonths(dated),
             last,
-            lastReport: last?.technical_report ?? null,
+            lastReport,
             recommendations: extractRecommendations(last?.prompt_info?.agentResponse),
             trend
         };
@@ -303,7 +307,9 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                 {stats.lastReport ? (
                                     <>
                                         <div className="mt-3 flex items-center gap-2">
-                                            <span className={`rounded-full px-2.5 py-0.5 text-sm font-semibold ${PILL[riskTone(stats.lastReport.riskLevel)]}`}>
+                                            <span
+                                                className={`rounded-full px-2.5 py-0.5 text-sm font-semibold ${PILL[riskTone(stats.lastReport.riskLevel ?? "Low")]}`}
+                                            >
                                                 {stats.lastReport.riskLevel} risk
                                             </span>
                                             {stats.trend && (

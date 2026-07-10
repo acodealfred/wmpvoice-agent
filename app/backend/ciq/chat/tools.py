@@ -167,6 +167,9 @@ def _assessment_row(r: dict) -> dict:
         "riskLevel": tr.get("riskLevel") or tr.get("risk_level"),
         "interpretation": tr.get("interpretation"),
         "domains": tr.get("domainTotals") or tr.get("domain_totals") or {},
+        # Surveys with independent scoringSections (e.g. PILOT's BAT-4 / CBI-WRB3) have no
+        # single totalScore/riskLevel above — their scores live here instead.
+        "sections": tr.get("sections"),
     }
 
 

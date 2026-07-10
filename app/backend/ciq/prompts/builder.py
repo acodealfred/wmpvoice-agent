@@ -319,7 +319,10 @@ STRICT RULES:
 
 AFTER ALL {len(questions)} ANSWERS:
 - Do NOT calculate the score yourself. Call query_survey_results with query_type="burnout_score".
-- Tell the user the "interpretation" text it returns, word for word. Do not show numbers.
+- The result contains either one "interpretation", or a "sections" list with one
+  "interpretation" per section (e.g. two independent measures). Tell the user EVERY
+  interpretation it returns, word for word, one at a time if there is more than one —
+  they are independent results, never blend or average them together. Do not show numbers.
 - This is the authoritative result — it applies reverse-scoring and the correct thresholds,
   so never override it with your own estimate.
 

@@ -206,15 +206,28 @@ export type AnalysisResult = {
     raw?: string;
 };
 
+// A survey can score as one combined total (totalScore/maxScore/riskLevel/interpretation)
+// OR as independent subscales declared by the survey's own `scoringSections` config (e.g.
+// PILOT's BAT-4 + CBI-WRB3) — never both. `sections` is present only for the latter.
+export type SectionScore = {
+    id: string;
+    label: string;
+    score: number;
+    scoreRange: [number, number];
+    riskLevel: "Low" | "Moderate" | "High";
+    interpretation: string;
+};
+
 // Response from POST /analyze-report — the data-driven technical report.
 export type AnalyzeReportResponse = {
     analysis: AnalysisResult;
     agentResponse: string;
-    totalScore: number;
-    maxScore: number;
-    riskLevel: "Low" | "Moderate" | "High";
-    interpretation: string;
     domainTotals: Record<string, number>;
+    totalScore?: number;
+    maxScore?: number;
+    riskLevel?: "Low" | "Moderate" | "High";
+    interpretation?: string;
+    sections?: SectionScore[];
 };
 
 export type KBDocument = {
@@ -281,11 +294,12 @@ export type SurveyRecord = {
         }
     > | null;
     technical_report: {
-        totalScore: number;
-        riskLevel: "Low" | "Moderate" | "High";
-        interpretation: string;
         domainTotals: Record<string, number>;
         analysis: Record<string, unknown>;
+        totalScore?: number;
+        riskLevel?: "Low" | "Moderate" | "High";
+        interpretation?: string;
+        sections?: SectionScore[];
     } | null;
     prompt_info: {
         snapshotCount: number;

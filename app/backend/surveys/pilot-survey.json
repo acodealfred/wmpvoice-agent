@@ -53,13 +53,30 @@
       "reverse": true
     }
   ],
-  "thresholds": {
-    "low_max": 17,
-    "moderate_max": 31
-  },
-  "interpretation": {
-    "low": "Low burnout risk - Keep up the great work!",
-    "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.",
-    "high": "High burnout risk - Please consider reaching out to HR or a mental health professional."
-  }
+  "scoringSections": [
+    {
+      "id": "bat4",
+      "label": "BAT-4",
+      "questionIds": ["bat_q1", "bat_q2", "bat_q3", "bat_q4"],
+      "scoreRange": [1, 5],
+      "thresholds": {"low_max": 2.0, "moderate_max": 3.0},
+      "interpretation": {
+        "low": "Low burnout complaints on the BAT-4 core symptoms - Keep up the great work!",
+        "moderate": "Moderate burnout complaints on the BAT-4 core symptoms - Consider taking regular breaks and self-care.",
+        "high": "High burnout complaints on the BAT-4 core symptoms - Please consider reaching out to HR or a mental health professional."
+      }
+    },
+    {
+      "id": "cbi_wrb3",
+      "label": "CBI-WRB3",
+      "questionIds": ["cbi_q1", "cbi_q2", "cbi_q3"],
+      "scoreRange": [0, 100],
+      "thresholds": {"low_max": 49, "moderate_max": 74},
+      "interpretation": {
+        "low": "Low work-related burnout on the CBI-WRB3 measure - Keep up the great work!",
+        "moderate": "Moderate work-related burnout on the CBI-WRB3 measure - Consider taking regular breaks and self-care.",
+        "high": "High work-related burnout on the CBI-WRB3 measure - Please consider reaching out to HR or a mental health professional."
+      }
+    }
+  ]
 }

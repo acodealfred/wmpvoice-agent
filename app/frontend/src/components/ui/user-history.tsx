@@ -97,15 +97,25 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                             {session.survey_type ? `${session.survey_type} · ` : ""}Run {session.survey_run_id.slice(0, 8)}…
                         </p>
                     </div>
-                    {report && (
+                    {report?.sections ? (
                         <>
-                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${PILL[riskTone(report.riskLevel)]}`}>
-                                {report.riskLevel} Risk
-                            </span>
-                            <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
-                                Score: <strong className="font-data">{report.totalScore}</strong>
-                            </span>
+                            {report.sections.map(s => (
+                                <span key={s.id} className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${PILL[riskTone(s.riskLevel)]}`}>
+                                    {s.label}: {s.score} ({s.riskLevel})
+                                </span>
+                            ))}
                         </>
+                    ) : (
+                        report && (
+                            <>
+                                <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${PILL[riskTone(report.riskLevel ?? "Low")]}`}>
+                                    {report.riskLevel} Risk
+                                </span>
+                                <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
+                                    Score: <strong className="font-data">{report.totalScore}</strong>
+                                </span>
+                            </>
+                        )
                     )}
                     {info?.ssotReport && !("error" in info.ssotReport) && info.ssotReport.answer && (
                         <span className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${PILL.blue}`}>
@@ -127,16 +137,33 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                     {report && (
                         <div className="rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
                             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-accent-purple)]">Burnout Summary</p>
-                            <div className="flex flex-wrap gap-6 text-sm">
-                                <div>
-                                    <span className="text-[color:var(--ciq-text-muted)]">Total Score </span>
-                                    <strong className="font-data text-[color:var(--ciq-text-strong)]">{report.totalScore}</strong>
+                            {report.sections ? (
+                                // Independent subscales (e.g. PILOT's BAT-4 / CBI-WRB3) — never blended
+                                // into one score, each gets its own score/risk/interpretation.
+                                <div className="space-y-2">
+                                    {report.sections.map(s => (
+                                        <div key={s.id} className="flex flex-wrap items-center gap-3 text-sm">
+                                            <span className="font-semibold text-[color:var(--ciq-text-strong)]">{s.label}</span>
+                                            <strong className="font-data text-[color:var(--ciq-text-strong)]">
+                                                {s.score} / {s.scoreRange[1]}
+                                            </strong>
+                                            <span className={`font-semibold ${TEXT_TONE[riskTone(s.riskLevel)]}`}>{s.riskLevel}</span>
+                                            <span className="text-[color:var(--ciq-text-muted)]">{s.interpretation}</span>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div>
-                                    <span className="text-[color:var(--ciq-text-muted)]">Risk Level </span>
-                                    <span className={`font-semibold ${TEXT_TONE[riskTone(report.riskLevel)]}`}>{report.riskLevel}</span>
+                            ) : (
+                                <div className="flex flex-wrap gap-6 text-sm">
+                                    <div>
+                                        <span className="text-[color:var(--ciq-text-muted)]">Total Score </span>
+                                        <strong className="font-data text-[color:var(--ciq-text-strong)]">{report.totalScore}</strong>
+                                    </div>
+                                    <div>
+                                        <span className="text-[color:var(--ciq-text-muted)]">Risk Level </span>
+                                        <span className={`font-semibold ${TEXT_TONE[riskTone(report.riskLevel ?? "Low")]}`}>{report.riskLevel}</span>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                             {Object.keys(report.domainTotals).length > 0 && (
                                 <div className="mt-3 flex flex-wrap gap-3">
                                     {Object.entries(report.domainTotals).map(([domain, score]) => (

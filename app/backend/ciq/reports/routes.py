@@ -19,6 +19,7 @@ from ciq.reports.prompts import (
     build_analysis_prompt,
     build_biometric_facts,
     build_consultative_prompt,
+    build_consultative_prompt_sections,
     build_report_context,
 )
 
@@ -49,12 +50,31 @@ async def analyze_report(request):
 
         # ── Deterministic scoring (no LLM) via the shared source of truth. ──
         summary = compute_survey_summary(survey_config, snapshots)
-        total_score = summary["totalScore"]
-        max_score = summary["maxScore"]
-        risk_level = summary["riskLevel"]
-        interpretation = summary["interpretation"]
         domain_totals = summary["domainTotals"]
         survey_results_snapshot = serialize_survey_results(snapshots)
+
+        # Surveys with independent scoringSections (e.g. PILOT's BAT-4 / CBI-WRB3) report
+        # `sections` instead of one combined totalScore/riskLevel — see compute_survey_summary.
+        if "sections" in summary:
+            technical_report = {"analysis": {}, "sections": summary["sections"], "domainTotals": domain_totals}
+            response_body = {"analysis": {}, "agentResponse": "", "sections": summary["sections"], "domainTotals": domain_totals}
+        else:
+            technical_report = {
+                "analysis": {},
+                "totalScore": summary["totalScore"],
+                "riskLevel": summary["riskLevel"],
+                "interpretation": summary["interpretation"],
+                "domainTotals": domain_totals,
+            }
+            response_body = {
+                "analysis": {},
+                "agentResponse": "",
+                "totalScore": summary["totalScore"],
+                "maxScore": summary["maxScore"],
+                "riskLevel": summary["riskLevel"],
+                "interpretation": summary["interpretation"],
+                "domainTotals": domain_totals,
+            }
 
         # Persist the deterministic report immediately so the history row is guaranteed.
         if request.get("auth_session") and survey_run_id:
@@ -66,13 +86,7 @@ async def analyze_report(request):
                 await save_survey_record_results(
                     survey_run_id,
                     survey_results_snapshot,
-                    {
-                        "analysis": {},
-                        "totalScore": total_score,
-                        "riskLevel": risk_level,
-                        "interpretation": interpretation,
-                        "domainTotals": domain_totals,
-                    },
+                    technical_report,
                     {"snapshotCount": len(snapshots), "agentResponse": ""},
                 )
                 logger.info("[APP] Deterministic report persisted to DB for run %s", survey_run_id[:8])
@@ -86,15 +100,7 @@ async def analyze_report(request):
             )
         logger.info("[APP] ★ Deterministic report ready, state=report_delivered")
 
-        return web.json_response({
-            "analysis": {},
-            "agentResponse": "",
-            "totalScore": total_score,
-            "maxScore": max_score,
-            "riskLevel": risk_level,
-            "interpretation": interpretation,
-            "domainTotals": domain_totals,
-        })
+        return web.json_response(response_body)
 
     except Exception as e:
         logger.error(f"Report analysis error: {e}")
@@ -169,12 +175,14 @@ async def report_consultative_summary(request):
         biometric_facts = build_biometric_facts(snapshots)
         analysis_str = json.dumps(analysis_data) if isinstance(analysis_data, dict) else ""
 
-        response_text = await rtmt.analyze_with_prompt(
-            build_consultative_prompt(
+        if "sections" in summary:
+            prompt = build_consultative_prompt_sections(summary["sections"], biometric_facts, analysis_str)
+        else:
+            prompt = build_consultative_prompt(
                 summary["totalScore"], summary["maxScore"], summary["interpretation"],
                 biometric_facts, analysis_str,
             )
-        )
+        response_text = await rtmt.analyze_with_prompt(prompt)
         response_text = strip_llm_error(response_text)
         if not response_text:
             return web.json_response({"error": "Consultative summary is unavailable right now."}, status=503)
@@ -218,19 +226,29 @@ async def generate_ssot_report(request):
         summary = compute_survey_summary(survey_config, snapshots) if snapshots else {
             "totalScore": 0, "riskLevel": "Low", "interpretation": "Low burnout risk", "domainTotals": {}
         }
-        risk_phrase = f"{summary['riskLevel']} burnout risk"
+        if "sections" in summary:
+            risk_phrase = " and ".join(f"{s['riskLevel']} {s['label']}" for s in summary["sections"]) + " burnout risk"
+        else:
+            risk_phrase = f"{summary['riskLevel']} burnout risk"
         sorted_domains = sorted(summary["domainTotals"].items(), key=lambda x: x[1], reverse=True)
 
         # Persist survey snapshots so they appear in the user's History tab.
         if request.get("auth_session") and snapshots and survey_run_id:
             survey_results_snapshot = serialize_survey_results(snapshots)
-            technical_snapshot = {
-                "totalScore": summary["totalScore"],
-                "riskLevel": summary["riskLevel"],
-                "interpretation": summary["interpretation"],
-                "domainTotals": summary["domainTotals"],
-                "analysis": {},
-            }
+            if "sections" in summary:
+                technical_snapshot = {
+                    "sections": summary["sections"],
+                    "domainTotals": summary["domainTotals"],
+                    "analysis": {},
+                }
+            else:
+                technical_snapshot = {
+                    "totalScore": summary["totalScore"],
+                    "riskLevel": summary["riskLevel"],
+                    "interpretation": summary["interpretation"],
+                    "domainTotals": summary["domainTotals"],
+                    "analysis": {},
+                }
             try:
                 await ensure_survey_record(
                     survey_run_id,

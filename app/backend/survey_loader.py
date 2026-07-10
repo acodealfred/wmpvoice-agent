@@ -79,41 +79,116 @@ def effective_score(config: dict, question_id: str, raw_score) -> int:
 # realtime agent's query_survey_results tool) MUST derive scores and biometric
 # bands from these helpers so they can never diverge.
 
-def compute_survey_summary(config: dict, snapshots: list) -> dict:
-    """Canonical, reverse-aware report figures for a set of survey snapshots.
+def _domain_totals(config: dict, snapshots: list) -> dict:
+    """Reverse-aware effective-score sum per question `domain`.
 
-    Returns totalScore / maxScore / riskLevel / interpretation / domainTotals,
-    using the survey config's thresholds and interpretation text (never hardcoded).
-    `snapshots` are the camelCase per-question dicts (questionId, score, domain).
+    Independent of whether the survey scores as one combined total or as
+    several `scoringSections` — domain is a separate axis (e.g. "Emotional
+    Exhaustion") that stays useful supplementary detail either way.
     """
-    lo, hi = get_score_bounds(config)
-    total_score = sum(
-        effective_score(config, s.get("questionId", ""), s.get("score", 0)) for s in snapshots
-    )
-    max_score = len(snapshots) * hi
-
     domain_totals: dict = {}
     for s in snapshots:
         dom = s.get("domain", "Unknown")
         domain_totals[dom] = domain_totals.get(dom, 0) + effective_score(
             config, s.get("questionId", ""), s.get("score", 0)
         )
+    return domain_totals
 
-    thresholds = config.get("thresholds", {"low_max": 12, "moderate_max": 22})
-    interp_map = config.get("interpretation", {})
-    if total_score <= thresholds.get("low_max", 12):
-        risk_level, interpretation = "Low", interp_map.get("low", "Low burnout risk")
-    elif total_score <= thresholds.get("moderate_max", 22):
-        risk_level, interpretation = "Moderate", interp_map.get("moderate", "Moderate burnout risk")
-    else:
-        risk_level, interpretation = "High", interp_map.get("high", "High burnout risk")
+
+def _band(score: float, thresholds: dict, interp_map: dict) -> tuple[str, str]:
+    """Shared Low/Moderate/High banding against a section's or survey's own thresholds."""
+    if score <= thresholds.get("low_max", 12):
+        return "Low", interp_map.get("low", "Low burnout risk")
+    if score <= thresholds.get("moderate_max", 22):
+        return "Moderate", interp_map.get("moderate", "Moderate burnout risk")
+    return "High", interp_map.get("high", "High burnout risk")
+
+
+def compute_section_scores(config: dict, snapshots: list) -> list[dict]:
+    """Score each of a survey's `scoringSections` independently.
+
+    Each section (e.g. BAT-4, CBI-WRB3) averages the reverse-aware effective
+    score of only its own `questionIds`, then linearly rescales that average
+    from the survey's native option range (`get_score_bounds`, e.g. 1-5) into
+    the section's own declared `scoreRange` (identity for BAT-4's 1-5; for
+    CBI-WRB3's 0-100 this produces the required raw-1..5 -> 0/25/50/75/100
+    mapping), and bands the rescaled value against the section's own
+    thresholds/interpretation. A section with none of its questions answered
+    yet is omitted (no partial/zero-division score).
+    """
+    native_lo, native_hi = get_score_bounds(config)
+    by_id = {s.get("questionId", ""): s for s in snapshots}
+
+    sections = []
+    for section in config.get("scoringSections", []):
+        matched = [by_id[qid] for qid in section.get("questionIds", []) if qid in by_id]
+        if not matched:
+            continue
+
+        raw_avg = sum(
+            effective_score(config, s.get("questionId", ""), s.get("score", 0)) for s in matched
+        ) / len(matched)
+
+        lo, hi = section.get("scoreRange", [native_lo, native_hi])
+        if native_hi != native_lo:
+            rescaled = lo + (raw_avg - native_lo) * (hi - lo) / (native_hi - native_lo)
+        else:
+            rescaled = lo
+
+        risk_level, interpretation = _band(
+            rescaled,
+            section.get("thresholds", {"low_max": 12, "moderate_max": 22}),
+            section.get("interpretation", {}),
+        )
+
+        sections.append({
+            "id": section.get("id", ""),
+            "label": section.get("label", section.get("id", "")),
+            "score": round(rescaled, 1),
+            "scoreRange": [lo, hi],
+            "riskLevel": risk_level,
+            "interpretation": interpretation,
+        })
+
+    return sections
+
+
+def compute_survey_summary(config: dict, snapshots: list) -> dict:
+    """Canonical, reverse-aware report figures for a set of survey snapshots.
+
+    For a survey declaring `scoringSections` (e.g. PILOT's BAT-4/CBI-WRB3),
+    returns `sections` (see `compute_section_scores`) + `domainTotals` — there
+    is no single combined totalScore/riskLevel for these, by design, since the
+    two subscales are independent constructs. Every other survey keeps the
+    original flat totalScore/maxScore/riskLevel/interpretation/domainTotals
+    shape, using the survey config's thresholds and interpretation text
+    (never hardcoded). `snapshots` are the camelCase per-question dicts
+    (questionId, score, domain).
+    """
+    if config.get("scoringSections"):
+        return {
+            "sections": compute_section_scores(config, snapshots),
+            "domainTotals": _domain_totals(config, snapshots),
+        }
+
+    lo, hi = get_score_bounds(config)
+    total_score = sum(
+        effective_score(config, s.get("questionId", ""), s.get("score", 0)) for s in snapshots
+    )
+    max_score = len(snapshots) * hi
+
+    risk_level, interpretation = _band(
+        total_score,
+        config.get("thresholds", {"low_max": 12, "moderate_max": 22}),
+        config.get("interpretation", {}),
+    )
 
     return {
         "totalScore": total_score,
         "maxScore": max_score,
         "riskLevel": risk_level,
         "interpretation": interpretation,
-        "domainTotals": domain_totals,
+        "domainTotals": _domain_totals(config, snapshots),
     }
 
 

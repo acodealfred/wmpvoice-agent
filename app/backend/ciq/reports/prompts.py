@@ -189,6 +189,53 @@ Keep your response conversational and audio-friendly (short paragraphs, clear po
 IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code formatting."""
 
 
+def build_consultative_prompt_sections(sections, biometric_facts, analysis_result_str=""):
+    """Section-aware sibling of `build_consultative_prompt`, for surveys whose config
+    declares `scoringSections` (e.g. PILOT's independent BAT-4 / CBI-WRB3 subscales —
+    there is no single combined score to state for these)."""
+    analysis_block = (
+        f"BEHAVIORAL ANALYSIS (for your reference):\n{analysis_result_str}\n\n"
+        if analysis_result_str else ""
+    )
+    scores_summary = "\n".join(
+        f"- {s['label']} Score: {s['score']} (range {s['scoreRange'][0]}-{s['scoreRange'][1]}) — {s['interpretation']}"
+        for s in sections
+    )
+    return f"""You are a workplace wellbeing consultant reviewing the burnout assessment results.
+
+FACTUAL SUMMARY (START YOUR RESPONSE BY STATING EACH OF THESE, THEY ARE INDEPENDENT MEASURES):
+{scores_summary}
+
+{analysis_block}BIOMETRIC READINGS (state these as plain facts — do NOT interpret them):
+{biometric_facts}
+
+Please provide a consultative response that:
+1. Begins by clearly stating EACH subscale's score and its own risk level — do NOT blend
+   them into one combined number, they measure different things.
+2. Highlights key findings (correlations, contradictions, patterns) if a behavioral analysis is provided.
+3. Explains what each score means in practical terms.
+4. Offers actionable insights and next steps based on the burnout findings.
+5. Maintains a warm, supportive, professional tone.
+6. Ends with a SEPARATE final paragraph that begins with the word "Also" and simply
+   STATES the biometric readings above (blink-rate category, pupil-dilation category and
+   eye-gaze position) as plain facts.
+
+STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
+- Only report the biometric values exactly as given in BIOMETRIC READINGS.
+- Do NOT explain, interpret, or speculate on what the biometrics mean.
+- Do NOT connect the biometrics to burnout, stress, the score, or the user's wellbeing in any way.
+- Keep it to one or two short factual sentences.
+
+SCORE RULE:
+- Each subscale score above already accounts for reverse-scored positive items.
+- If you mention any individual question's score, use the user's actual answer (1–5).
+  Do NOT invert or recompute it for positively-worded items — a high answer on a positive
+  item stays high when stated to the user.
+
+Keep your response conversational and audio-friendly (short paragraphs, clear points).
+IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code formatting."""
+
+
 def build_report_context(summary, snapshots, response_text="", analysis_data=None):
     """Full report context injected for the agent's follow-up Q&A. The consultative
     response and behavioral analysis are optional (filled in only once generated)."""
@@ -196,9 +243,19 @@ def build_report_context(summary, snapshots, response_text="", analysis_data=Non
     analysis_block = (
         json.dumps(analysis_data, indent=2) if isinstance(analysis_data, dict) and analysis_data else "(not generated yet)"
     )
+    if "sections" in summary:
+        scores_block = "\n".join(
+            f"{s['label']} SCORE: {s['score']} (range {s['scoreRange'][0]}-{s['scoreRange'][1]}) — "
+            f"{s['riskLevel']} ({s['interpretation']})"
+            for s in summary["sections"]
+        )
+    else:
+        scores_block = (
+            f"TOTAL SCORE: {summary['totalScore']}/{summary['maxScore']}\n"
+            f"RISK LEVEL: {summary['riskLevel']} ({summary['interpretation']})"
+        )
     return f"""=== BURNOUT ASSESSMENT REPORT (COMPLETE) ===
-TOTAL SCORE: {summary['totalScore']}/{summary['maxScore']}
-RISK LEVEL: {summary['riskLevel']} ({summary['interpretation']})
+{scores_block}
 
 === DOMAIN TOTALS ===
 {domain_summary}

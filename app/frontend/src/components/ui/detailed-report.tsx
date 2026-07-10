@@ -254,13 +254,54 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // thresholds). The local `totalScore` prop is a raw sum and would be wrong for
     // surveys with reverse-scored items, so we show "Calculating…" until /analyze-report
     // returns rather than flashing an incorrect number that then changes.
+    // Surveys with independent scoringSections (e.g. PILOT's BAT-4/CBI-WRB3) have no
+    // single combined score — `sections` is rendered as its own gauge per subscale below.
     const scoreReady = analyzeData !== null;
+    const sections = analyzeData?.sections;
     const displayScore = analyzeData?.totalScore ?? 0;
     const displayMax = analyzeData?.maxScore ?? snapshots.length * 5;
     const riskLevel = analyzeData?.riskLevel ?? "Low";
     const riskText = scoreReady ? (analyzeData?.interpretation ?? `${riskLevel} burnout risk`) : "Calculating your score…";
-    const riskHex = riskLevel === "Low" ? tok.green : riskLevel === "Moderate" ? tok.amber : tok.red;
-    const scorePct = scoreReady && displayMax > 0 ? Math.round((displayScore / displayMax) * 100) : 0;
+
+    // Shared gauge renderer — used for the single combined score, and once per
+    // independent subscale when the survey declares `scoringSections`.
+    const riskHexFor = (level: "Low" | "Moderate" | "High") => (level === "Low" ? tok.green : level === "Moderate" ? tok.amber : tok.red);
+    const renderScoreGauge = (opts: {
+        label: string;
+        score: number;
+        lo: number;
+        hi: number;
+        riskLevel: "Low" | "Moderate" | "High";
+        riskText: string;
+        height?: number;
+    }) => {
+        const { label, score, lo, hi, riskLevel: level, riskText: text, height = 240 } = opts;
+        const pct = hi > lo ? Math.round(((score - lo) / (hi - lo)) * 100) : 0;
+        const hex = riskHexFor(level);
+        return (
+            <div key={label}>
+                <div className="relative">
+                    <ResponsiveContainer width="100%" height={height}>
+                        <RadialBarChart innerRadius="68%" outerRadius="100%" data={[{ value: pct, fill: hex }]} startAngle={180} endAngle={0}>
+                            <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                            <RadialBar background={{ fill: tok.card }} dataKey="value" cornerRadius={14} angleAxisId={0} />
+                        </RadialBarChart>
+                    </ResponsiveContainer>
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end pb-7">
+                        <div className="text-3xl font-extrabold text-[color:var(--ciq-text-strong)]">
+                            {score}
+                            <span className="text-lg font-semibold text-[color:var(--ciq-text-muted)]">/{hi}</span>
+                        </div>
+                        <div className="mt-1.5 rounded-full px-3 py-1 text-sm font-bold" style={{ color: hex, background: `${hex}22` }}>
+                            {level} risk
+                        </div>
+                    </div>
+                </div>
+                <p className="mt-2 text-center text-sm font-semibold text-[color:var(--ciq-text-body)]">{label}</p>
+                <p className="text-center text-xs text-[color:var(--ciq-text-muted)]">{text}</p>
+            </div>
+        );
+    };
 
     // Per-question score → color band (higher item score = worse).
     const scoreHex = (score: number) => (score <= 1 ? tok.green : score <= 3 ? tok.amber : tok.red);
@@ -437,38 +478,31 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <Gauge className="h-5 w-5" /> Overall Burnout
                 </div>
                 <div className="grid items-center gap-4 md:grid-cols-5">
-                    {/* Risk gauge */}
+                    {/* Risk gauge(s) — two independent subscales for a scoringSections
+                        survey (e.g. PILOT's BAT-4/CBI-WRB3), or one combined gauge otherwise. */}
                     <div className="md:col-span-2">
-                        <div className="relative">
-                            <ResponsiveContainer width="100%" height={240}>
-                                <RadialBarChart innerRadius="68%" outerRadius="100%" data={[{ value: scorePct, fill: riskHex }]} startAngle={180} endAngle={0}>
-                                    <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                                    <RadialBar background={{ fill: tok.card }} dataKey="value" cornerRadius={14} angleAxisId={0} />
-                                </RadialBarChart>
-                            </ResponsiveContainer>
-                            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end pb-7">
-                                {scoreReady ? (
-                                    <>
-                                        <div className="text-5xl font-extrabold text-[color:var(--ciq-text-strong)]">
-                                            {displayScore}
-                                            <span className="text-2xl font-semibold text-[color:var(--ciq-text-muted)]">/{displayMax}</span>
-                                        </div>
-                                        <div
-                                            className="mt-1.5 rounded-full px-4 py-1 text-base font-bold"
-                                            style={{ color: riskHex, background: `${riskHex}22` }}
-                                        >
-                                            {riskLevel} risk
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="flex items-center gap-2 text-[color:var(--ciq-text-muted)]">
-                                        <Loader2 className="h-5 w-5 animate-spin" />
-                                        <span className="text-sm font-medium">Calculating…</span>
-                                    </div>
+                        {sections ? (
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                {sections.map(s =>
+                                    renderScoreGauge({
+                                        label: s.label,
+                                        score: s.score,
+                                        lo: s.scoreRange[0],
+                                        hi: s.scoreRange[1],
+                                        riskLevel: s.riskLevel,
+                                        riskText: s.interpretation,
+                                        height: 200
+                                    })
                                 )}
                             </div>
-                        </div>
-                        <p className="mt-2 text-center text-sm text-[color:var(--ciq-text-muted)]">{riskText}</p>
+                        ) : scoreReady ? (
+                            renderScoreGauge({ label: "Overall", score: displayScore, lo: 0, hi: displayMax, riskLevel, riskText })
+                        ) : (
+                            <div className="flex h-[240px] items-center justify-center gap-2 text-[color:var(--ciq-text-muted)]">
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                                <span className="text-sm font-medium">Calculating…</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Enlarged domain profile (radar, or bars when <3 domains) */}

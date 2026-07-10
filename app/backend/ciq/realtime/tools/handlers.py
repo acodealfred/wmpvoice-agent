@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any
 
-from survey_loader import blink_band, effective_score, pupil_band
+from survey_loader import blink_band, compute_section_scores, effective_score, pupil_band
 
 from ciq.realtime.session import SessionState
 from ciq.realtime.tools.base import ToolResult, ToolResultDirection
@@ -54,12 +54,30 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
 
     response_data = {"query_type": query_type, "has_data": True}
 
+    # Surveys with independent scoringSections (e.g. PILOT's BAT-4 / CBI-WRB3) have no
+    # single combined score/threshold — computed via the same canonical helper the
+    # report endpoints use, so the live agent can never diverge from the written report.
+    section_snapshots = [{"questionId": qid, "score": r["score"]} for qid, r in results.items()]
+    sections = compute_section_scores(cfg, section_snapshots) if cfg.get("scoringSections") else None
+
     if query_type == "burnout_score":
-        level, interpretation = _risk(total_score)
-        response_data["total_score"] = total_score
-        response_data["max_score"] = num_questions * 5
-        response_data["risk_level"] = level
-        response_data["interpretation"] = interpretation
+        if sections is not None:
+            response_data["sections"] = [
+                {
+                    "label": s["label"],
+                    "score": s["score"],
+                    "score_range": s["scoreRange"],
+                    "risk_level": s["riskLevel"],
+                    "interpretation": s["interpretation"],
+                }
+                for s in sections
+            ]
+        else:
+            level, interpretation = _risk(total_score)
+            response_data["total_score"] = total_score
+            response_data["max_score"] = num_questions * 5
+            response_data["risk_level"] = level
+            response_data["interpretation"] = interpretation
 
     elif query_type == "contributing_domains":
         domain_scores = {}
@@ -98,14 +116,29 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
             response_data["domain_scores"] = domain_scores
 
     elif query_type == "summary":
-        level, interpretation = _risk(total_score)
-        response_data["summary"] = {
-            "total_score": total_score,
-            "questions_answered": num_questions,
-            "average_score": total_score / num_questions if num_questions else 0,
-            "risk_level": level,
-            "interpretation": interpretation,
-        }
+        if sections is not None:
+            response_data["summary"] = {
+                "questions_answered": num_questions,
+                "sections": [
+                    {
+                        "label": s["label"],
+                        "score": s["score"],
+                        "score_range": s["scoreRange"],
+                        "risk_level": s["riskLevel"],
+                        "interpretation": s["interpretation"],
+                    }
+                    for s in sections
+                ],
+            }
+        else:
+            level, interpretation = _risk(total_score)
+            response_data["summary"] = {
+                "total_score": total_score,
+                "questions_answered": num_questions,
+                "average_score": total_score / num_questions if num_questions else 0,
+                "risk_level": level,
+                "interpretation": interpretation,
+            }
 
         # Biometric readings as CATEGORIES so the agent can state them when asked.
         # State only — no clinical interpretation or link to burnout.
