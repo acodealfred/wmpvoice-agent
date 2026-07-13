@@ -131,6 +131,18 @@ async def init_db() -> None:
             )
         """)
 
+        # Records informed-consent acceptance once per user (e.g. the pilot study
+        # consent form) so it is never re-shown after the first acceptance — durable
+        # across logins/devices, unlike the old localStorage-only flag.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_consents (
+                user_id      TEXT NOT NULL REFERENCES users(user_id),
+                consent_type TEXT NOT NULL,
+                accepted_at  TEXT NOT NULL,
+                PRIMARY KEY (user_id, consent_type)
+            )
+        """)
+
         # Manager "Wellbeing Assistant" chat history. One chat_sessions row per
         # conversation; many chat_messages per chat. See docs/manager-chat.md.
         await db.execute("""

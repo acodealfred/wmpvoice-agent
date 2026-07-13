@@ -13,44 +13,51 @@
       "id": "bat_q1",
       "text": "Emotional Exhaustion",
       "domain": "Emotional Exhaustion",
-      "prompt": "At work, I feel mentally exhausted."
+      "prompt": "At work, I feel mentally exhausted.",
+      "style": "statement"
     },
     {
       "id": "bat_q2",
       "text": "Mental Distance",
       "domain": "Mental Distance",
-      "prompt": "I struggle to find any enthusiasm for my work."
+      "prompt": "I struggle to find any enthusiasm for my work.",
+      "style": "statement"
     },
     {
       "id": "bat_q3",
       "text": "Cognitive Impairment",
       "domain": "Cognitive Impairment",
-      "prompt": "At work, I have trouble staying focused."
+      "prompt": "At work, I have trouble staying focused.",
+      "style": "statement"
     },
     {
       "id": "bat_q4",
       "text": "Emotional Impairment",
       "domain": "Emotional Impairment",
-      "prompt": "At work, I feel unable to control my emotions."
+      "prompt": "At work, I feel unable to control my emotions.",
+      "style": "statement"
     },
     {
       "id": "cbi_q1",
       "text": "Work Emotionally Exhausting",
       "domain": "Work-Related Burnout (Item 7)",
-      "prompt": "Is your work emotionally exhausting?"
+      "prompt": "Is your work emotionally exhausting?",
+      "style": "question"
     },
     {
       "id": "cbi_q2",
       "text": "Morning Exhaustion Feel",
       "domain": "Work-Related Burnout (Item 11)",
-      "prompt": "Are you exhausted in the morning at the thought of another day at work?"
+      "prompt": "Are you exhausted in the morning at the thought of another day at work?",
+      "style": "question"
     },
     {
       "id": "cbi_q3",
       "text": "Leisure Energy Availability",
       "domain": "Work-Related Burnout (Item 13)",
       "prompt": "Do you have enough energy for family and friends during leisure time?",
-      "reverse": true
+      "reverse": true,
+      "style": "question"
     }
   ],
   "scoringSections": [

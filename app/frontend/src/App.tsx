@@ -92,10 +92,12 @@ function App() {
     const suppressAgentAudioRef = useRef(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [surveyTypeConfig, setSurveyTypeConfig] = useState<SurveyTypeConfig | null>(null);
-    // Informed-consent gate for the pilot study. Required once per login session — after
-    // the user agrees, starting/restarting the conversation proceeds without re-prompting.
+    // Informed-consent gate for the pilot study. Recorded server-side in the
+    // `user_consents` table (see GET/POST /consent) so a user who has ever accepted
+    // is never re-prompted again — across devices, logins, and survey re-runs — until
+    // they explicitly ask to review it again. `null` means "not yet checked".
     const [showConsent, setShowConsent] = useState(false);
-    const [consentGiven, setConsentGiven] = useState(false);
+    const [consentGiven, setConsentGiven] = useState<boolean | null>(null);
     // Holds whichever start action (onStartListening / onStartNewSurvey) triggered the
     // consent gate, so ConsentModal's onAgree can resume exactly that action.
     const pendingStartActionRef = useRef<(() => void) | null>(null);
@@ -190,7 +192,12 @@ function App() {
         setAuthState("unauthenticated");
         setCurrentUser(null);
         setSessionId(crypto.randomUUID());
-        setConsentGiven(false);
+        // Reset to "unchecked" so the next login re-fetches this user's own consent
+        // status instead of carrying over the previous account's.
+        setConsentGiven(null);
+        // Reset so the next login's WS connection is gated behind a fresh
+        // /config fetch instead of racing ahead with the previous login's value.
+        setSurveyTypeConfig(null);
     }, []);
 
     useEffect(() => {
@@ -206,6 +213,20 @@ function App() {
                 });
             })
             .catch(err => console.error("Failed to fetch config:", err));
+    }, [authState]);
+
+    // Look up whether this user has already accepted the pilot-study consent form
+    // (see GET /consent) — a one-time, durable acceptance stored in `user_consents`,
+    // so returning users are never re-prompted.
+    useEffect(() => {
+        if (authState !== "authenticated") return;
+        apiFetch("/consent")
+            .then(res => res.json())
+            .then(data => setConsentGiven(Boolean(data.accepted)))
+            .catch(err => {
+                console.error("Failed to fetch consent status:", err);
+                setConsentGiven(false);
+            });
     }, [authState]);
 
     // Tracks the in-flight POST /survey-type request so Start can await it (see below) —
@@ -249,6 +270,13 @@ function App() {
         // type is known ATOMICALLY with connection setup, not dependent on the
         // /survey-type POST above having already landed by the time the socket opens.
         surveyType: surveyTypeConfig?.activeSurveyType,
+        // Hold the socket closed until /config has resolved so the FIRST connection
+        // attempt for this session_id always carries the right survey_type. Without
+        // this, the socket could open a beat earlier with no survey_type, the backend
+        // would bind the session to its default (TEST) survey, and — since that
+        // binding is permanent for the session's lifetime — the correct survey_type
+        // sent moments later on reconnect would be silently ignored.
+        ready: authState === "authenticated" && surveyTypeConfig !== null,
         onWebSocketOpen: () => console.log("WebSocket connection opened"),
         onWebSocketClose: () => console.log("WebSocket connection closed"),
         onWebSocketError: event => console.error("WebSocket error:", event),
@@ -471,14 +499,13 @@ function App() {
     }, [baselineSessionStatus, baselineData, sessionId, refreshSession]);
 
     // Gates a start action (Start/Continue or Restart) behind informed consent for the
-    // pilot survey. If consent is required and hasn't been given yet, the action is
-    // stashed and the modal is shown instead; ConsentModal's onAgree resumes it.
-    // `force` re-prompts even if consent was already given this session — used for
-    // "Start New Survey", since each fresh attempt is a distinct participation event
-    // and shouldn't ride on consent given for a previous run.
+    // pilot survey. Consent is a one-time, durable acceptance recorded server-side
+    // (GET /consent) — once given, it is never asked for again, including on
+    // "Start New Survey". If it hasn't been given (or is still being checked), the
+    // action is stashed and the modal is shown instead; ConsentModal's onAgree resumes it.
     const runWithConsent = useCallback(
-        (action: () => void, force: boolean = false) => {
-            if (requiresConsent && (force || !consentGiven)) {
+        (action: () => void) => {
+            if (requiresConsent && consentGiven !== true) {
                 pendingStartActionRef.current = action;
                 setShowConsent(true);
                 return;
@@ -955,7 +982,7 @@ function App() {
                                             Mobile: [Start/Continue][Stop] on top, [Restart] full-width below. */}
                                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                                                 <Button
-                                                    onClick={() => runWithConsent(onStartNewSurvey, true)}
+                                                    onClick={() => runWithConsent(onStartNewSurvey)}
                                                     variant="outline"
                                                     disabled={!hasAssessment && !isRecording}
                                                     className="order-3 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:opacity-40 sm:order-1 sm:col-span-1"
@@ -1388,6 +1415,9 @@ function App() {
                 onAgree={() => {
                     setConsentGiven(true);
                     setShowConsent(false);
+                    apiFetch("/consent", { method: "POST" }).catch(err =>
+                        console.error("Failed to record consent:", err)
+                    );
                     pendingStartActionRef.current?.();
                     pendingStartActionRef.current = null;
                 }}

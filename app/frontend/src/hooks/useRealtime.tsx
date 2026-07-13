@@ -25,6 +25,14 @@ type Parameters = {
     // FIRST time the backend sees this session_id — later reconnects (and later
     // changes to this value while already connected) are ignored server-side.
     surveyType?: string;
+    // Gates the actual socket connection (default true). Callers that resolve
+    // sessionId/surveyType from separate async calls (e.g. /me then /config)
+    // should hold this false until BOTH have landed, so the very first
+    // connection attempt already carries the right survey_type — otherwise the
+    // socket opens without it, the backend binds this session_id to its default
+    // survey type, and that binding is permanent for the session's lifetime
+    // (see RTMiddleTier._websocket_handler's `not sess.survey_config` guard).
+    ready?: boolean;
     useDirectAoaiApi?: boolean;
     aoaiEndpointOverride?: string;
     aoaiApiKeyOverride?: string;
@@ -54,6 +62,7 @@ type Parameters = {
 export default function useRealTime({
     sessionId,
     surveyType,
+    ready = true,
     useDirectAoaiApi,
     aoaiEndpointOverride,
     aoaiApiKeyOverride,
@@ -106,7 +115,7 @@ export default function useRealTime({
         return command;
     };
 
-    const { sendJsonMessage, getWebSocket } = useWebSocket(wsEndpoint, {
+    const { sendJsonMessage, getWebSocket } = useWebSocket(ready ? wsEndpoint : null, {
         onOpen: () => {
             console.log("[Realtime] WebSocket connected");
             if (hasConnectedRef.current) {

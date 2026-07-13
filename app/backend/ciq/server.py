@@ -11,6 +11,7 @@ from biometric_interpreter import analyze_stress
 from db_init import init_db
 
 from ciq.api.baseline_routes import clear_baseline, get_baseline, save_baseline
+from ciq.api.consent_routes import get_consent, save_consent
 from ciq.api.history_routes import (
     admin_list_users,
     get_demo_data,
@@ -113,6 +114,8 @@ async def create_app():
     app.router.add_get("/baseline", get_baseline)
     app.router.add_post("/baseline", save_baseline)
     app.router.add_delete("/baseline", clear_baseline)
+    app.router.add_get("/consent", get_consent)
+    app.router.add_post("/consent", save_consent)
     app.router.add_get("/admin/users", admin_list_users)
     app.router.add_get("/admin/demo-data", get_demo_data)
     app.router.add_post("/admin/demo-data", set_demo_data)

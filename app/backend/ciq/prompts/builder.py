@@ -264,27 +264,80 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
     config = survey_config
     questions = config.get("questions", [])
 
+    # Each question can mark itself "statement" (a first-person claim the user rates
+    # agreement with, e.g. BAT-4's "At work, I feel mentally exhausted.") or "question"
+    # (a direct question, e.g. CBI's "Is your work emotionally exhausting?"). Surveys
+    # that don't set it (test/full surveys, all phrased as literal questions) default
+    # to "question" — only the pilot survey's BAT-4 items opt into "statement".
+    def _item_style(q: dict) -> str:
+        return q.get("style", "question")
+
+    # Explain the response scale ONCE, right before Step 1, so the user knows how to
+    # answer before the first item is read out — derived from the survey's own
+    # `options` (never hardcoded) so it stays correct for any survey's label set.
+    option_labels = [o["label"] for o in config.get("options", []) if o.get("label")]
+
+    def _scale_intro(style: str) -> str:
+        verb = "read out a statement" if style == "statement" else "ask a question"
+        noun = "statement" if style == "statement" else "question"
+        if len(option_labels) >= 2:
+            return (
+                f'Explain the response scale ONCE — e.g. "First, I\'ll {verb}, and you '
+                f'can tell me how much it applies to you: {", ".join(option_labels[:-1])}, or '
+                f'{option_labels[-1]}." Then ask Step 1\'s {noun}.'
+            )
+        return f"Then ask Step 1's {noun}."
+
+    first_style = _item_style(questions[0]) if questions else "question"
+    scale_step = _scale_intro(first_style)
+
     if is_returning_user:
         opening = f"""OPENING (returning user — skipped recording):
 1. Greet warmly: "Hello, welcome back!"
 2. Ask ONE short, neutral small-talk question (weather, weekend, coffee/tea, surroundings —
    never work, stress, mood, or health) and acknowledge their reply in one sentence.
-3. Then give a short bridge line, e.g. "lovely — if you're ready, I'd like to ask a few quick
-   questions about how work's been feeling." Then go to Step 1."""
+3. Then give a short bridge line asking permission to start, e.g. "lovely — if you're ready,
+   I'd like to ask a few quick questions about how work's been feeling. Shall we start?" Then
+   STOP and WAIT for the user's reply — do NOT ask Step 1's question in the same turn.
+4. The user's reply to that permission question (e.g. "ok", "sure", "yes", "go ahead") is a
+   CONFIRMATION, not a survey answer. Never call record_survey_response for it and never treat
+   it as the answer to Step 1. Once they've confirmed, {scale_step} THEN wait for the actual
+   answer to that question."""
     else:
         opening = f"""OPENING (you have just been making small talk with the user):
 1. Do NOT greet the user again as if meeting them for the first time — you were just chatting.
-2. Give ONE short, warm bridge line, e.g. "nice chatting — if you're ready, I'd like to ask a
-   few quick questions about how work's been feeling." Then go to Step 1."""
+2. Give ONE short, warm bridge line asking permission to start, e.g. "nice chatting — if you're
+   ready, I'd like to ask a few quick questions about how work's been feeling. Shall we start?"
+   Then STOP and WAIT for the user's reply — do NOT ask Step 1's question in the same turn.
+3. The user's reply to that permission question (e.g. "ok", "sure", "yes", "go ahead") is a
+   CONFIRMATION, not a survey answer. Never call record_survey_response for it and never treat
+   it as the answer to Step 1. Once they've confirmed, {scale_step} THEN wait for the actual
+   answer to that question."""
 
     # Each question on its own line: question text first, then the ID for the tool call on a
     # SEPARATE line so the agent cannot confuse "ask this text" with "call tool now".
+    # When a survey mixes item styles (e.g. the pilot survey's BAT-4 statements followed
+    # by CBI questions), a TRANSITION line is inserted right before the step where the
+    # style changes so the agent announces the shift instead of silently switching tone.
     question_blocks = []
+    prev_style = first_style
     for i, q in enumerate(questions):
-        question_blocks.append(
-            f'Step {i + 1}/{len(questions)}: Ask the question — "{q["prompt"]}\n'
+        style = _item_style(q)
+        noun = "statement" if style == "statement" else "question"
+        block = ""
+        if i > 0 and style != prev_style:
+            verb = "read a statement" if style == "statement" else "ask a question"
+            block += (
+                f'TRANSITION before Step {i + 1}: Briefly tell the user you\'re moving to a new '
+                f'set of items before asking, e.g. "Great, now I\'ll {verb} — still using the same '
+                f'scale: {", ".join(option_labels[:-1])}, or {option_labels[-1]}." Then continue.\n\n'
+            )
+        block += (
+            f'Step {i + 1}/{len(questions)}: Ask the {noun} — "{q["prompt"]}"\n'
             f'  Then WAIT for the user to answer. Once they answer, call record_survey_response with question_id="{q["id"]}".'
         )
+        question_blocks.append(block)
+        prev_style = style
     questions_script = "\n\n".join(question_blocks)
 
     return f"""SURVEY SCRIPT — FOLLOW THIS EXACTLY
@@ -307,6 +360,10 @@ HOW TO ASK EACH QUESTION (conversational, not an interrogation):
   then record it and move on. Never ask more than one follow-up for a question.
 
 STRICT RULES:
+- The OPENING's permission question ("shall we start?") and Step 1's question are TWO SEPARATE
+  turns. Never ask them together, and never treat the user's "ok"/"yes"/"sure" reply to the
+  permission question as an answer to Step 1 — that reply only unlocks moving to Step 1, it does
+  not answer it.
 - Work through the questions in the given order, ONE at a time. Only ever handle the CURRENT
   step's question — never skip ahead, reorder, combine, or invent questions.
 - Use ONLY the questions listed above. Do NOT use any burnout knowledge from your training to

@@ -270,6 +270,30 @@ async def delete_user_baseline(user_id: str) -> None:
         await db.commit()
 
 
+async def get_user_consent(user_id: str, consent_type: str = "pilot_study") -> dict | None:
+    """Return the user's acceptance record for ``consent_type``, if they've ever agreed."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT accepted_at FROM user_consents WHERE user_id = ? AND consent_type = ?",
+            (user_id, consent_type),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def record_user_consent(user_id: str, consent_type: str = "pilot_study") -> None:
+    """Record (or refresh) the user's acceptance — one row per (user, consent_type)."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO user_consents (user_id, consent_type, accepted_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(user_id, consent_type) DO UPDATE SET accepted_at = excluded.accepted_at""",
+            (user_id, consent_type, now),
+        )
+        await db.commit()
+
+
 async def delete_session(session_token: str) -> None:
     async with _open_db() as db:
         await db.execute(
