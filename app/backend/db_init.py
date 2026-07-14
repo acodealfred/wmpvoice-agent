@@ -143,6 +143,129 @@ async def init_db() -> None:
             )
         """)
 
+        # PILOT-survey-only subscale tables. One row per survey run (not per question),
+        # written alongside (not instead of) the technical_report JSON blob on
+        # survey_records, so existing report generation is unaffected.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pilot_bat4_scores (
+                survey_run_id  TEXT PRIMARY KEY REFERENCES survey_records(survey_run_id),
+                user_id        TEXT NOT NULL REFERENCES users(user_id),
+                session_id     TEXT,
+                response_1     INTEGER,
+                response_2     INTEGER,
+                response_3     INTEGER,
+                response_4     INTEGER,
+                total_score    INTEGER,
+                average_score  REAL,
+                risk_level     TEXT,
+                created_at     TEXT NOT NULL
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pilot_cbi3_scores (
+                survey_run_id     TEXT PRIMARY KEY REFERENCES survey_records(survey_run_id),
+                user_id           TEXT NOT NULL REFERENCES users(user_id),
+                session_id        TEXT,
+                item_7            INTEGER,
+                item_11           INTEGER,
+                item_13           INTEGER,
+                item_13_reversed  INTEGER,
+                total_score       INTEGER,
+                mean_score        REAL,
+                risk_level        TEXT,
+                created_at        TEXT NOT NULL
+            )
+        """)
+
+        # One row per survey run: two 10s biometric capture windows (right before the
+        # first question and right after the last one) stored as before/after column
+        # pairs, plus the overall average voice-response latency across the survey.
+        # blink_rate_* is an absolute rate in blinks/minute (not a % change vs.
+        # baseline); pupil_dilation_* is currently a raw mm delta vs. baseline.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pilot_behaviour_snapshots (
+                survey_run_id          TEXT PRIMARY KEY REFERENCES survey_records(survey_run_id),
+                user_id                TEXT NOT NULL REFERENCES users(user_id),
+                session_id             TEXT,
+                blink_rate_before      REAL,
+                blink_rate_after       REAL,
+                pupil_dilation_before  REAL,
+                pupil_dilation_after   REAL,
+                response_latency_ms    REAL,
+                captured_before_at     TEXT,
+                captured_after_at      TEXT,
+                created_at             TEXT NOT NULL,
+                updated_at             TEXT NOT NULL
+            )
+        """)
+
+        # Migrate the old phase-row layout (separate 'pre'/'post' rows, keyed by an
+        # autoincrement id) into the new one-row-per-run before/after layout. Only
+        # runs once per DB — detected via the old table's 'phase' column, which is
+        # gone for good once this block drops the renamed old table below.
+        cur = await db.execute("PRAGMA table_info(pilot_behaviour_snapshots)")
+        cols = [r[1] for r in await cur.fetchall()]
+        if "phase" in cols:
+            await db.execute(
+                "ALTER TABLE pilot_behaviour_snapshots RENAME TO pilot_behaviour_snapshots_old"
+            )
+            await db.execute("""
+                CREATE TABLE pilot_behaviour_snapshots (
+                    survey_run_id          TEXT PRIMARY KEY REFERENCES survey_records(survey_run_id),
+                    user_id                TEXT NOT NULL REFERENCES users(user_id),
+                    session_id             TEXT,
+                    blink_rate_before      REAL,
+                    blink_rate_after       REAL,
+                    pupil_dilation_before  REAL,
+                    pupil_dilation_after   REAL,
+                    response_latency_ms    REAL,
+                    captured_before_at     TEXT,
+                    captured_after_at      TEXT,
+                    created_at             TEXT NOT NULL,
+                    updated_at             TEXT NOT NULL
+                )
+            """)
+            old_rows = await (await db.execute(
+                """SELECT survey_run_id, user_id, session_id, phase, blink_rate,
+                          pupil_dilation, response_latency_ms, captured_at
+                   FROM pilot_behaviour_snapshots_old ORDER BY id"""
+            )).fetchall()
+            merged: dict[str, dict] = {}
+            for run_id, user_id, session_id, phase, blink_rate, pupil, latency, captured_at in old_rows:
+                row = merged.setdefault(run_id, {"user_id": user_id, "session_id": session_id})
+                if phase == "pre":
+                    row["blink_rate_before"] = blink_rate
+                    row["pupil_dilation_before"] = pupil
+                    row["captured_before_at"] = captured_at
+                else:
+                    row["blink_rate_after"] = blink_rate
+                    row["pupil_dilation_after"] = pupil
+                    row["response_latency_ms"] = latency
+                    row["captured_after_at"] = captured_at
+            migrate_now = datetime.utcnow().isoformat()
+            for run_id, row in merged.items():
+                await db.execute(
+                    """INSERT INTO pilot_behaviour_snapshots
+                       (survey_run_id, user_id, session_id, blink_rate_before, blink_rate_after,
+                        pupil_dilation_before, pupil_dilation_after, response_latency_ms,
+                        captured_before_at, captured_after_at, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        run_id, row["user_id"], row["session_id"],
+                        row.get("blink_rate_before"), row.get("blink_rate_after"),
+                        row.get("pupil_dilation_before"), row.get("pupil_dilation_after"),
+                        row.get("response_latency_ms"),
+                        row.get("captured_before_at"), row.get("captured_after_at"),
+                        migrate_now, migrate_now,
+                    ),
+                )
+            await db.execute("DROP TABLE pilot_behaviour_snapshots_old")
+            logger.info(
+                "[DB] Migrated %d pilot_behaviour_snapshots row(s) from phase layout to before/after layout",
+                len(merged),
+            )
+
         # Manager "Wellbeing Assistant" chat history. One chat_sessions row per
         # conversation; many chat_messages per chat. See docs/manager-chat.md.
         await db.execute("""

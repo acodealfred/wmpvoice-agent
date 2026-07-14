@@ -25,7 +25,14 @@ SENTIMENT_SCHEMA = {
 SURVEY_SCHEMA = {
     "type": "function",
     "name": "record_survey_response",
-    "description": "Record the user's response to a burnout assessment question. Use Likert scale 1-5 where 1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always.",
+    "description": (
+        "Record the user's response to a burnout assessment question. The valid score "
+        "depends on the question: 'bat_'-prefixed questions use a 1-5 Likert scale "
+        "(1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always); 'cbi_'-prefixed questions "
+        "use a 0-100 scale (0=Never/Almost Never, 25=Seldom, 50=Sometimes, 75=Often, "
+        "100=Always). Always use the exact scale explained to the user for the current "
+        "question — never interpolate between values."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -35,9 +42,12 @@ SURVEY_SCHEMA = {
             },
             "score": {
                 "type": "integer",
-                "minimum": 1,
-                "maximum": 5,
-                "description": "Likert score: 1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always",
+                "enum": [0, 1, 2, 3, 4, 5, 25, 50, 75, 100],
+                "description": (
+                    "For 1-5 scale questions: 1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always. "
+                    "For 0-100 scale questions: 0=Never/Almost Never, 25=Seldom, 50=Sometimes, "
+                    "75=Often, 100=Always."
+                ),
             },
             "user_verbal_response": {
                 "type": "string",

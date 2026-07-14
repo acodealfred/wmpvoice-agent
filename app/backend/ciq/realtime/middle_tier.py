@@ -19,6 +19,7 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 from ciq.llm.azure_chat import AzureChatClient
 from ciq.prompts.builder import build_session_instructions
+from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import (
     SessionStore,
     current_session,
@@ -33,6 +34,7 @@ from ciq.realtime.tools.schemas import (
     SURVEY_SCHEMA,
 )
 from ciq.survey import get_question_domain
+from survey_loader import options_for_question
 
 logger = logging.getLogger("voicerag")
 
@@ -124,7 +126,10 @@ class RTMiddleTier:
 
     def unlock_survey_for_session(self, session_id: str) -> None:
         """Open the warm-up → survey gate (called when the 30s baseline completes)."""
-        self._store.get_or_create(session_id).unlock_survey()
+        sess = self._store.get_or_create(session_id)
+        sess.unlock_survey()
+        if sess.survey_config.get("type") == "PILOT":
+            start_behaviour_capture(sess, "pre")
 
     # ------------------------------------------------------------------
     # Feature wiring
@@ -189,6 +194,34 @@ class RTMiddleTier:
             return self.default_survey_config
         sess = self._store.get_or_create(session_id)
         return sess.survey_config or self.default_survey_config
+
+    def get_behaviour_snapshots_for_session(self, session_id: str) -> dict:
+        """Return the PILOT pre/post behaviour capture results (report endpoints).
+
+        Either value is None until its 10s capture window has completed —
+        callers should treat a None entry as "not yet available" and skip it.
+        """
+        sess = self._store.get_or_create(session_id)
+        return {"pre": sess.pre_behaviour_snapshot, "post": sess.post_behaviour_snapshot}
+
+    async def await_post_behaviour_capture(self, session_id: str, timeout_s: float = 11.0) -> None:
+        """Block briefly for the fire-and-forget post-survey 10s capture task to finish.
+
+        The last question being scored both starts this capture window AND triggers
+        the frontend to call /analyze-report almost immediately — so without this
+        wait, the report request would always beat the capture task and the "after"
+        biometrics would never get persisted.
+        """
+        sess = self._store.get_or_create(session_id)
+        task = sess._behaviour_task
+        if task is not None and not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=timeout_s)
+            except TimeoutError:
+                logger.warning(
+                    "[RTMT] Post-behaviour capture didn't finish within %.1fs (session=%s)",
+                    timeout_s, session_id,
+                )
 
     def set_biometric_guardrail(self, enabled: bool) -> None:
         self.biometric_guardrail_enabled = bool(enabled)
@@ -441,7 +474,7 @@ class RTMiddleTier:
                                         ),
                                         "",
                                     )
-                                    survey_options = sess.survey_config.get("options", [])
+                                    survey_options = options_for_question(sess.survey_config, question_id)
                                     await client_ws.send_json(
                                         {
                                             "type": "survey.update",
@@ -834,6 +867,18 @@ class RTMiddleTier:
             if not self.survey_type_overridden:
                 requested_type = request.rel_url.query.get("survey_type") or requested_type
             self.set_survey_type_for_session(session_id, requested_type)
+
+        # Returning users skip the 30s baseline recording and start straight in the
+        # "survey" phase (set in _resolve_survey_phase above), so POST /survey-phase —
+        # which is what starts the PILOT "pre" capture window for everyone else — is
+        # never called for them. Start it here instead so they still get one.
+        if (
+            self.enable_survey_mode
+            and not is_reconnect
+            and sess.is_returning_user
+            and sess.survey_config.get("type") == "PILOT"
+        ):
+            start_behaviour_capture(sess, "pre")
 
         # Set context var — inherited by both gather tasks in _forward_messages
         token = set_active_session(sess)

@@ -79,6 +79,7 @@ async def clear_stress_state(request):
         sess.blink_rate_history.clear()
         sess.face_emotion_history.clear()
         sess.current_blink_rate_change = 0.0
+        sess.current_blink_rate_bpm = 0.0
         sess.current_face_emotion = "NEUTRAL"
         sess.current_gaze_position = "Center"
         logger.info("[APP] ★ Stress state and biometric history cleared (session=%s)", session_id)
@@ -137,6 +138,7 @@ async def update_biometrics(request):
         session_id = data.get("session_id", "")
         sentiment = data.get("sentiment", "neutral")
         blink_rate_change = data.get("blink_rate_change_percent", 0.0)
+        blink_rate_bpm = data.get("blink_rate_bpm", 0.0)
         face_emotion = data.get("face_emotion", "NEUTRAL")
         gaze_position = data.get("gaze_position", "Center")
         pupil_mm_change = data.get("pupil_mm_change", 0.0)
@@ -147,6 +149,7 @@ async def update_biometrics(request):
         sess = rtmt.get_or_create_session(session_id)
         sess.current_sentiment = sentiment
         sess.current_blink_rate_change = blink_rate_change
+        sess.current_blink_rate_bpm = blink_rate_bpm
         sess.current_face_emotion = face_emotion
         sess.current_gaze_position = gaze_position
         sess.current_pupil_mm_change = pupil_mm_change

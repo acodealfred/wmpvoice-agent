@@ -294,6 +294,139 @@ async def record_user_consent(user_id: str, consent_type: str = "pilot_study") -
         await db.commit()
 
 
+async def save_bat4_scores(
+    survey_run_id: str,
+    user_id: str,
+    session_id: str | None,
+    responses: dict[str, int | None],
+    total_score: int | None,
+    average_score: float | None,
+    risk_level: str | None,
+) -> None:
+    """Upsert the BAT-4 subscale row for one pilot-survey run (one row per run)."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO pilot_bat4_scores
+               (survey_run_id, user_id, session_id,
+                response_1, response_2, response_3, response_4,
+                total_score, average_score, risk_level, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(survey_run_id) DO UPDATE SET
+                   response_1 = excluded.response_1, response_2 = excluded.response_2,
+                   response_3 = excluded.response_3, response_4 = excluded.response_4,
+                   total_score = excluded.total_score, average_score = excluded.average_score,
+                   risk_level = excluded.risk_level""",
+            (
+                survey_run_id, user_id, session_id,
+                responses.get("bat_q1"), responses.get("bat_q2"),
+                responses.get("bat_q3"), responses.get("bat_q4"),
+                total_score, average_score, risk_level, now,
+            ),
+        )
+        await db.commit()
+
+
+async def save_cbi3_scores(
+    survey_run_id: str,
+    user_id: str,
+    session_id: str | None,
+    item_7: int | None,
+    item_11: int | None,
+    item_13: int | None,
+    item_13_reversed: int | None,
+    total_score: int | None,
+    mean_score: float | None,
+    risk_level: str | None,
+) -> None:
+    """Upsert the CBI-WRB3 subscale row for one pilot-survey run (one row per run).
+
+    item_7/item_11/item_13/item_13_reversed are raw answers on CBI-WRB3's native
+    0/25/50/75/100 scale (see surveys/pilot-survey.json's cbi_wrb3.options).
+    total_score is their sum (range 0-300); mean_score is the reportable CBI-WRB3
+    score (range 0-100, = total_score / 3), already correctly computed by
+    survey_loader.compute_section_scores.
+    """
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO pilot_cbi3_scores
+               (survey_run_id, user_id, session_id,
+                item_7, item_11, item_13, item_13_reversed,
+                total_score, mean_score, risk_level, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(survey_run_id) DO UPDATE SET
+                   item_7 = excluded.item_7, item_11 = excluded.item_11,
+                   item_13 = excluded.item_13, item_13_reversed = excluded.item_13_reversed,
+                   total_score = excluded.total_score, mean_score = excluded.mean_score,
+                   risk_level = excluded.risk_level""",
+            (
+                survey_run_id, user_id, session_id,
+                item_7, item_11, item_13, item_13_reversed,
+                total_score, mean_score, risk_level, now,
+            ),
+        )
+        await db.commit()
+
+
+async def save_behaviour_snapshot_before(
+    survey_run_id: str,
+    user_id: str,
+    session_id: str | None,
+    blink_rate: float | None,
+    pupil_dilation: float | None,
+) -> None:
+    """Upsert the pre-survey 10s biometric capture window for a pilot-survey run."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO pilot_behaviour_snapshots
+               (survey_run_id, user_id, session_id, blink_rate_before, pupil_dilation_before,
+                captured_before_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(survey_run_id) DO UPDATE SET
+                   blink_rate_before = excluded.blink_rate_before,
+                   pupil_dilation_before = excluded.pupil_dilation_before,
+                   captured_before_at = excluded.captured_before_at,
+                   updated_at = excluded.updated_at""",
+            (
+                survey_run_id, user_id, session_id, blink_rate, pupil_dilation,
+                now, now, now,
+            ),
+        )
+        await db.commit()
+
+
+async def save_behaviour_snapshot_after(
+    survey_run_id: str,
+    user_id: str,
+    session_id: str | None,
+    blink_rate: float | None,
+    pupil_dilation: float | None,
+    response_latency_ms: float | None,
+) -> None:
+    """Upsert the post-survey 10s biometric capture window + overall response latency."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO pilot_behaviour_snapshots
+               (survey_run_id, user_id, session_id, blink_rate_after, pupil_dilation_after,
+                response_latency_ms, captured_after_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(survey_run_id) DO UPDATE SET
+                   blink_rate_after = excluded.blink_rate_after,
+                   pupil_dilation_after = excluded.pupil_dilation_after,
+                   response_latency_ms = excluded.response_latency_ms,
+                   captured_after_at = excluded.captured_after_at,
+                   updated_at = excluded.updated_at""",
+            (
+                survey_run_id, user_id, session_id, blink_rate, pupil_dilation,
+                response_latency_ms, now, now, now,
+            ),
+        )
+        await db.commit()
+
+
 async def delete_session(session_token: str) -> None:
     async with _open_db() as db:
         await db.execute(

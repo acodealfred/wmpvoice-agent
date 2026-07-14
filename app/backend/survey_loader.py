@@ -50,9 +50,25 @@ def load_survey(survey_type: str) -> dict:
 # Without this, a burnt-out person who answers low on positive items can never reach
 # the High band — the total is structurally capped in the Moderate range.
 
-def get_score_bounds(config: dict) -> tuple[int, int]:
-    """Return (min, max) option values for a survey; defaults to (1, 5)."""
-    vals = [o.get("value") for o in config.get("options", []) if isinstance(o.get("value"), (int, float))]
+def options_for_question(config: dict, question_id: str | None) -> list[dict]:
+    """Return the option (value/label) list governing one question's answer scale.
+
+    Prefers the `scoringSections` entry that owns `question_id` — so a survey like
+    PILOT can give BAT-4 and CBI-WRB3 each their own scale — and falls back to the
+    survey-level `options` for surveys without sections (TEST/BATFULL/CBTFULL) or
+    when `question_id` isn't given/found.
+    """
+    if question_id is not None:
+        for section in config.get("scoringSections", []):
+            if question_id in section.get("questionIds", []) and section.get("options"):
+                return section["options"]
+    return config.get("options", [])
+
+
+def get_score_bounds(config: dict, question_id: str | None = None) -> tuple[int, int]:
+    """Return (min, max) option values for a question (or the whole survey); defaults to (1, 5)."""
+    options = options_for_question(config, question_id)
+    vals = [o.get("value") for o in options if isinstance(o.get("value"), (int, float))]
     return (int(min(vals)), int(max(vals))) if vals else (1, 5)
 
 
@@ -69,7 +85,7 @@ def effective_score(config: dict, question_id: str, raw_score) -> int:
     if raw_score is None:
         return 0
     if is_reverse_item(config, question_id):
-        lo, hi = get_score_bounds(config)
+        lo, hi = get_score_bounds(config, question_id)
         return (lo + hi) - int(raw_score)
     return int(raw_score)
 
@@ -109,14 +125,14 @@ def compute_section_scores(config: dict, snapshots: list) -> list[dict]:
 
     Each section (e.g. BAT-4, CBI-WRB3) averages the reverse-aware effective
     score of only its own `questionIds`, then linearly rescales that average
-    from the survey's native option range (`get_score_bounds`, e.g. 1-5) into
-    the section's own declared `scoreRange` (identity for BAT-4's 1-5; for
-    CBI-WRB3's 0-100 this produces the required raw-1..5 -> 0/25/50/75/100
-    mapping), and bands the rescaled value against the section's own
+    from the section's OWN native option range (`get_score_bounds`, resolved
+    per-section so e.g. BAT-4's 1-5 and CBI-WRB3's 0/25/50/75/100 don't bleed
+    into each other) into the section's own declared `scoreRange` (identity
+    for both today, since each section's native range now equals its own
+    scoreRange), and bands the rescaled value against the section's own
     thresholds/interpretation. A section with none of its questions answered
     yet is omitted (no partial/zero-division score).
     """
-    native_lo, native_hi = get_score_bounds(config)
     by_id = {s.get("questionId", ""): s for s in snapshots}
 
     sections = []
@@ -124,6 +140,9 @@ def compute_section_scores(config: dict, snapshots: list) -> list[dict]:
         matched = [by_id[qid] for qid in section.get("questionIds", []) if qid in by_id]
         if not matched:
             continue
+
+        question_ids = section.get("questionIds", [])
+        native_lo, native_hi = get_score_bounds(config, question_ids[0] if question_ids else None)
 
         raw_avg = sum(
             effective_score(config, s.get("questionId", ""), s.get("score", 0)) for s in matched

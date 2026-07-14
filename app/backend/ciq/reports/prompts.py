@@ -39,8 +39,9 @@ Do NOT infer stress from any single signal — none of these has a validated str
 def build_analysis_prompt(survey_config: dict, snapshots: list) -> str:
     """System prompt for the behavioral-analysis engine (used by /report/behavioral-analysis).
 
-    Each question carries BOTH user_answer (the actual 1–5 answer — the only number ever
-    shown back to the user) and burnout_contribution (internal, reverse-aware) for reasoning.
+    Each question carries BOTH user_answer (the actual answer on that question's own
+    response scale — the only number ever shown back to the user) and burnout_contribution
+    (internal, reverse-aware) for reasoning.
     """
     input_data = []
     for s in snapshots:
@@ -73,8 +74,10 @@ INPUT DATA:
 {input_data}
 
 SCORE REPORTING (STRICT):
-- "user_answer" is the user's actual 1–5 answer to that question. When you refer to a
-  question's score in any insight, you MUST cite "user_answer" — never any other number.
+- "user_answer" is the user's actual answer to that question, on that question's own
+  response scale (this varies by question — do not assume it is always 1-5). When you
+  refer to a question's score in any insight, you MUST cite "user_answer" — never any
+  other number.
 - "burnout_contribution" is an INTERNAL burnout-direction value (for "positive_item": true
   questions it is reversed, so a high "user_answer" yields a low "burnout_contribution").
   Use it ONLY to reason about burnout level. NEVER present "burnout_contribution" as the
@@ -181,7 +184,8 @@ STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
 
 SCORE RULE:
 - The Total Burnout Score above already accounts for reverse-scored positive items.
-- If you mention any individual question's score, use the user's actual answer (1–5).
+- If you mention any individual question's score, use the user's actual answer, on
+  that question's own response scale (this varies by question — do not assume 1–5).
   Do NOT invert or recompute it for positively-worded items (e.g. Job Satisfaction,
   Personal Accomplishment) — a high satisfaction answer stays high when stated to the user.
 
@@ -228,7 +232,8 @@ STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
 
 SCORE RULE:
 - Each subscale score above already accounts for reverse-scored positive items.
-- If you mention any individual question's score, use the user's actual answer (1–5).
+- If you mention any individual question's score, use the user's actual answer, on
+  that question's own response scale (this varies by question — do not assume 1–5).
   Do NOT invert or recompute it for positively-worded items — a high answer on a positive
   item stays high when stated to the user.
 
@@ -261,10 +266,11 @@ def build_report_context(summary, snapshots, response_text="", analysis_data=Non
 {domain_summary}
 
 === QUESTION DETAILS ===
-(The "score" for each question below is the user's ACTUAL answer, 1–5. When the user
-asks about a specific question's score, ALWAYS use this number. Positively-worded items
-such as Job Satisfaction and Personal Accomplishment are reverse-scored ONLY inside the
-total burnout score above — never invert an individual question's score when answering.)
+(The "score" for each question below is the user's ACTUAL answer, on that question's own
+response scale — this varies by question, do not assume 1–5. When the user asks about a
+specific question's score, ALWAYS use this number. Positively-worded items such as Job
+Satisfaction and Personal Accomplishment are reverse-scored ONLY inside the total burnout
+score above — never invert an individual question's score when answering.)
 {build_snapshot_summary(snapshots)}
 
 === AGENT CONSULTATIVE RESPONSE (spoken to user) ===

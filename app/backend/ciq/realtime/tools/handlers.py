@@ -8,11 +8,17 @@ import json
 import logging
 from typing import Any
 
-from survey_loader import blink_band, compute_section_scores, effective_score, pupil_band
-
+from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import SessionState
 from ciq.realtime.tools.base import ToolResult, ToolResultDirection
 from ciq.survey import get_question_domain
+from survey_loader import (
+    blink_band,
+    compute_section_scores,
+    effective_score,
+    get_score_bounds,
+    pupil_band,
+)
 
 logger = logging.getLogger("voicerag")
 
@@ -91,11 +97,19 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
             response_data["highest_score"] = domain_scores[highest]
 
     elif query_type == "stress_questions":
-        # High-burnout questions = burnout-direction (effective) score of 4–5.
+        # High-burnout questions = effective score in the top 25% of that question's
+        # own native range — scale-relative so this works whether the question is on
+        # a 1-5 scale (BAT-4) or a 0-100 scale (CBI-WRB3). Equivalent to today's plain
+        # ">= 4" for a 1-5 question: (4-1)/(5-1) = 0.75.
+        def _is_high(qid, raw):
+            eff = _eff(qid, raw)
+            lo, hi = get_score_bounds(cfg, qid)
+            return hi > lo and (eff - lo) / (hi - lo) >= 0.75
+
         high_stress = [
             {"question_id": qid, "score": _eff(qid, r["score"]), "domain": get_question_domain(qid, survey_config)}
             for qid, r in results.items()
-            if _eff(qid, r["score"]) >= 4
+            if _is_high(qid, r["score"])
         ]
         response_data["high_stress_questions"] = high_stress
         response_data["count"] = len(high_stress)
@@ -239,6 +253,12 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
     total_score = sum(r["score"] for r in sess.survey_results.values())
     completed = len(sess.survey_results)
     total = len(survey_config.get("questions", []))
+
+    # PILOT-only: the last question just closed out the survey — start the
+    # post-survey 10s behaviour capture window (mirrors the "pre" one started
+    # in RTMiddleTier.unlock_survey_for_session).
+    if completed == total and survey_config.get("type") == "PILOT":
+        start_behaviour_capture(sess, "post")
 
     logger.info(
         f"Survey response recorded: {question_id} = {score}, sentiment={voice_sentiment}, blink_change={blink_rate_change_percent}%, gaze={gaze_position}"

@@ -359,6 +359,7 @@ function App() {
                         session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
                         blink_rate_change_percent: blinkToSend,
+                        blink_rate_bpm: biometrics.metrics.blinkRate,
                         pupil_mm_change: pupilMmChange,
                         face_emotion: "NEUTRAL",
                         gaze_position: gazeLabel(biometrics.metrics.gaze)

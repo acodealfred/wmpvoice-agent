@@ -10,6 +10,7 @@ import contextvars
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger("voicerag")
 
@@ -40,6 +41,10 @@ class SessionState:
     stress_state: str = "normal"
     current_sentiment: str = "neutral"
     current_blink_rate_change: float = 0.0
+    # Raw blinks-per-minute reading (as opposed to current_blink_rate_change, which is
+    # a % change vs. the session's baseline) — used by the PILOT before/after capture
+    # windows in ciq.realtime.behaviour_capture, which need an absolute rate.
+    current_blink_rate_bpm: float = 0.0
     current_face_emotion: str = "NEUTRAL"
     current_gaze_position: str = "Center"
     current_pupil_mm_change: float = 0.0
@@ -62,6 +67,14 @@ class SessionState:
     # a survey question) and the user starting to speak their answer.
     last_agent_turn_end_at: float | None = None
     current_response_latency_ms: float | None = None
+
+    # PILOT-only: two 10s biometric capture windows, taken right before the first
+    # question and right after the last one (see ciq.realtime.behaviour_capture).
+    # `_behaviour_task` just keeps a reference alive so asyncio doesn't GC the
+    # running capture task; it is not persisted or read elsewhere.
+    pre_behaviour_snapshot: dict | None = None
+    post_behaviour_snapshot: dict | None = None
+    _behaviour_task: Any = field(default=None, repr=False, compare=False)
 
     # ── survey binding ────────────────────────────────────────────────────────
     def set_survey_type(self, survey_type: str, config: dict) -> None:
@@ -126,6 +139,7 @@ class SessionState:
         self.blink_rate_history.clear()
         self.face_emotion_history.clear()
         self.current_blink_rate_change = 0.0
+        self.current_blink_rate_bpm = 0.0
         self.current_face_emotion = "NEUTRAL"
         self.current_gaze_position = "Center"
         self.stress_state = "normal"
@@ -134,6 +148,9 @@ class SessionState:
         # this is a returning user (valid baseline) and may move it straight to "survey".
         self.survey_phase = "warmup"
         self.is_returning_user = False
+        self.pre_behaviour_snapshot = None
+        self.post_behaviour_snapshot = None
+        self._behaviour_task = None
         logger.info("[RTMT] ★ Session fully reset for new survey (session=%s)", self.session_id)
 
     # ── biometric history ────────────────────────────────────────────────────
@@ -150,6 +167,7 @@ class SessionState:
         self.blink_rate_history.clear()
         self.face_emotion_history.clear()
         self.current_blink_rate_change = 0.0
+        self.current_blink_rate_bpm = 0.0
         self.current_face_emotion = "NEUTRAL"
         self.current_gaze_position = "Center"
         logger.info("[RTMT] ★ Biometric history cleared")

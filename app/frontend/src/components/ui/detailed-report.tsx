@@ -303,14 +303,21 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         );
     };
 
-    // Per-question score → color band (higher item score = worse).
-    const scoreHex = (score: number) => (score <= 1 ? tok.green : score <= 3 ? tok.amber : tok.red);
+    // Different question sets use different raw-answer scales (BAT-4 items are 1-5,
+    // CBI-WRB3 items are 0-100 — see cbi_/bat_ id prefix convention also used
+    // backend-side in reports/routes.py's _BAT4_QUESTION_IDS/_CBI3_QUESTION_IDS), so
+    // color bands / chart axes must work off each question's own max, not a fixed 5.
+    const maxForQuestion = (questionId: string) => (questionId.startsWith("cbi_") ? 100 : 5);
 
-    // Average score per domain for the radar / domain bars.
+    // Per-question score → color band (higher % of that question's own max = worse).
+    const scoreHex = (pct: number) => (pct <= 20 ? tok.green : pct <= 60 ? tok.amber : tok.red);
+
+    // Average score per domain (normalized to % of each question's own max) for the
+    // radar / domain bars, so BAT-4 and CBI-WRB3 domains share one comparable axis.
     const domainMap = new Map<string, { sum: number; n: number }>();
     snapshots.forEach(s => {
         const d = domainMap.get(s.domain) ?? { sum: 0, n: 0 };
-        d.sum += s.score;
+        d.sum += (s.score / maxForQuestion(s.questionId)) * 100;
         d.n += 1;
         domainMap.set(s.domain, d);
     });
@@ -513,14 +520,14 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                 <RadarChart data={domainData} outerRadius="78%">
                                     <PolarGrid stroke={tok.line} />
                                     <PolarAngleAxis dataKey="domain" tick={{ fill: tok.strong, fontSize: 14 }} />
-                                    <PolarRadiusAxis domain={[0, 5]} tick={{ fill: tok.muted, fontSize: 12 }} axisLine={false} />
+                                    <PolarRadiusAxis domain={[0, 100]} tick={{ fill: tok.muted, fontSize: 12 }} axisLine={false} />
                                     <Radar dataKey="score" stroke={tok.purple} fill={tok.purple} fillOpacity={0.35} strokeWidth={2} />
                                     <Tooltip contentStyle={tooltipStyle} />
                                 </RadarChart>
                             ) : (
                                 <BarChart data={domainData} layout="vertical" margin={{ left: 10, right: 16 }}>
                                     <CartesianGrid stroke={tok.line} horizontal={false} />
-                                    <XAxis type="number" domain={[0, 5]} tick={{ fill: tok.muted, fontSize: 13 }} />
+                                    <XAxis type="number" domain={[0, 100]} tick={{ fill: tok.muted, fontSize: 13 }} />
                                     <YAxis type="category" dataKey="domain" width={150} tick={{ fill: tok.strong, fontSize: 13 }} />
                                     <Tooltip contentStyle={tooltipStyle} cursor={{ fill: `${tok.muted}18` }} />
                                     <Bar dataKey="score" radius={[0, 6, 6, 0]}>
@@ -568,7 +575,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.questionId}</td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.domain}</td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium text-[color:var(--ciq-text-strong)]">
-                                            {s.score}/5
+                                            {s.score}/{maxForQuestion(s.questionId)}
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>{b.label}</span>

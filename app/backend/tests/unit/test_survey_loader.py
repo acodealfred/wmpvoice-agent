@@ -10,11 +10,12 @@ from survey_loader import (
     get_score_bounds,
     is_reverse_item,
     load_survey,
+    options_for_question,
     pupil_band,
 )
 
 TEST = load_survey("TEST") # q3 & q5 are reverse items; bounds (1,5); thresholds 12/22
-PILOT = load_survey("PILOT") # bat_q1-4 (BAT-4, 1-5) + cbi_q1-3 (CBI-WRB3, 0-100, cbi_q3 reverse)
+PILOT = load_survey("PILOT") # bat_q1-4 (BAT-4, native 1-5) + cbi_q1-3 (CBI-WRB3, native 0/25/50/75/100, cbi_q3 reverse)
 
 # ── load_survey ────────────────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ def test_summary_domain_totals():
 
 
 # ── compute_section_scores / scoringSections (PILOT's BAT-4 + CBI-WRB3) ────────
-def _pilot_snaps(bat=(4, 4, 4, 4), cbi=(4, 4, 2)):
+def _pilot_snaps(bat=(4, 4, 4, 4), cbi=(75, 75, 25)):
     return [
         _snap("bat_q1", bat[0]), _snap("bat_q2", bat[1]), _snap("bat_q3", bat[2]), _snap("bat_q4", bat[3]),
         _snap("cbi_q1", cbi[0]), _snap("cbi_q2", cbi[1]), _snap("cbi_q3", cbi[2]),
@@ -120,8 +121,17 @@ def test_pilot_declares_two_scoring_sections():
     assert ids == ["bat4", "cbi_wrb3"]
 
 
+def test_options_for_question_resolves_per_section():
+    # BAT-4 and CBI-WRB3 each carry their own scale within the same PILOT config.
+    assert [o["value"] for o in options_for_question(PILOT, "bat_q1")] == [1, 2, 3, 4, 5]
+    assert [o["value"] for o in options_for_question(PILOT, "cbi_q1")] == [0, 25, 50, 75, 100]
+    assert get_score_bounds(PILOT, "bat_q1") == (1, 5)
+    assert get_score_bounds(PILOT, "cbi_q1") == (0, 100)
+
+
 def test_bat4_score_is_plain_average_on_native_1_to_5_scale():
     # All four items answered 4 -> average 4.0, scoreRange [1,5] == native range (identity rescale).
+    # BAT-4's scale is untouched by the CBI-WRB3 0-100 migration (regression guard).
     sections = compute_section_scores(PILOT, _pilot_snaps(bat=(4, 4, 4, 4)))
     bat4 = next(s for s in sections if s["id"] == "bat4")
     assert bat4["score"] == 4.0
@@ -129,10 +139,10 @@ def test_bat4_score_is_plain_average_on_native_1_to_5_scale():
     assert bat4["riskLevel"] == "High"  # > 3.0
 
 
-def test_cbi_wrb3_reverse_scores_item13_and_rescales_1_5_to_0_100():
-    # cbi_q1=4, cbi_q2=4, cbi_q3=2 (reverse -> effective (1+5)-2=4) -> raw avg (4+4+4)/3=4.0
-    # rescaled to 0-100: (4-1)*100/4 = 75.0
-    sections = compute_section_scores(PILOT, _pilot_snaps(cbi=(4, 4, 2)))
+def test_cbi_wrb3_reverse_scores_item13_on_native_0_100_scale():
+    # cbi_q1=75 (Often), cbi_q2=75 (Often), cbi_q3=25 (Seldom, reverse -> effective (0+100)-25=75)
+    # raw avg (75+75+75)/3 = 75.0; native range == scoreRange [0,100] so this is an identity rescale.
+    sections = compute_section_scores(PILOT, _pilot_snaps(cbi=(75, 75, 25)))
     cbi = next(s for s in sections if s["id"] == "cbi_wrb3")
     assert cbi["score"] == 75.0
     assert cbi["scoreRange"] == [0, 100]
@@ -150,10 +160,10 @@ def test_bat4_risk_band_thresholds(bat, expected):
 
 
 @pytest.mark.parametrize("cbi,expected_score,expected_band", [
-    ((3, 3, 4), 41.7, "Low"),       # effective sum 3+3+2=8 -> avg 2.667 -> rescaled 41.7 (<=49)
-    ((3, 3, 3), 50.0, "Moderate"),  # effective sum 3+3+3=9 -> avg 3.0 -> rescaled 50.0 (>49, <=74)
-    ((4, 4, 3), 66.7, "Moderate"),  # effective sum 4+4+3=11 -> avg 3.667 -> rescaled 66.7
-    ((4, 4, 2), 75.0, "High"),      # effective sum 4+4+4=12 (cbi_q3 reversed 2->4) -> rescaled 75.0 (>74)
+    ((50, 50, 75), 41.7, "Low"),       # item13 raw=75 -> reverse eff=25 -> avg (50+50+25)/3=41.7 (<=49)
+    ((50, 50, 50), 50.0, "Moderate"),  # item13 raw=50 -> reverse eff=50 -> avg (50+50+50)/3=50.0 (>49, <=74)
+    ((75, 75, 50), 66.7, "Moderate"),  # item13 raw=50 -> reverse eff=50 -> avg (75+75+50)/3=66.7
+    ((75, 75, 25), 75.0, "High"),      # item13 raw=25 -> reverse eff=75 -> avg (75+75+75)/3=75.0 (>74)
 ])
 def test_cbi_wrb3_risk_band_thresholds(cbi, expected_score, expected_band):
     sections = compute_section_scores(PILOT, _pilot_snaps(cbi=cbi))

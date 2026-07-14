@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from survey_loader import compute_section_scores, get_score_bounds, options_for_question
+
 if TYPE_CHECKING:
     from ciq.realtime.session import SessionState
 
@@ -185,7 +187,6 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
 
     if sess.survey_results:
         answered_ids = list(sess.survey_results.keys())
-        total_score = sum(r["score"] for r in sess.survey_results.values())
         remaining_ids = [q["id"] for q in questions if q["id"] not in answered_ids]
 
         parts.append(f"\nSURVEY STATUS: {len(answered_ids)}/{total_questions} questions answered.")
@@ -195,22 +196,36 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
             qid = q["id"]
             if qid in sess.survey_results:
                 r = sess.survey_results[qid]
-                score_lines.append(f"  {q['text']} ({qid}): {r['score']}/5")
+                _, hi = get_score_bounds(survey_config, qid)
+                score_lines.append(f"  {q['text']} ({qid}): {r['score']}/{hi}")
         if score_lines:
             parts.append("Scores recorded so far:\n" + "\n".join(score_lines))
 
         if not remaining_ids:
-            # Survey complete — compute risk level
-            if total_score <= 12:
-                risk = "Low burnout risk"
-            elif total_score <= 22:
-                risk = "Moderate burnout risk"
+            if survey_config.get("scoringSections"):
+                # Independent subscales (e.g. PILOT's BAT-4 / CBI-WRB3) — never blend
+                # into one combined total, same canonical helper query_survey_tool uses.
+                snaps = [{"questionId": qid, "score": r["score"]} for qid, r in sess.survey_results.items()]
+                sections = compute_section_scores(survey_config, snaps)
+                section_lines = "\n".join(
+                    f"  {s['label']}: {s['score']}/{s['scoreRange'][1]} — {s['interpretation']}"
+                    for s in sections
+                )
+                parts.append(
+                    f"\nAll {total_questions} questions answered. Independent subscale results:\n{section_lines}"
+                )
             else:
-                risk = "High burnout risk"
-            parts.append(
-                f"\nAll {total_questions} questions answered. "
-                f"Total score: {total_score}/{total_questions * 5} — {risk}."
-            )
+                total_score = sum(r["score"] for r in sess.survey_results.values())
+                if total_score <= 12:
+                    risk = "Low burnout risk"
+                elif total_score <= 22:
+                    risk = "Moderate burnout risk"
+                else:
+                    risk = "High burnout risk"
+                parts.append(
+                    f"\nAll {total_questions} questions answered. "
+                    f"Total score: {total_score}/{total_questions * 5} — {risk}."
+                )
         else:
             next_q_id = remaining_ids[0]
             next_q = next((q for q in questions if q["id"] == next_q_id), None)
@@ -273,23 +288,27 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
         return q.get("style", "question")
 
     # Explain the response scale ONCE, right before Step 1, so the user knows how to
-    # answer before the first item is read out — derived from the survey's own
-    # `options` (never hardcoded) so it stays correct for any survey's label set.
-    option_labels = [o["label"] for o in config.get("options", []) if o.get("label")]
+    # answer before the first item is read out — derived from the CURRENT question's
+    # own scale (via `options_for_question`, section-aware for surveys like PILOT
+    # where BAT-4 and CBI-WRB3 each have their own scale) rather than a single
+    # survey-wide list, so it stays correct for any survey's label set.
+    def _labels_for(q: dict) -> list[str]:
+        return [o["label"] for o in options_for_question(config, q.get("id")) if o.get("label")]
 
-    def _scale_intro(style: str) -> str:
+    def _scale_intro(style: str, labels: list[str]) -> str:
         verb = "read out a statement" if style == "statement" else "ask a question"
         noun = "statement" if style == "statement" else "question"
-        if len(option_labels) >= 2:
+        if len(labels) >= 2:
             return (
                 f'Explain the response scale ONCE — e.g. "First, I\'ll {verb}, and you '
-                f'can tell me how much it applies to you: {", ".join(option_labels[:-1])}, or '
-                f'{option_labels[-1]}." Then ask Step 1\'s {noun}.'
+                f'can tell me how much it applies to you: {", ".join(labels[:-1])}, or '
+                f'{labels[-1]}." Then ask Step 1\'s {noun}.'
             )
         return f"Then ask Step 1's {noun}."
 
     first_style = _item_style(questions[0]) if questions else "question"
-    scale_step = _scale_intro(first_style)
+    first_labels = _labels_for(questions[0]) if questions else []
+    scale_step = _scale_intro(first_style, first_labels)
 
     if is_returning_user:
         opening = f"""OPENING (returning user — skipped recording):
@@ -324,14 +343,23 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
     for i, q in enumerate(questions):
         style = _item_style(q)
         noun = "statement" if style == "statement" else "question"
+        labels = _labels_for(q)
         block = ""
         if i > 0 and style != prev_style:
             verb = "read a statement" if style == "statement" else "ask a question"
-            block += (
-                f'TRANSITION before Step {i + 1}: Briefly tell the user you\'re moving to a new '
-                f'set of items before asking, e.g. "Great, now I\'ll {verb} — still using the same '
-                f'scale: {", ".join(option_labels[:-1])}, or {option_labels[-1]}." Then continue.\n\n'
-            )
+            # Always restate the scale here (never claim "the same scale" as before) —
+            # a style change (e.g. BAT-4 -> CBI-WRB3) may also mean a different scale.
+            if len(labels) >= 2:
+                block += (
+                    f'TRANSITION before Step {i + 1}: Briefly tell the user you\'re moving to a new '
+                    f'set of items before asking, e.g. "Great, now I\'ll {verb} — you can answer using: '
+                    f'{", ".join(labels[:-1])}, or {labels[-1]}." Then continue.\n\n'
+                )
+            else:
+                block += (
+                    f'TRANSITION before Step {i + 1}: Briefly tell the user you\'re moving to a new '
+                    f'set of items before asking, e.g. "Great, now I\'ll {verb}." Then continue.\n\n'
+                )
         block += (
             f'Step {i + 1}/{len(questions)}: Ask the {noun} — "{q["prompt"]}"\n'
             f'  Then WAIT for the user to answer. Once they answer, call record_survey_response with question_id="{q["id"]}".'
@@ -385,7 +413,9 @@ AFTER ALL {len(questions)} ANSWERS:
 
 TOOL RULES (silent, never tell the user):
 - record_survey_response: call ONLY after the user has answered that step's question.
-  Required fields: question_id (as shown per step), score 1–5, voice_sentiment, blink_rate_change_percent, face_emotion.
+  Required fields: question_id (as shown per step), score (matching the scale explained
+  for that step — see the tool's own description for the exact value mapping),
+  voice_sentiment, blink_rate_change_percent, face_emotion.
 - DO NOT call record_survey_response for a question_id that you have already recorded.
 - query_survey_results: call with "burnout_score" to deliver the final result, and use it
   again for any follow-up questions after the survey is complete."""

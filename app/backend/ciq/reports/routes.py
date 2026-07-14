@@ -1,17 +1,9 @@
 """HTTP route handlers for report generation (deterministic + on-demand LLM + SSoT)."""
+import asyncio
 import json
 import logging
 
 from aiohttp import web
-
-from db import (
-    ensure_survey_record,
-    merge_survey_record_json,
-    save_survey_record_results,
-    save_survey_record_snapshot,
-    update_survey_record_ssot,
-)
-from survey_loader import compute_survey_summary, serialize_survey_results
 
 from ciq.common.json_utils import parse_llm_json, safe_json, strip_llm_error
 from ciq.kb.mithra_client import call_mithra_kb_chat, call_report_llm
@@ -22,8 +14,28 @@ from ciq.reports.prompts import (
     build_consultative_prompt_sections,
     build_report_context,
 )
+from db import (
+    ensure_survey_record,
+    merge_survey_record_json,
+    save_bat4_scores,
+    save_behaviour_snapshot_after,
+    save_behaviour_snapshot_before,
+    save_cbi3_scores,
+    save_survey_record_results,
+    save_survey_record_snapshot,
+    update_survey_record_ssot,
+)
+from survey_loader import (
+    compute_survey_summary,
+    effective_score,
+    serialize_survey_results,
+)
 
 logger = logging.getLogger("voicerag")
+
+# Keeps references to fire-and-forget post-behaviour persistence tasks alive
+# (asyncio drops a task with no other referent) until they finish on their own.
+_background_tasks: set[asyncio.Task] = set()
 
 
 async def analyze_report(request):
@@ -93,6 +105,15 @@ async def analyze_report(request):
             except Exception as db_err:
                 logger.error("[APP] Report persist failed: %s", db_err)
 
+            if survey_type == "PILOT":
+                try:
+                    await _persist_pilot_subscales(
+                        rtmt, survey_config, summary, snapshots,
+                        survey_run_id, request["auth_session"]["user_id"], session_id,
+                    )
+                except Exception as pilot_err:
+                    logger.error("[APP] Pilot BAT4/CBI3/behaviour persist failed: %s", pilot_err)
+
         # Seed the agent's follow-up Q&A context with the deterministic report.
         if session_id:
             rtmt.set_conversation_state_for_session(
@@ -105,6 +126,87 @@ async def analyze_report(request):
     except Exception as e:
         logger.error(f"Report analysis error: {e}")
         return web.json_response({"error": str(e)}, status=500)
+
+
+_BAT4_QUESTION_IDS = ["bat_q1", "bat_q2", "bat_q3", "bat_q4"]
+_CBI3_QUESTION_IDS = ["cbi_q1", "cbi_q2", "cbi_q3"]
+
+
+async def _persist_pilot_subscales(
+    rtmt, survey_config: dict, summary: dict, snapshots: list,
+    survey_run_id: str, user_id: str, session_id: str,
+) -> None:
+    """Write the BAT-4 / CBI-WRB3 / behaviour rows for one PILOT survey run.
+
+    Purely additive to the existing survey_records JSON blob — reuses the same
+    reverse-aware `effective_score` and `compute_section_scores` output
+    (`summary["sections"]`) the deterministic report already computed, so these
+    tables can never diverge from the persisted technical_report.
+    """
+    by_id = {s.get("questionId"): s.get("score") for s in snapshots}
+    sections_by_id = {s["id"]: s for s in summary.get("sections", [])}
+
+    bat4_section = sections_by_id.get("bat4")
+    if bat4_section:
+        responses = {q: by_id.get(q) for q in _BAT4_QUESTION_IDS}
+        answered = [
+            effective_score(survey_config, q, v) for q, v in responses.items() if v is not None
+        ]
+        total_score = sum(answered) if answered else None
+        await save_bat4_scores(
+            survey_run_id, user_id, session_id, responses, total_score,
+            bat4_section.get("score"), bat4_section.get("riskLevel"),
+        )
+
+    cbi3_section = sections_by_id.get("cbi_wrb3")
+    if cbi3_section:
+        item_7_raw, item_11_raw, item_13_raw = (by_id.get(q) for q in _CBI3_QUESTION_IDS)
+        item_13_reversed = (
+            effective_score(survey_config, "cbi_q3", item_13_raw) if item_13_raw is not None else None
+        )
+        answered = [
+            effective_score(survey_config, q, by_id.get(q))
+            for q in _CBI3_QUESTION_IDS if by_id.get(q) is not None
+        ]
+        total_score = sum(answered) if answered else None
+        await save_cbi3_scores(
+            survey_run_id, user_id, session_id,
+            item_7_raw, item_11_raw, item_13_raw, item_13_reversed, total_score,
+            cbi3_section.get("score"), cbi3_section.get("riskLevel"),
+        )
+
+    pre_snap = rtmt.get_behaviour_snapshots_for_session(session_id).get("pre")
+    if pre_snap:
+        await save_behaviour_snapshot_before(
+            survey_run_id, user_id, session_id,
+            pre_snap.get("blink_rate"), pre_snap.get("pupil_dilation"),
+        )
+
+    # The post-survey 10s capture window starts the moment the last question is
+    # scored — the same event that triggers this whole request — so it is almost
+    # never ready yet. Persist it in the background instead of awaiting it here:
+    # /analyze-report must stay near-instant (its whole point per its docstring),
+    # so the up-to-~10s wait must never block the report the user is looking at.
+    _schedule_post_behaviour_persist(rtmt, session_id, survey_run_id, user_id)
+
+
+def _schedule_post_behaviour_persist(rtmt, session_id: str, survey_run_id: str, user_id: str) -> None:
+    """Fire-and-forget: wait for the post-survey capture window, then persist it."""
+    async def _run():
+        await rtmt.await_post_behaviour_capture(session_id)
+        post_snap = rtmt.get_behaviour_snapshots_for_session(session_id).get("post")
+        if post_snap:
+            try:
+                await save_behaviour_snapshot_after(
+                    survey_run_id, user_id, session_id,
+                    post_snap.get("blink_rate"), post_snap.get("pupil_dilation"), post_snap.get("response_latency_ms"),
+                )
+            except Exception as e:
+                logger.error("[APP] Post-behaviour snapshot persist failed: %s", e)
+
+    task = asyncio.create_task(_run())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 async def report_behavioral_analysis(request):
