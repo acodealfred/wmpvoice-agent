@@ -1,16 +1,33 @@
 """User/admin history endpoints (thin wrappers over the db module)."""
+import io
 import json
 
 from aiohttp import web
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 from db import (
     get_all_users_with_session_info,
     get_manager_analytics,
     get_manager_overview,
     get_manager_score_trend,
+    get_pilot_survey_export_rows,
     get_user_survey_records,
 )
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
+
+_PILOT_EXPORT_HEADERS = [
+    "Index",
+    "Total BAT-4 Score",
+    "Average BAT-4 Score",
+    "Total CBI-WRB3 Score",
+    "Average CBI-WRB3 Score",
+    "Blink Rate Before",
+    "Blink Rate After",
+    "Pupil Dilation Before",
+    "Pupil Dilation After",
+    "Response Latency (ms)",
+]
 
 
 async def admin_list_users(request: web.Request) -> web.Response:
@@ -76,6 +93,42 @@ async def set_demo_data(request: web.Request) -> web.Response:
     enabled = bool(body.get("enabled"))
     status = await (seed_demo_data() if enabled else clear_demo_data())
     return web.json_response(status)
+
+
+async def admin_export_pilot_survey(request: web.Request) -> web.Response:
+    """GET /admin/pilot-survey/export — download all PILOT survey data as .xlsx.
+
+    One row per survey run: BAT-4 total/average, CBI-WRB3 total/average, and the
+    pre/post behaviour capture (blink rate, pupil dilation) + response latency —
+    pulled straight from pilot_bat4_scores / pilot_cbi3_scores /
+    pilot_behaviour_snapshots (see db.get_pilot_survey_export_rows).
+    """
+    rows = await get_pilot_survey_export_rows()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pilot Survey"
+    ws.append(_PILOT_EXPORT_HEADERS)
+    for i, row in enumerate(rows, start=1):
+        ws.append([
+            i,
+            row["bat4_total"], row["bat4_average"],
+            row["cbi3_total"], row["cbi3_average"],
+            row["blink_rate_before"], row["blink_rate_after"],
+            row["pupil_dilation_before"], row["pupil_dilation_after"],
+            row["response_latency_ms"],
+        ])
+    for col_idx, header in enumerate(_PILOT_EXPORT_HEADERS, start=1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = max(12, len(header) + 2)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    return web.Response(
+        body=buf.getvalue(),
+        headers={"Content-Disposition": 'attachment; filename="pilot_survey_export.xlsx"'},
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 async def user_sessions_history(request: web.Request) -> web.Response:

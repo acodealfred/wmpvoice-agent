@@ -427,6 +427,42 @@ async def save_behaviour_snapshot_after(
         await db.commit()
 
 
+async def get_pilot_survey_export_rows() -> list[dict]:
+    """One row per PILOT survey run that has at least some subscale data, joining
+    its BAT-4 / CBI-WRB3 / behaviour data.
+
+    Anchored on survey_records (not the subscale tables) so a run missing only
+    SOME of its subscale rows (e.g. a behaviour capture window that never
+    completed) still appears with NULLs in those columns rather than being
+    silently dropped — but a PILOT run with NO subscale data at all (started
+    and abandoned before /analyze-report ever ran) is excluded entirely, so the
+    export isn't padded with blank rows ahead of the real data. Used by the
+    admin pilot-survey .xlsx export.
+    """
+    async with _open_db() as db:
+        cursor = await db.execute(
+            """SELECT
+                   b.total_score          AS bat4_total,
+                   b.average_score        AS bat4_average,
+                   c.total_score          AS cbi3_total,
+                   c.mean_score           AS cbi3_average,
+                   v.blink_rate_before    AS blink_rate_before,
+                   v.blink_rate_after     AS blink_rate_after,
+                   v.pupil_dilation_before AS pupil_dilation_before,
+                   v.pupil_dilation_after  AS pupil_dilation_after,
+                   v.response_latency_ms  AS response_latency_ms
+               FROM survey_records sr
+               LEFT JOIN pilot_bat4_scores b ON b.survey_run_id = sr.survey_run_id
+               LEFT JOIN pilot_cbi3_scores c ON c.survey_run_id = sr.survey_run_id
+               LEFT JOIN pilot_behaviour_snapshots v ON v.survey_run_id = sr.survey_run_id
+               WHERE sr.survey_type = 'PILOT'
+                 AND (b.survey_run_id IS NOT NULL OR c.survey_run_id IS NOT NULL OR v.survey_run_id IS NOT NULL)
+               ORDER BY sr.created_at ASC""",
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 async def delete_session(session_token: str) -> None:
     async with _open_db() as db:
         await db.execute(

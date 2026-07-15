@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument, AdminUser } from "@/types";
 import { apiFetch } from "@/lib/api";
@@ -254,6 +254,34 @@ export function AdminPanel() {
         }
     }, [demoSaving]);
 
+    // ── Pilot Survey Export ──────────────────────────────────────────
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
+
+    const handleDownloadPilotExport = useCallback(async () => {
+        setExporting(true);
+        setExportError(null);
+        try {
+            const resp = await apiFetch("/admin/pilot-survey/export", { credentials: "same-origin" });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "pilot_survey_export.xlsx";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            setShowExportModal(false);
+        } catch (err) {
+            setExportError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");
+        } finally {
+            setExporting(false);
+        }
+    }, []);
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -460,6 +488,26 @@ export function AdminPanel() {
                 <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
                     Seeding may take a moment. Refresh the Manager dashboard after toggling to see the change.
                 </p>
+            </div>
+
+            {/* ── Pilot Survey Export ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Pilot Survey Export</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    Download every PILOT survey run's BAT-4 and CBI-WRB3 totals/averages, pre/post biometric
+                    capture (blink rate, pupil dilation), and response latency as a spreadsheet.
+                </p>
+                <button
+                    type="button"
+                    onClick={() => setShowExportModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-[color:var(--ciq-accent-purple)] to-[color:var(--ciq-accent-blue)] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                >
+                    <Download className="h-4 w-4" />
+                    Download Pilot Survey Details
+                </button>
             </div>
 
             {/* ── Section A: KB Registration ── */}
@@ -748,6 +796,61 @@ export function AdminPanel() {
                     </div>
                 )}
             </div>
+
+            {/* ── Pilot Survey Export confirm modal ── */}
+            {showExportModal && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                    onClick={() => !exporting && setShowExportModal(false)}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="pilot-export-modal-title"
+                        className="w-full max-w-sm rounded-2xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-card)] p-6 shadow-2xl"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="mb-3 flex items-start justify-between gap-4">
+                            <h2 id="pilot-export-modal-title" className="text-lg font-semibold text-[color:var(--ciq-text-strong)]">
+                                Download Pilot Survey Details
+                            </h2>
+                            <button
+                                type="button"
+                                aria-label="Cancel"
+                                onClick={() => !exporting && setShowExportModal(false)}
+                                className="rounded-md p-1 text-[color:var(--ciq-text-muted)] transition-colors hover:bg-[color:var(--ciq-hover)] hover:text-[color:var(--ciq-text-body)]"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <p className="mb-5 text-sm text-[color:var(--ciq-text-muted)]">
+                            This downloads an Excel (.xlsx) file with one row per PILOT survey run — BAT-4 and
+                            CBI-WRB3 totals/averages, pre/post blink rate and pupil dilation, and response latency.
+                        </p>
+                        {exportError && <p className="mb-3 text-xs text-red-500">{exportError}</p>}
+                        <div className="flex justify-end gap-3">
+                            <Button type="button" variant="ghost" onClick={() => setShowExportModal(false)} disabled={exporting}>
+                                Cancel
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={handleDownloadPilotExport}
+                                disabled={exporting}
+                                className="bg-gradient-to-r from-[color:var(--ciq-accent-purple)] to-[color:var(--ciq-accent-blue)] text-white hover:opacity-90 disabled:opacity-40"
+                            >
+                                {exporting ? (
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Downloading…
+                                    </span>
+                                ) : (
+                                    "Download"
+                                )}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
