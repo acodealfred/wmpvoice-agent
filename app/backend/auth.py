@@ -5,6 +5,7 @@ import bcrypt
 from aiohttp import web
 
 from db import (
+    create_user,
     create_user_session,
     delete_session,
     get_session_by_token,
@@ -14,7 +15,7 @@ from db import (
 logger = logging.getLogger("voicerag")
 
 # Routes that do not require an authenticated session
-_PUBLIC_PATHS = {"/login", "/logout", "/config", "/"}
+_PUBLIC_PATHS = {"/login", "/logout", "/api/signup", "/config", "/"}
 _PUBLIC_PREFIXES = ("/static/", "/assets/")
 
 # Paths under these prefixes require the "admin" role, not just a valid session.
@@ -106,6 +107,29 @@ async def login(request: web.Request) -> web.Response:
         path="/",
     )
     return response
+
+
+async def signup(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    name = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
+    if not name or not password:
+        return web.json_response({"error": "Username and password required"}, status=400)
+
+    if await get_user_by_name(name):
+        return web.json_response({"error": "Username already taken"}, status=400)
+
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode("utf-8")
+    user_id = str(uuid.uuid4())
+    await create_user(user_id, name, password_hash, role="employee")
+
+    logger.info("[Auth] User '%s' signed up (user_id=%s)", name, user_id)
+
+    return web.json_response({"ok": True})
 
 
 async def logout(request: web.Request) -> web.Response:

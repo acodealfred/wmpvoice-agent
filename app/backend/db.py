@@ -38,6 +38,17 @@ async def get_user_by_name(name: str) -> dict | None:
             return dict(row) if row else None
 
 
+async def create_user(user_id: str, name: str, password_hash: str, role: str = "employee") -> None:
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO users (user_id, name, password_hash, role, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, name, password_hash, role, now),
+        )
+        await db.commit()
+
+
 async def get_session_by_token(token: str) -> dict | None:
     """Return the session joined with its owner's role.
 

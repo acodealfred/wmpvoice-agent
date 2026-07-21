@@ -6,7 +6,7 @@ from pathlib import Path
 from aiohttp import web
 from dotenv import load_dotenv
 
-from auth import auth_middleware, login, logout, me
+from auth import auth_middleware, login, logout, me, signup
 from biometric_interpreter import analyze_stress
 from db_init import init_db
 
@@ -90,6 +90,7 @@ async def create_app():
     # ── Auth ──────────────────────────────────────────────────────────────
     app.router.add_post("/login", login)
     app.router.add_post("/logout", logout)
+    app.router.add_post("/api/signup", signup)
     app.router.add_get("/me", me)
 
     # ── Realtime control plane + biometrics ───────────────────────────────

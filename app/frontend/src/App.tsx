@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LoginScreen } from "@/components/ui/login-screen";
+import { SignupScreen } from "@/components/ui/signup-screen";
 import { VideoPanel } from "@/components/ui/video-panel";
 import { GazeIndicator, gazeLabel } from "@/components/ui/gaze-indicator";
 import { CyberAvatar } from "@/components/ui/cyber-avatar";
@@ -57,6 +58,7 @@ function App() {
     });
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const [authState, setAuthState] = useState<AuthState>("checking");
+    const [authView, setAuthView] = useState<"login" | "signup">("login");
     const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
     // Session ID starts as a local UUID and is replaced with the server-issued one on login
     const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
@@ -704,7 +706,14 @@ function App() {
     }
 
     if (authState === "unauthenticated") {
-        return <LoginScreen onLogin={handleLogin} />;
+        return authView === "signup" ? (
+            <SignupScreen
+                onSignupSuccess={() => setAuthView("login")}
+                onSwitchToLogin={() => setAuthView("login")}
+            />
+        ) : (
+            <LoginScreen onLogin={handleLogin} onSwitchToSignup={() => setAuthView("signup")} />
+        );
     }
 
     return (
