@@ -2,12 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── CIQ Petroleum — the app's one global theme (CIQ-RP-PET-001, "instrument
+   panel for the rig floor and refinery gate"). Barlow Semi Condensed carries
+   display/numerals, Mulish carries body copy, IBM Plex Mono carries
+   identifiers/timestamps/sensor tags. ── */
 :root {
-    /* Display = Candara with a humanist fallback chain (Candara is Windows-only and
-       not redistributable, so non-Windows users land on the closest humanist face). */
-    --font-display: "Candara", "Gill Sans", "Gill Sans MT", "Trebuchet MS", "Segoe UI", sans-serif;
-    --font-body: "Ubuntu", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
-    --font-mono: "Ubuntu Mono", "SFMono-Regular", "Roboto Mono", ui-monospace, "Cascadia Code", monospace;
+    --font-display: "Barlow Semi Condensed", "Oswald", "Arial Narrow", system-ui, sans-serif;
+    --font-body: "Mulish", "Avenir Next", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
     font-family: var(--font-body);
 
@@ -21,13 +23,12 @@ body {
     font-family: var(--font-body);
 }
 
-/* Candara carries the headings. Apply via .font-display (wired into Tailwind too). */
 .font-display {
     font-family: var(--font-display);
     letter-spacing: -0.01em;
 }
 
-/* Instrument typeface for the numeric biometric readouts — steady digit widths so
+/* Instrument typeface for identifiers/timestamps — steady digit widths so
    values don't jitter as they tick. */
 .font-data {
     font-family: var(--font-mono);
@@ -35,62 +36,46 @@ body {
 }
 
 @layer base {
+    /* § 3.2 — headings default to Barlow Semi Condensed even where a
+       component forgot the `.font-display` utility class. */
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        font-family: var(--font-display);
+    }
+
     :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
-        --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
-        --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
+        /* Crude / Derrick / Rig Steel / Halogen / Flame Cyan / Flare, converted to HSL
+           for the shadcn-style component tokens (Button/Card/etc.). */
+        --background: 210 17% 5%; /* Crude #0A0C0E */
+        --foreground: 203 21% 93%; /* Halogen #E8EDF0 */
+        --card: 207 20% 9%; /* Derrick #12171B */
+        --card-foreground: 203 21% 93%;
+        --popover: 207 20% 9%;
+        --popover-foreground: 203 21% 93%;
+        --primary: 205 77% 61%; /* Flame Cyan #4FA9E8 */
+        --primary-foreground: 210 17% 5%;
+        --secondary: 206 19% 14%; /* Rig Steel #1E262C */
+        --secondary-foreground: 203 21% 93%;
+        --muted: 206 19% 14%;
+        --muted-foreground: 207 9% 53%; /* Mud #7C8892 */
+        --accent: 206 19% 14%;
+        --accent-foreground: 203 21% 93%;
+        --destructive: 14 77% 54%; /* Flare #E4572E — never pure red */
+        --destructive-foreground: 203 21% 93%;
+        --border: 206 19% 14%;
+        --input: 206 19% 14%;
+        --ring: 205 77% 61%;
+        --chart-1: 14 77% 54%; /* Flare */
+        --chart-2: 205 77% 61%; /* Flame Cyan */
+        --chart-3: 35 86% 59%; /* Sodium */
+        --chart-4: 157 57% 48%; /* Vapour */
+        --chart-5: 208 65% 47%; /* Flame Cyan, pressed */
         --radius: 0.5rem;
     }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
-    }
-}
-
-@layer base {
     * {
         @apply border-border;
     }
@@ -102,10 +87,10 @@ body {
 @keyframes pulse-glow {
     0%,
     100% {
-        box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.7);
+        box-shadow: 0 0 0 0 rgba(79, 169, 232, 0.7);
     }
     50% {
-        box-shadow: 0 0 20px 10px rgba(147, 51, 234, 0);
+        box-shadow: 0 0 20px 10px rgba(79, 169, 232, 0);
     }
 }
 
@@ -128,125 +113,52 @@ body {
     animation: fade-in 0.3s ease-out forwards;
 }
 
-/* ── CIQ theme tokens — light (default) + dark, toggled via [data-theme] ── */
-:root,
-[data-theme="light"] {
-    --ciq-page-from: #eef5fd;
-    --ciq-page-to: #d8e7f8;
-    --ciq-text-strong: #0c2440;
-    --ciq-text-86: rgba(12, 36, 64, 0.9);
-    --ciq-text-68: rgba(12, 36, 64, 0.74);
-    --ciq-text-60: rgba(12, 36, 64, 0.66);
-    --ciq-text-46: rgba(12, 36, 64, 0.58);
-    --ciq-text-40: rgba(12, 36, 64, 0.52);
-    --ciq-tile: rgba(86, 132, 200, 0.12);
-    --ciq-tile-strong: rgba(86, 132, 200, 0.2);
-    --ciq-hover: rgba(86, 132, 200, 0.24);
-    --ciq-track: rgba(86, 132, 200, 0.2);
-    --ciq-divider: rgba(70, 110, 170, 0.24);
-    --ciq-border: rgba(70, 110, 170, 0.32);
-    --ciq-header-bg: rgba(255, 255, 255, 0.55);
-    --ciq-accent-green: #15803d;
-    --ciq-accent-red: #dc2626;
-    --ciq-accent-amber: #b45309;
-    --ciq-accent-purple: #6d28d9;
-    --ciq-accent-blue: #2563eb;
-    --ciq-logo-filter: brightness(0) saturate(100%);
-    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
-    --ciq-card: #ffffff;
-    --ciq-card-2: #eef3fa;
-    --ciq-card-3: #dfe8f4;
-    --ciq-text-body: #33485f;
-    --ciq-text-muted: #5f7488;
-    --ciq-text-faint: #8aa0b8;
-    --ciq-line: #d3e0ee;
-    --ciq-glass-border: rgba(255, 255, 255, 0.75);
-    --ciq-glass-grad-1: rgba(255, 255, 255, 0.78);
-    --ciq-glass-grad-2: rgba(223, 237, 252, 0.55);
-    --ciq-glass-base: rgba(214, 232, 250, 0.45);
-    --ciq-glass-shadow: 0 22px 55px rgba(86, 132, 200, 0.16), inset 0 1px 1px rgba(255, 255, 255, 0.92), inset 0 -1px 1px rgba(120, 160, 210, 0.1);
-}
-
-[data-theme="dark"] {
-    --ciq-page-from: #0d1411;
-    --ciq-page-to: #11211b;
-    --ciq-text-strong: #fffaf2;
-    --ciq-text-86: rgba(255, 250, 242, 0.9);
-    --ciq-text-68: rgba(255, 250, 242, 0.78);
-    --ciq-text-60: rgba(255, 250, 242, 0.7);
-    --ciq-text-46: rgba(255, 250, 242, 0.56);
-    --ciq-text-40: rgba(255, 250, 242, 0.5);
-    --ciq-tile: rgba(255, 255, 255, 0.08);
-    --ciq-tile-strong: rgba(255, 255, 255, 0.14);
-    --ciq-hover: rgba(255, 255, 255, 0.2);
-    --ciq-track: #243445;
-    --ciq-divider: rgba(255, 255, 255, 0.16);
-    --ciq-border: rgba(255, 255, 255, 0.24);
-    --ciq-header-bg: rgba(18, 25, 23, 0.28);
-    --ciq-accent-green: #5ee5a1;
-    --ciq-accent-red: #ff8a8a;
-    --ciq-accent-amber: #fbd585;
-    --ciq-accent-purple: #e4c3ff;
-    --ciq-accent-blue: #7cb0ff;
+/* ── CIQ theme tokens — Petroleum only. Crude/derrick/rig-steel surfaces,
+   flame-cyan accents, sodium/flare/vapour for the monitor/act/fit bands.
+   Pure red is never used — flare orange (#E4572E) carries the highest band.
+   Secondary text bottoms out at Mud (#7C8892 / --ciq-text-muted), which is
+   the guide's own floor for 4.5:1 contrast against Derrick/Crude. ── */
+:root {
+    --ciq-page-from: #0a0c0e;
+    --ciq-page-to: #10161b;
+    --ciq-text-strong: #e8edf0;
+    --ciq-text-86: rgba(232, 237, 240, 0.9);
+    --ciq-text-68: rgba(232, 237, 240, 0.78);
+    --ciq-text-60: rgba(232, 237, 240, 0.72);
+    --ciq-text-46: rgba(232, 237, 240, 0.62);
+    --ciq-text-40: rgba(232, 237, 240, 0.58);
+    --ciq-tile: rgba(30, 38, 44, 0.55);
+    --ciq-tile-strong: rgba(30, 38, 44, 0.85);
+    --ciq-hover: rgba(79, 169, 232, 0.14);
+    --ciq-track: #1e262c;
+    --ciq-divider: #1e262c;
+    --ciq-border: #1e262c;
+    --ciq-header-bg: rgba(10, 12, 14, 0.82);
+    --ciq-accent-green: #35c08a;
+    --ciq-accent-red: #e4572e;
+    --ciq-accent-amber: #f0a63c;
+    --ciq-accent-purple: #4fa9e8;
+    --ciq-accent-blue: #4fa9e8;
+    --ciq-accent-blue-pressed: #2a7fc8;
     --ciq-logo-filter: none;
-    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
-    --ciq-card: #101c26;
-    --ciq-card-2: #182634;
-    --ciq-card-3: #243445;
-    --ciq-text-body: #cad7e5;
-    --ciq-text-muted: #93a4b8;
-    --ciq-text-faint: #6b7d92;
-    --ciq-line: #2c3c4e;
-    --ciq-glass-border: rgba(255, 255, 255, 0.16);
-    --ciq-glass-grad-1: rgba(255, 255, 255, 0.14);
-    --ciq-glass-grad-2: rgba(255, 255, 255, 0.05);
-    --ciq-glass-base: rgba(12, 18, 17, 0.5);
-    --ciq-glass-shadow: 0 30px 100px rgba(0, 0, 0, 0.42), inset 0 1px 1px rgba(255, 255, 255, 0.2), inset 0 -1px 1px rgba(255, 255, 255, 0.06);
-}
-
-/* Ocean — a deep blue dark theme (matches the manager dashboard's digital twin) */
-[data-theme="ocean"] {
-    --ciq-page-from: #071622;
-    --ciq-page-to: #05111b;
-    --ciq-text-strong: #eaf6ff;
-    --ciq-text-86: rgba(220, 239, 251, 0.9);
-    --ciq-text-68: rgba(220, 239, 251, 0.78);
-    --ciq-text-60: rgba(220, 239, 251, 0.7);
-    --ciq-text-46: rgba(220, 239, 251, 0.56);
-    --ciq-text-40: rgba(220, 239, 251, 0.5);
-    --ciq-tile: rgba(84, 167, 221, 0.1);
-    --ciq-tile-strong: rgba(84, 167, 221, 0.18);
-    --ciq-hover: rgba(84, 167, 221, 0.26);
-    --ciq-track: rgba(84, 167, 221, 0.18);
-    --ciq-divider: rgba(84, 167, 221, 0.2);
-    --ciq-border: rgba(84, 167, 221, 0.28);
-    --ciq-header-bg: rgba(7, 22, 34, 0.4);
-    --ciq-accent-green: #19c993;
-    --ciq-accent-red: #ff7088;
-    --ciq-accent-amber: #f0bd54;
-    --ciq-accent-purple: #9cc2ff;
-    --ciq-accent-blue: #54a7dd;
-    --ciq-logo-filter: none;
-    /* Solid component surfaces (panels/cards built outside .ciq-glass-card) */
-    --ciq-card: #0a2336;
-    --ciq-card-2: #0c2a40;
-    --ciq-card-3: #103247;
-    --ciq-text-body: #cfe4f3;
-    --ciq-text-muted: #7fa6c0;
-    --ciq-text-faint: #5d7e98;
-    --ciq-line: #173347;
-    --ciq-glass-border: rgba(84, 167, 221, 0.18);
-    --ciq-glass-grad-1: rgba(84, 167, 221, 0.12);
-    --ciq-glass-grad-2: rgba(84, 167, 221, 0.04);
-    --ciq-glass-base: rgba(7, 22, 34, 0.5);
-    --ciq-glass-shadow: 0 30px 100px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.12), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
+    --ciq-card: #12171b;
+    --ciq-card-2: #171d22;
+    --ciq-card-3: #1c232a;
+    --ciq-text-body: #c3ccd3;
+    --ciq-text-muted: #7c8892;
+    --ciq-text-faint: #4a555e;
+    --ciq-line: #1e262c;
+    --ciq-glass-border: #1e262c;
+    --ciq-glass-grad-1: rgba(30, 38, 44, 0.5);
+    --ciq-glass-grad-2: rgba(18, 23, 27, 0.3);
+    --ciq-glass-base: #12171b;
+    --ciq-glass-shadow: none;
 }
 
 .ciq-page {
     background: linear-gradient(135deg, var(--ciq-page-from), var(--ciq-page-to));
 }
 
-/* The logo asset is white; darken it to a silhouette in light mode so it stays visible. */
 .ciq-logo {
     filter: var(--ciq-logo-filter);
 }
@@ -270,13 +182,13 @@ body {
     position: absolute;
     inset: 0 0 auto 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--ciq-metric-accent, var(--ciq-accent-purple)), transparent);
+    background: linear-gradient(90deg, transparent, var(--ciq-metric-accent, var(--ciq-accent-blue)), transparent);
     opacity: 0.75;
 }
 .ciq-metric:hover {
-    border-color: var(--ciq-metric-accent, var(--ciq-accent-purple));
+    border-color: var(--ciq-metric-accent, var(--ciq-accent-blue));
     box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--ciq-metric-accent, var(--ciq-accent-purple)) 32%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--ciq-metric-accent, var(--ciq-accent-blue)) 32%, transparent),
         0 10px 26px rgba(0, 0, 0, 0.18);
     transform: translateY(-1px);
 }
@@ -303,33 +215,186 @@ body {
 .ciq-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    height: 18px;
-    width: 18px;
+    height: 20px;
+    width: 20px;
     border-radius: 9999px;
-    background: var(--ciq-accent-purple);
+    background: var(--ciq-accent-blue);
     border: 2px solid var(--ciq-card);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
     cursor: pointer;
 }
 .ciq-range::-moz-range-thumb {
-    height: 18px;
-    width: 18px;
+    height: 20px;
+    width: 20px;
     border-radius: 9999px;
-    background: var(--ciq-accent-purple);
+    background: var(--ciq-accent-blue);
     border: 2px solid var(--ciq-card);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
     cursor: pointer;
 }
 .ciq-range:focus-visible::-webkit-slider-thumb {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ciq-accent-purple) 40%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ciq-accent-blue) 40%, transparent);
 }
 
-/* ── CIQ glass card — frosted surface driven by theme tokens ── */
+/* ── Band chip — verdict pill (Fit / Monitor / Act). ── */
+.ciq-band {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 9999px;
+    padding: 7px 14px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+.ciq-band .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+.ciq-band-fit {
+    background: color-mix(in srgb, var(--ciq-accent-green) 14%, transparent);
+    color: var(--ciq-accent-green);
+}
+.ciq-band-fit .dot {
+    background: var(--ciq-accent-green);
+}
+.ciq-band-monitor {
+    background: color-mix(in srgb, var(--ciq-accent-amber) 14%, transparent);
+    color: var(--ciq-accent-amber);
+}
+.ciq-band-monitor .dot {
+    background: var(--ciq-accent-amber);
+}
+.ciq-band-act {
+    background: color-mix(in srgb, var(--ciq-accent-red) 16%, transparent);
+    color: var(--ciq-accent-red);
+}
+.ciq-band-act .dot {
+    background: var(--ciq-accent-red);
+}
+
+/* ── Instrument tile — two-column metric layout: monoline icon, key, big
+   tabular value with a small unit. § 5.1. ── */
+.ciq-instrument-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+.ciq-instrument-tile {
+    background: var(--ciq-card);
+    border: 1px solid var(--ciq-border);
+    border-radius: 1rem;
+    padding: 18px;
+}
+.ciq-instrument-tile .ico {
+    width: 22px;
+    height: 22px;
+    stroke: var(--ciq-text-muted);
+    fill: none;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.ciq-instrument-tile .key {
+    display: block;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--ciq-text-muted);
+    font-weight: 300;
+}
+.ciq-instrument-tile .value {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 34px;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    color: var(--ciq-text-strong);
+}
+.ciq-instrument-tile .unit {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--ciq-text-muted);
+    margin-left: 5px;
+    letter-spacing: 0.04em;
+}
+
+/* ── Privacy lock strip — persistent cyan banner for any surface that
+   captures data (voice, camera, biometrics). § 5.6 / § 7.5. ── */
+.ciq-privacy-lock {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    background: color-mix(in srgb, var(--ciq-accent-blue) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ciq-accent-blue) 22%, transparent);
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+.ciq-privacy-lock svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+    stroke: var(--ciq-accent-blue);
+}
+.ciq-privacy-lock span {
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 300;
+    color: var(--ciq-text-body);
+}
+
+/* ── Primary / secondary button primitives, and touch-target sizing for
+   primary controls (§ 2.1: >=56px interactive, >=64px primary CTA). No
+   gradients (§ 3.3): the primary action is a solid Halogen fill with dark
+   text; secondary/ghost is a translucent white outline. ── */
+.ciq-btn-primary {
+    background: #e8edf0;
+    color: #0a0c0e;
+    box-shadow: none;
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.ciq-btn-primary:hover {
+    background: #c9d3d9;
+}
+
+.ciq-btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e8edf0;
+}
+.ciq-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.ciq-touch {
+    min-height: 56px;
+    min-width: 56px;
+}
+.ciq-touch-lg {
+    min-height: 64px;
+    min-width: 64px;
+}
+
+/* ── Survey-type tag (e.g. CBTFULL) — active state, Vapour tint. No theme
+   renders a neon/pure-saturation green at full opacity. ── */
+.ciq-badge-tag-active {
+    background: rgba(53, 192, 138, 0.14);
+    color: #35c08a;
+    border: 1px solid #35c08a;
+}
+
+/* ── CIQ glass card — flat instrument surface. § 3.3: one elevation only,
+   blur rationed to the sticky header / voice sheet, so the general-purpose
+   card here carries no blur and no drop shadow. ── */
 .ciq-glass-card {
     border: 1px solid var(--ciq-glass-border);
     border-radius: 1.25rem;
     background: linear-gradient(135deg, var(--ciq-glass-grad-1), var(--ciq-glass-grad-2)), var(--ciq-glass-base);
     box-shadow: var(--ciq-glass-shadow);
-    backdrop-filter: blur(26px) saturate(150%);
     overflow: hidden;
 }

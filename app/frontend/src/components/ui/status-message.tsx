@@ -18,7 +18,7 @@ export default function StatusMessage({ isRecording }: Properties) {
                     {[...Array(4)].map((_, i) => (
                         <div
                             key={i}
-                            className="w-1 rounded-full bg-purple-600 opacity-80"
+                            className="w-1 rounded-full bg-[color:var(--ciq-accent-blue)] opacity-80"
                             style={{
                                 animation: `barHeight${(i % 3) + 1} 1s ease-in-out infinite`,
                                 animationDelay: `${i * 0.1}s`

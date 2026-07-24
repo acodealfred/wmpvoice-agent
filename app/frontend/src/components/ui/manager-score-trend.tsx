@@ -114,21 +114,21 @@ export function ManagerScoreTrend() {
                     <div className="ml-chart-fill">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -12 }}>
-                            <CartesianGrid stroke="rgba(84,167,221,.14)" vertical={false} />
-                            <XAxis dataKey="label" tick={{ fill: "#8fb4cc", fontSize: 11 }}
-                                axisLine={{ stroke: "rgba(84,167,221,.2)" }} tickLine={false} />
-                            <YAxis tick={{ fill: "#8fb4cc", fontSize: 11 }}
+                            <CartesianGrid stroke="var(--line)" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fill: "var(--muted)", fontSize: 11 }}
+                                axisLine={{ stroke: "var(--line2)" }} tickLine={false} />
+                            <YAxis tick={{ fill: "var(--muted)", fontSize: 11 }}
                                 axisLine={false} tickLine={false} width={44} allowDecimals={false} />
                             <Tooltip
                                 contentStyle={{
-                                    background: "rgba(9,26,40,.95)", border: "1px solid rgba(84,167,221,.3)",
-                                    borderRadius: 10, color: "#dceffb", fontSize: 12,
+                                    background: "var(--panel)", border: "1px solid var(--glassBorder)",
+                                    borderRadius: 10, color: "var(--bright)", fontSize: 12,
                                 }}
-                                labelStyle={{ color: "#8fb4cc" }}
+                                labelStyle={{ color: "var(--muted)" }}
                                 formatter={(v: number, _n, p) => [`${v}  ·  ${p.payload.assessed} assessed`, "Avg score"]} />
-                            <Line type="linear" dataKey="avgScore" stroke="#54a7dd" strokeWidth={2.5}
-                                dot={{ r: 3, fill: "#54a7dd", strokeWidth: 0 }}
-                                activeDot={{ r: 5, fill: "#7fd4ff" }} />
+                            <Line type="linear" dataKey="avgScore" stroke="var(--cyan)" strokeWidth={2.5}
+                                dot={{ r: 3, fill: "var(--cyan)", strokeWidth: 0 }}
+                                activeDot={{ r: 5, fill: "var(--cyan)" }} />
                         </LineChart>
                     </ResponsiveContainer>
                     </div>

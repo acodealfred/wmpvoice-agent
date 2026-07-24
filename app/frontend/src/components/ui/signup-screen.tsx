@@ -54,7 +54,7 @@ export function SignupScreen({ onSignupSuccess, onSwitchToLogin }: SignupScreenP
                         onChange={e => setUsername(e.target.value)}
                         required
                         autoComplete="username"
-                        className="rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 py-3 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                        className="ciq-touch rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ciq-accent-blue)]/50"
                     />
                     <input
                         type="password"
@@ -63,18 +63,18 @@ export function SignupScreen({ onSignupSuccess, onSwitchToLogin }: SignupScreenP
                         onChange={e => setPassword(e.target.value)}
                         required
                         autoComplete="new-password"
-                        className="rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 py-3 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                        className="ciq-touch rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ciq-accent-blue)]/50"
                     />
-                    {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>}
+                    {error && <p className="rounded-lg bg-petroleum-flare/10 px-3 py-2 text-sm text-petroleum-flare">{error}</p>}
                     {success && (
-                        <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
+                        <p className="rounded-lg bg-[color:var(--ciq-accent-green)]/10 px-3 py-2 text-sm text-[color:var(--ciq-accent-green)]">
                             Account created! Redirecting to sign in…
                         </p>
                     )}
                     <button
                         type="submit"
                         disabled={loading || success}
-                        className="mt-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/20 transition-all hover:from-purple-500 hover:to-pink-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="ciq-btn-primary ciq-touch-lg mt-2 rounded-xl text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {loading ? "Creating account…" : "Sign Up"}
                     </button>
@@ -84,7 +84,7 @@ export function SignupScreen({ onSignupSuccess, onSwitchToLogin }: SignupScreenP
                     <button
                         type="button"
                         onClick={onSwitchToLogin}
-                        className="font-semibold text-purple-400 transition-colors hover:text-purple-300"
+                        className="font-semibold text-[color:var(--ciq-accent-blue)] transition-colors hover:opacity-80"
                     >
                         Log in
                     </button>

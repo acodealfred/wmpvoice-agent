@@ -21,22 +21,22 @@ const emotionIcons: Record<string, string> = {
 function getSentimentIcon(sentiment: "positive" | "neutral" | "negative") {
     switch (sentiment) {
         case "positive":
-            return <Smile className="h-4 w-4 text-green-500" />;
+            return <Smile className="h-4 w-4 text-petroleum-vapour" />;
         case "neutral":
-            return <Meh className="h-4 w-4 text-yellow-500" />;
+            return <Meh className="h-4 w-4 text-petroleum-sodium" />;
         case "negative":
-            return <Frown className="h-4 w-4 text-red-500" />;
+            return <Frown className="h-4 w-4 text-petroleum-flare" />;
     }
 }
 
 function getSentimentColor(sentiment: "positive" | "neutral" | "negative") {
     switch (sentiment) {
         case "positive":
-            return "text-green-600";
+            return "text-petroleum-vapour";
         case "neutral":
-            return "text-yellow-600";
+            return "text-petroleum-sodium";
         case "negative":
-            return "text-red-600";
+            return "text-petroleum-flare";
     }
 }
 

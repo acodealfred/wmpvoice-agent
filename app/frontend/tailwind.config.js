@@ -51,6 +51,25 @@ export default {
                     3: "hsl(var(--chart-3))",
                     4: "hsl(var(--chart-4))",
                     5: "hsl(var(--chart-5))"
+                },
+                // Literal palette from the Petroleum UI guide (CIQ-RP-PET-001), for
+                // one-off utility usage (SVG strokes, gradient stops) that the
+                // theme-scoped --ciq-* custom properties don't cover. Prefer the
+                // --ciq-* tokens for anything that should adapt across themes.
+                petroleum: {
+                    crude: "#0A0C0E",
+                    derrick: "#12171B",
+                    steel: "#1E262C",
+                    "steel-2": "#2A343C",
+                    cyan: "#4FA9E8",
+                    "cyan-deep": "#2A7FC8",
+                    navy: "#16395B",
+                    sodium: "#F0A63C",
+                    flare: "#E4572E",
+                    vapour: "#35C08A",
+                    halogen: "#E8EDF0",
+                    mud: "#7C8892",
+                    "mud-dim": "#4A555E"
                 }
             },
             fontFamily: {
@@ -61,7 +80,10 @@ export default {
             fontSize: {
                 "7xl": ["4.5rem", { lineHeight: "1.3" }],
                 "4xl": ["2.5rem", { lineHeight: "3.2rem" }],
-                "3xl": ["2rem", { lineHeight: "2.8rem" }]
+                "3xl": ["2rem", { lineHeight: "2.8rem" }],
+                // Petroleum guide § 3.2 type scale — instrument numerals/titles.
+                "numeral-xl": ["3.875rem", { lineHeight: "0.9" }],
+                "display-xl": ["2.75rem", { lineHeight: "0.98" }]
             }
         }
     },

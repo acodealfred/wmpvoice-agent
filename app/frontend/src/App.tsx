@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Sun, Moon, Droplets, Check, ChevronDown, Activity, Maximize2, Minimize2, Bot, Video } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Activity, Maximize2, Minimize2, Bot, Video } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -44,19 +44,7 @@ const NAV_TABS = [
     { id: "history",    label: "History",         adminOnly: false, managerOnly: false, guestOnly: false },
 ] as const;
 
-type ThemeMode = "light" | "dark" | "ocean";
-const THEME_OPTIONS: { id: ThemeMode; label: string; icon: typeof Sun }[] = [
-    { id: "light", label: "Light", icon: Sun },
-    { id: "dark", label: "Dark", icon: Moon },
-    { id: "ocean", label: "Ocean", icon: Droplets },
-];
-
 function App() {
-    const [theme, setTheme] = useState<"light" | "dark" | "ocean">(() => {
-        const saved = localStorage.getItem("ciq-theme");
-        return saved === "dark" || saved === "ocean" ? saved : "light";
-    });
-    const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const [authState, setAuthState] = useState<AuthState>("checking");
     const [authView, setAuthView] = useState<"login" | "signup">("login");
     const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -130,14 +118,6 @@ function App() {
     // the server — the recording is persisted to the DB once it completes.
     const baselineNeedsSaveRef = useRef(false);
 
-    // Apply the active theme to <html> (drives the CSS theme tokens) and persist it.
-    useEffect(() => {
-        document.documentElement.setAttribute("data-theme", theme);
-        // Toggle the shadcn `.dark` class for any dark-ish theme so Button/Card
-        // primitives follow along (both "dark" and "ocean" are dark surfaces).
-        document.documentElement.classList.toggle("dark", theme !== "light");
-        localStorage.setItem("ciq-theme", theme);
-    }, [theme]);
 
     // Apply the persisted text-size preference (set from the Admin tab) on load.
     useEffect(() => {
@@ -735,7 +715,7 @@ function App() {
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
                                     aria-current={activeTab === tab.id ? "page" : undefined}
-                                    className={`rounded-full px-4 py-1.5 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] ${
+                                    className={`ciq-touch rounded-full px-5 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] ${
                                         activeTab === tab.id
                                             ? "border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] font-semibold text-[color:var(--ciq-text-strong)] shadow-[0_8px_20px_rgba(0,0,0,0.12)]"
                                             : "font-medium text-[color:var(--ciq-text-60)] hover:bg-[color:var(--ciq-tile)] hover:text-[color:var(--ciq-text-86)]"
@@ -745,56 +725,6 @@ function App() {
                                 </button>
                             ))}
                         </nav>
-                        <div className="relative">
-                            {(() => {
-                                const ActiveIcon = THEME_OPTIONS.find(o => o.id === theme)?.icon ?? Sun;
-                                return (
-                                    <button
-                                        onClick={() => setThemeMenuOpen(o => !o)}
-                                        aria-label="Change color theme"
-                                        aria-haspopup="menu"
-                                        aria-expanded={themeMenuOpen}
-                                        title="Change color theme"
-                                        className="flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--ciq-tile-strong)] px-2.5 text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)]"
-                                    >
-                                        <ActiveIcon className="h-4 w-4" />
-                                        <ChevronDown className={`h-3 w-3 transition-transform ${themeMenuOpen ? "rotate-180" : ""}`} />
-                                    </button>
-                                );
-                            })()}
-                            {themeMenuOpen && (
-                                <>
-                                    {/* click-away backdrop */}
-                                    <div className="fixed inset-0 z-40" onClick={() => setThemeMenuOpen(false)} />
-                                    <div
-                                        role="menu"
-                                        className="absolute right-0 z-50 mt-2 w-36 overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-card)] p-1 shadow-[var(--ciq-glass-shadow)]"
-                                    >
-                                        {THEME_OPTIONS.map(opt => {
-                                            const Icon = opt.icon;
-                                            const active = theme === opt.id;
-                                            return (
-                                                <button
-                                                    key={opt.id}
-                                                    role="menuitemradio"
-                                                    aria-checked={active}
-                                                    onClick={() => { setTheme(opt.id); setThemeMenuOpen(false); }}
-                                                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs transition-colors ${
-                                                        active
-                                                            ? "bg-[color:var(--ciq-tile-strong)] font-semibold text-[color:var(--ciq-text-strong)]"
-                                                            : "font-medium text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-tile)]"
-                                                    }`}
-                                                >
-                                                    <Icon className="h-4 w-4" />
-                                                    <span className="flex-1">{opt.label}</span>
-                                                    {active && <Check className="h-3.5 w-3.5" />}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </>
-                            )}
-                        </div>
                         <div className="flex items-center gap-2 border-l border-[color:var(--ciq-divider)] pl-3">
                             <span className="text-xs text-[color:var(--ciq-text-60)]">{currentUser?.name}</span>
                             <button
@@ -818,7 +748,7 @@ function App() {
             {/* ── Manager Dashboard ── */}
             {activeTab === "dashboard" && (isManager || isAdmin) && (
                 <main className="relative flex-1 overflow-hidden">
-                    <ManagerLanding theme={theme} />
+                    <ManagerLanding theme="petroleum" />
                 </main>
             )}
 
@@ -888,9 +818,9 @@ function App() {
                                                                     onClick={() => handleSurveyTypeChange(type)}
                                                                     disabled={isRecording}
                                                                     title="Survey type"
-                                                                    className={`rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                                                    className={`ciq-badge-tag rounded px-2 py-1 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                                                                         surveyTypeConfig.activeSurveyType === type
-                                                                            ? "bg-[#5ee5a1] text-[#0d1a14]"
+                                                                            ? "ciq-badge-tag-active bg-[#5ee5a1] text-[#0d1a14]"
                                                                             : "bg-[color:var(--ciq-tile-strong)] text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)]"
                                                                     }`}
                                                                 >
@@ -976,7 +906,7 @@ function App() {
                                                                 <div className="mt-2">
                                                                     <div className="h-1 w-full overflow-hidden rounded-full bg-[color:var(--ciq-tile-strong)]">
                                                                         <div
-                                                                            className="h-full bg-purple-500 transition-all duration-300"
+                                                                            className="h-full bg-[color:var(--ciq-accent-blue)] transition-all duration-300"
                                                                             style={{ width: `${((surveyCompleted ?? 0) / surveyTotal) * 100}%` }}
                                                                         ></div>
                                                                     </div>
@@ -995,7 +925,7 @@ function App() {
                                                     onClick={() => runWithConsent(onStartNewSurvey)}
                                                     variant="outline"
                                                     disabled={!hasAssessment && !isRecording}
-                                                    className="order-3 col-span-2 flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:opacity-40 sm:order-1 sm:col-span-1"
+                                                    className="ciq-btn-secondary ciq-touch order-3 col-span-2 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:opacity-40 sm:order-1 sm:col-span-1"
                                                 >
                                                     <RotateCcw className="h-4 w-4" />
                                                     {t("app.startNewSurvey") || "Restart"}
@@ -1003,7 +933,7 @@ function App() {
                                                 <Button
                                                     onClick={() => runWithConsent(onStartListening)}
                                                     disabled={isRecording}
-                                                    className="order-1 flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-sm font-semibold text-white shadow-lg shadow-purple-500/20 transition-all hover:from-purple-500 hover:to-pink-500 focus-visible:ring-2 focus-visible:ring-purple-400 disabled:opacity-40 sm:order-2"
+                                                    className="ciq-btn-primary ciq-touch-lg order-1 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] disabled:opacity-40 sm:order-2"
                                                 >
                                                     <Mic className="h-4 w-4" />
                                                     {surveyInProgress ? t("app.continueConversation") || "Continue" : t("app.startRecording") || "Start"}
@@ -1012,7 +942,7 @@ function App() {
                                                     onClick={onStopListening}
                                                     disabled={!isRecording}
                                                     variant="outline"
-                                                    className="order-2 flex h-11 items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)] disabled:opacity-40 sm:order-3"
+                                                    className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)] disabled:opacity-40 sm:order-3"
                                                 >
                                                     <MicOff className="h-4 w-4" />
                                                     {t("app.stopConversation") || "Stop"}
@@ -1282,7 +1212,7 @@ function App() {
                                                                 </div>
                                                             )}
                                                             {sentiment.sentiment === "negative" && (
-                                                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/20">
+                                                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-petroleum-flare/20">
                                                                     <Frown className="h-5 w-5 text-[color:var(--ciq-accent-red)]" />
                                                                 </div>
                                                             )}
@@ -1334,7 +1264,7 @@ function App() {
                                                     </div>
                                                     <div className="h-2 w-full overflow-hidden rounded-full bg-[color:var(--ciq-track)]">
                                                         <div
-                                                            className="h-full rounded-full bg-gradient-to-r from-purple-600 to-pink-500 transition-all duration-500"
+                                                            className="h-full rounded-full bg-[color:var(--ciq-accent-blue)] transition-all duration-500"
                                                             style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
                                                         />
                                                     </div>

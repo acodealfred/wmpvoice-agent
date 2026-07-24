@@ -20,7 +20,11 @@ const buttonVariants = cva(
                 default: "h-10 px-4 py-2",
                 sm: "h-9 rounded-md px-3",
                 lg: "h-11 rounded-md px-8",
-                icon: "h-10 w-10"
+                icon: "h-10 w-10",
+                // Glove-usable touch targets (Petroleum UI guide § 2.1): interactive
+                // elements >= 56px, primary actions >= 64px. Opt-in per screen.
+                touch: "h-14 min-w-14 px-5 text-base",
+                "touch-lg": "h-16 min-w-16 px-8 text-base"
             }
         },
         defaultVariants: {

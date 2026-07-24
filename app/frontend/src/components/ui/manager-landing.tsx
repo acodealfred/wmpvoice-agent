@@ -36,8 +36,8 @@ interface OverviewData {
 
 // ── risk → colour helpers (shared by cards + 3D scene) ─────────────────
 // Neon-leaning hexes for the 3D scene; the cards keep the softer theme vars.
-const RISK_HEX: Record<string, number> = { Low: 0x2bf5b0, Moderate: 0xffcc4d, High: 0xff4d7d };
-function riskHex(level: string): number { return RISK_HEX[level] ?? 0x54a7dd; }
+const RISK_HEX: Record<string, number> = { Low: 0x35c08a, Moderate: 0xf0a63c, High: 0xe4572e };
+function riskHex(level: string): number { return RISK_HEX[level] ?? 0x4fa9e8; }
 function riskFill(level: string): string {
     if (level === "High") return "ml-rfill-high";
     if (level === "Moderate") return "ml-rfill-mod";
@@ -45,7 +45,7 @@ function riskFill(level: string): string {
 }
 
 // ── per-theme palette for the 3D map (one per app colour mode) ─────────
-type ThemeMode = "light" | "dark" | "ocean";
+type ThemeMode = "light" | "dark" | "ocean" | "petroleum";
 const MAP_THEME: Record<ThemeMode, {
     bg: number; fog: number; fogD: number; amb: number; ambI: number; key: number; keyI: number;
     rim: number; rimI: number; grid1: number; gridFine: number; plate: number; plateO: number;
@@ -67,6 +67,12 @@ const MAP_THEME: Record<ThemeMode, {
         bg: 0xe9f2fb, fog: 0xe9f2fb, fogD: 0.008, amb: 0xffffff, ambI: 0.85, key: 0xffffff, keyI: 1.1,
         rim: 0x35c8e0, rimI: 0.5, grid1: 0x7fb4dc, gridFine: 0x35a6d6, plate: 0xdfeaf6, plateO: 0.55,
         body: 0xc9dcef, bodyMetal: 0.35, bodyRough: 0.4, accent: 0xb9d0e6, emI: 0.32,
+    },
+    // Crude/derrick/flame-cyan instrument look (Petroleum UI guide, CIQ-RP-PET-001)
+    petroleum: {
+        bg: 0x0a0c0e, fog: 0x0a0c0e, fogD: 0.012, amb: 0x7c8892, ambI: 0.5, key: 0xe8edf0, keyI: 1.05,
+        rim: 0x4fa9e8, rimI: 0.75, grid1: 0x1e262c, gridFine: 0x4fa9e8, plate: 0x0a0c0e, plateO: 0.94,
+        body: 0x12171b, bodyMetal: 0.7, bodyRough: 0.3, accent: 0x1e262c, emI: 0.5,
     },
 };
 
@@ -238,11 +244,11 @@ export function ManagerLanding({ theme }: Props) {
             const cv = document.createElement("canvas"); cv.width = 640; cv.height = 160;
             const g = cv.getContext("2d")!;
             const hex = "#" + accent.toString(16).padStart(6, "0");
-            g.fillStyle = "rgba(6,18,28,0.88)"; roundRect(g, 8, 40, 624, 80, 22); g.fill();
+            g.fillStyle = "rgba(10,12,14,0.88)"; roundRect(g, 8, 40, 624, 80, 22); g.fill();
             g.strokeStyle = hex; g.lineWidth = 4; roundRect(g, 8, 40, 624, 80, 22); g.stroke();
             // accent glow underline
             g.shadowColor = hex; g.shadowBlur = 18;
-            g.font = "800 56px Inter, sans-serif"; g.fillStyle = "#eaf6ff";
+            g.font = "800 56px Inter, sans-serif"; g.fillStyle = "#e8edf0";
             g.textBaseline = "middle"; g.textAlign = "center";
             g.fillText(text, 320, 84);
             const tex = new THREE.CanvasTexture(cv);
@@ -512,7 +518,7 @@ export function ManagerLanding({ theme }: Props) {
     if (focus.length === 0) focus.push({ title: riskTotal > 0 ? "All assessed staff are Low-risk" : "Awaiting first assessment", detail: riskTotal > 0 ? "No Moderate or High burnout detected in current data." : "Encourage staff to complete the voice assessment to populate this view." });
 
     return (
-        <div className={`ml${theme === "light" ? " ml-light" : theme === "dark" ? " ml-dark" : ""}`}>
+        <div className={`ml${theme === "light" ? " ml-light" : theme === "dark" ? " ml-dark" : theme === "petroleum" ? " ml-petroleum" : ""}`}>
             {loading && (
                 <div className="ml-loader">
                     <div className="ml-ring" />
@@ -619,7 +625,7 @@ export function ManagerLanding({ theme }: Props) {
                             <div className="ml-donut-wrap">
                                 <div className="ml-donut" style={{ position: "relative" }}>
                                     <svg width="112" height="112" viewBox="0 0 112 112" style={{ display: "block" }}>
-                                        <circle cx="56" cy="56" r={donutR} fill="none" stroke="rgba(84,167,221,.14)" strokeWidth="10" />
+                                        <circle cx="56" cy="56" r={donutR} fill="none" stroke="var(--line)" strokeWidth="10" />
                                         <circle cx="56" cy="56" r={donutR} fill="none"
                                             stroke={participation >= 75 ? "var(--green)" : participation >= 40 ? "var(--amber)" : "var(--rose)"}
                                             strokeWidth="10" strokeDasharray={`${donutDash} ${donutCirc}`} strokeLinecap="round" transform="rotate(-90 56 56)" />
@@ -632,7 +638,7 @@ export function ManagerLanding({ theme }: Props) {
                                     <p className="ml-pcov"><b>{participants}</b> of <b>{total}</b> staff have completed at least one assessment.</p>
                                     <div className="ml-leg">
                                         <span><i style={{ background: "var(--green)" }} />Assessed</span>
-                                        <span><i style={{ background: "rgba(255,112,136,.4)" }} />Not yet</span>
+                                        <span><i style={{ background: "color-mix(in srgb, var(--rose) 40%, transparent)" }} />Not yet</span>
                                     </div>
                                 </div>
                             </div>

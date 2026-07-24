@@ -233,7 +233,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                         <span className="gl-cta-glow" aria-hidden />
                         <button
                             onClick={onStartAssessment}
-                            className="group relative inline-flex items-center gap-2.5 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-purple-500/30 transition-all hover:from-purple-500 hover:to-pink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+                            className="ciq-btn-primary ciq-touch-lg group relative inline-flex items-center gap-2.5 rounded-full px-8 text-base transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)]"
                         >
                             <Mic className="h-5 w-5" />
                             {isReturning ? "Start a new assessment" : "Start your assessment"}
@@ -433,7 +433,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                         transition={{ duration: 0.5, delay: 0.6 + i * 0.12 }}
                                         className="bg-[color:var(--ciq-card)]/60 rounded-2xl border border-[color:var(--ciq-border)] p-6 text-left backdrop-blur-xl"
                                     >
-                                        <div className="font-data flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-600 to-pink-600 text-sm font-bold text-white">
+                                        <div className="font-data flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--ciq-accent-blue)] text-sm font-bold text-[#0a0c0e]">
                                             {s.n}
                                         </div>
                                         <h3 className="mt-4 font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">{s.title}</h3>
@@ -461,7 +461,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                             </div>
                             <button
                                 onClick={onStartAssessment}
-                                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/25 transition-all hover:from-purple-500 hover:to-pink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+                                className="ciq-btn-primary ciq-touch inline-flex shrink-0 items-center gap-2 rounded-full px-6 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)]"
                             >
                                 <Mic className="h-4 w-4" />
                                 Begin assessment

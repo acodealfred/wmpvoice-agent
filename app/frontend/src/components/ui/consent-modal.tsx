@@ -156,8 +156,8 @@ export default function ConsentModal({
                         {/* Header */}
                         <div className="flex items-start justify-between gap-4 border-b border-[color:var(--ciq-divider)] px-6 py-5">
                             <div className="flex items-start gap-3">
-                                <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-gradient-to-br from-[color:var(--ciq-accent-purple)] to-[color:var(--ciq-accent-blue)]">
-                                    <ShieldCheck className="h-5 w-5 text-white" />
+                                <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-[color:var(--ciq-accent-blue)]">
+                                    <ShieldCheck className="h-5 w-5 text-[#0a0c0e]" />
                                 </span>
                                 <div>
                                     <h2 id="consent-modal-title" className="text-lg font-semibold text-[color:var(--ciq-text-strong)]">
@@ -226,10 +226,7 @@ export default function ConsentModal({
                                     type="button"
                                     onClick={onAgree}
                                     disabled={!canContinue}
-                                    className={cn(
-                                        "bg-gradient-to-r from-[color:var(--ciq-accent-purple)] to-[color:var(--ciq-accent-blue)] text-white",
-                                        "hover:opacity-90 disabled:opacity-40"
-                                    )}
+                                    className={cn("ciq-btn-primary ciq-touch", "disabled:opacity-40")}
                                 >
                                     Agree & Continue
                                 </Button>

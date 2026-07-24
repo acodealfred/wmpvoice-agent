@@ -32,14 +32,14 @@ export function VideoPanel({ isRecording = false, expanded = false, onEmotionDet
     return (
         <div className="flex flex-col">
             <div
-                className={`relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-[#0d1a14] transition-[max-width] duration-300 ${expanded ? "max-w-none" : "max-w-xl"}`}
+                className={`relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-[color:var(--ciq-card)] transition-[max-width] duration-300 ${expanded ? "max-w-none" : "max-w-xl"}`}
             >
                 <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
                 <canvas ref={canvasRef} className="hidden" />
 
                 {!isStreaming && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-[#1a2520]">
-                        <VideoOff className="h-12 w-12 text-slate-400" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--ciq-card-2)]">
+                        <VideoOff className="h-12 w-12 text-[color:var(--ciq-text-muted)]" />
                     </div>
                 )}
             </div>

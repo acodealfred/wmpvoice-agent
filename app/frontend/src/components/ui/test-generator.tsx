@@ -456,7 +456,7 @@ export function TestGenerator() {
                         max={10}
                         value={testCount}
                         onChange={e => setTestCount(Number(e.target.value))}
-                        className="mb-4 w-full accent-purple-500"
+                        className="ciq-range mb-4 w-full"
                     />
                     <div className="mb-4 flex items-center justify-between text-xs text-[color:var(--ciq-text-muted)]">
                         <span>1</span>
@@ -464,7 +464,7 @@ export function TestGenerator() {
                     </div>
                     <button
                         onClick={handleGenerate}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold text-white shadow-md hover:from-purple-500 hover:to-pink-500"
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[color:var(--ciq-accent-blue)] px-6 py-3 text-sm font-semibold text-[#0a0c0e] hover:opacity-90"
                     >
                         <Sparkles className="h-4 w-4" />
                         Generate Test Cases
@@ -571,7 +571,7 @@ export function TestGenerator() {
                         <button
                             onClick={handleSendToSSoT}
                             disabled={ssotLoading || !editableQuery.trim()}
-                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold text-white shadow-md hover:from-purple-500 hover:to-pink-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[color:var(--ciq-accent-blue)] px-6 py-3 text-sm font-semibold text-[#0a0c0e] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {ssotLoading ? (
                                 <>
@@ -695,7 +695,7 @@ export function TestGenerator() {
                             <div
                                 className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
                                     msg.role === "user"
-                                        ? "bg-gradient-to-br from-purple-600 to-pink-600 text-white"
+                                        ? "bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e]"
                                         : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-strong)]"
                                 }`}
                             >
@@ -766,7 +766,7 @@ export function TestGenerator() {
                     <button
                         onClick={handleChatSend}
                         disabled={chatLoading || !chatInput.trim()}
-                        className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white hover:from-purple-500 hover:to-pink-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-lg bg-[color:var(--ciq-accent-blue)] px-4 py-2 text-sm font-semibold text-[#0a0c0e] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {chatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                         Send

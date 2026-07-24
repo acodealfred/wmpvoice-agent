@@ -15,31 +15,20 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Light theme */
-.ml.ml-light {
-  --bg: #eaf3fc; --bg2: #ffffff; --panel: rgba(255,255,255,.78); --panel2: rgba(255,255,255,.6);
-  --line: rgba(37,99,150,.16); --line2: rgba(37,99,150,.3);
-  --text: #214863; --bright: #0c2a40; --muted: #5b7d96; --faint: #8aa6bd;
-  --cyan: #1f7fbf; --teal: #138f88;
-  --green: #0e9b6c; --amber: #bd8419; --rose: #e0556e;
-  --glow: rgba(31,127,191,.35);
-  --bgEnd: #cfe0f2; --halo1: #dceef9; --halo2: #dbf0ee; --gridline: rgba(37,99,150,.06);
-  --glass: rgba(255,255,255,.72); --glassBorder: rgba(37,99,150,.18); --legendText: #33536d;
-  --fade: #dce8f6;
-  --holoBg: linear-gradient(160deg,rgba(255,255,255,.92),rgba(238,245,252,.94));
-}
-
-/* Green-tinted dark — matches the app's existing "dark" mode (assessment tab) */
-.ml.ml-dark {
-  --bg: #0d1411; --bg2: #182634; --panel: rgba(24,38,52,.72); --panel2: rgba(16,28,38,.6);
-  --line: rgba(255,255,255,.12); --line2: rgba(255,255,255,.2);
-  --text: #cad7e5; --bright: #fffaf2; --muted: #93a4b8; --faint: #6b7d92;
-  --cyan: #7cb0ff; --teal: #5ee5a1;
-  --green: #5ee5a1; --amber: #fbd585; --rose: #ff8a8a;
-  --glow: rgba(124,176,255,.4);
-  --bgEnd: #0a0f0c; --halo1: #14241c; --halo2: #122018; --gridline: rgba(255,255,255,.03);
-  --glass: rgba(13,20,17,.6); --glassBorder: rgba(255,255,255,.16); --legendText: #cad7e5;
-  --fade: #0a0f0c;
+/* Petroleum — crude/derrick/flame-cyan instrument theme (CIQ-RP-PET-001).
+   The only theme this component renders now; see manager-landing.tsx. */
+.ml.ml-petroleum {
+  --bg: #0a0c0e; --bg2: #12171b; --panel: rgba(18,23,27,.82); --panel2: rgba(10,12,14,.7);
+  --line: #1e262c; --line2: #2a343c;
+  --text: #c3ccd3; --bright: #e8edf0; --muted: #7c8892; --faint: #4a555e;
+  --cyan: #4fa9e8; --teal: #4fa9e8;
+  --green: #35c08a; --amber: #f0a63c; --rose: #e4572e;
+  --glow: rgba(79,169,232,.4);
+  --bgEnd: #0a0c0e; --halo1: #12171b; --halo2: #16395b; --gridline: rgba(79,169,232,.035);
+  --glass: rgba(10,12,14,.7); --glassBorder: #1e262c; --legendText: #c3ccd3;
+  --fade: #0a0c0e;
+  --font: "Mulish", "Avenir Next", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 /* ─── Root container ─── */
@@ -261,11 +250,11 @@
 }
 .ml .ml-risk:last-child { margin-bottom: 0; }
 .ml .ml-risk label { font-size: 12.5px; font-weight: 600; color: var(--text); }
-.ml .ml-rtrack { height: 9px; border-radius: 99px; background: rgba(84,167,221,.14); overflow: hidden; }
-.ml .ml-rfill { height: 100%; border-radius: 99px; }
-.ml .ml-rfill-low { background: linear-gradient(90deg, #13a87b, var(--green)); }
-.ml .ml-rfill-mod { background: linear-gradient(90deg, #d4a23f, var(--amber)); }
-.ml .ml-rfill-high { background: linear-gradient(90deg, #e25068, var(--rose)); }
+.ml .ml-rtrack { height: 9px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.ml .ml-rfill { height: 100%; border-radius: 99px; background: var(--fill, var(--green)); }
+.ml .ml-rfill-low { --fill: var(--green); }
+.ml .ml-rfill-mod { --fill: var(--amber); }
+.ml .ml-rfill-high { --fill: var(--rose); }
 .ml .ml-risk b { font: 800 13px var(--mono); text-align: right; color: var(--bright); }
 .ml .ml-risk b small { color: var(--faint); font-weight: 500; }
 

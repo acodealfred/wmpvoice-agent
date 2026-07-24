@@ -335,27 +335,27 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
     const confidenceColor = (c: string) =>
         c === "high"
-            ? "bg-green-100 text-green-700"
+            ? "bg-petroleum-vapour/15 text-petroleum-vapour"
             : c === "medium"
-              ? "bg-yellow-100 text-yellow-700"
+              ? "bg-petroleum-sodium/15 text-petroleum-sodium"
               : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-body)]";
 
     const blinkBand = (changePct: number): { label: string; color: string } => {
         const level = blinkBandLevel(changePct);
-        if (level === "Normal") return { label: "Normal", color: "bg-green-100 text-green-700" };
+        if (level === "Normal") return { label: "Normal", color: "bg-petroleum-vapour/15 text-petroleum-vapour" };
         const arrow = changePct > 0 ? "↑" : "↓";
         return level === "Elevated"
-            ? { label: `Elevated ${arrow}`, color: "bg-yellow-100 text-yellow-700" }
-            : { label: `High ${arrow}`, color: "bg-red-100 text-red-700" };
+            ? { label: `Elevated ${arrow}`, color: "bg-petroleum-sodium/15 text-petroleum-sodium" }
+            : { label: `High ${arrow}`, color: "bg-petroleum-flare/15 text-petroleum-flare" };
     };
 
     const pupilBand = (mmChange?: number | null): { label: string; color: string } => {
         const level = pupilBandLevel(mmChange);
         if (level === "Unknown")
             return { label: "—", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
-        if (level === "Low") return { label: "Low", color: "bg-green-100 text-green-700" };
-        if (level === "Medium") return { label: "Medium", color: "bg-yellow-100 text-yellow-700" };
-        return { label: "High", color: "bg-red-100 text-red-700" };
+        if (level === "Low") return { label: "Low", color: "bg-petroleum-vapour/15 text-petroleum-vapour" };
+        if (level === "Medium") return { label: "Medium", color: "bg-petroleum-sodium/15 text-petroleum-sodium" };
+        return { label: "High", color: "bg-petroleum-flare/15 text-petroleum-flare" };
     };
 
     const tooltipStyle = {
@@ -750,7 +750,7 @@ function ReportTabButton({
             disabled={disabled}
             aria-current={active ? "page" : undefined}
             className={`relative -mb-px flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50 ${
-                special ? "rounded-t-lg bg-gradient-to-b from-blue-500/10 to-purple-500/10" : ""
+                special ? "rounded-t-lg bg-[color:var(--ciq-accent-blue)]/10" : ""
             } ${
                 active
                     ? `font-bold text-[color:var(--ciq-text-strong)] ${special ? "border-[color:var(--ciq-accent-blue)]" : "border-[color:var(--ciq-accent-purple)]"}`
@@ -758,7 +758,7 @@ function ReportTabButton({
             }`}
         >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className={special ? "text-[color:var(--ciq-accent-blue)]" : ""}>{icon}</span>}
-            <span className={special && !active ? "bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text font-semibold text-transparent" : ""}>
+            <span className={special && !active ? "font-semibold text-[color:var(--ciq-accent-blue)]" : ""}>
                 {label}
             </span>
         </button>
@@ -776,7 +776,7 @@ function ReportLoading({ label }: { label: string }) {
 function ReportError({ text, onRetry }: { text: string; onRetry: () => void }) {
     return (
         <div className="space-y-3">
-            <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            <div className="flex items-start gap-2 rounded-lg bg-petroleum-flare/10 p-3 text-sm text-petroleum-flare">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{text}</span>
             </div>

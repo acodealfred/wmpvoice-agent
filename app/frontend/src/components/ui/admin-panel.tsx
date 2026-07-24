@@ -429,7 +429,7 @@ export function AdminPanel() {
                         </button>
                     </div>
                 </div>
-                {guardrailError && <p className="mt-2 text-xs text-red-500">{guardrailError}</p>}
+                {guardrailError && <p className="mt-2 text-xs text-petroleum-flare">{guardrailError}</p>}
                 <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
                     Takes effect on new conversations — toggle, then Stop and Start the conversation to apply.
                 </p>
@@ -461,7 +461,7 @@ export function AdminPanel() {
                             disabled={demoEnabled !== true || demoSaving}
                             onClick={clearDemo}
                             title="Delete all seeded demo rows (real data untouched)"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-2.5 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-petroleum-flare/30 px-2.5 py-1.5 text-xs font-medium text-petroleum-flare transition-colors hover:bg-petroleum-flare/10 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             <Trash2 className="h-3.5 w-3.5" />
                             Clear
@@ -484,7 +484,7 @@ export function AdminPanel() {
                         </button>
                     </div>
                 </div>
-                {demoError && <p className="mt-2 text-xs text-red-500">{demoError}</p>}
+                {demoError && <p className="mt-2 text-xs text-petroleum-flare">{demoError}</p>}
                 <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
                     Seeding may take a moment. Refresh the Manager dashboard after toggling to see the change.
                 </p>
@@ -540,7 +540,7 @@ export function AdminPanel() {
                 </div>
 
                 {regStatus !== "registered" && (
-                    <Button onClick={handleRegister} disabled={registering || regStatus === "loading"} className="bg-purple-600 text-white hover:bg-purple-700">
+                    <Button onClick={handleRegister} disabled={registering || regStatus === "loading"} className="bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e] hover:opacity-90">
                         {registering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {registering ? "Registering…" : "Register Company"}
                     </Button>
@@ -583,7 +583,7 @@ export function AdminPanel() {
                                     setUploadTitle(nameWithoutExt);
                                 }
                             }}
-                            className="w-full text-sm text-[color:var(--ciq-text-body)] file:mr-3 file:rounded file:border-0 file:bg-purple-600 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-purple-700"
+                            className="w-full text-sm text-[color:var(--ciq-text-body)] file:mr-3 file:rounded file:border-0 file:bg-[color:var(--ciq-accent-blue)] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-[#0a0c0e] hover:file:opacity-90"
                         />
                         {uploadFile && (
                             <p className="mt-1 text-xs text-[color:var(--ciq-text-muted)]">
@@ -592,7 +592,7 @@ export function AdminPanel() {
                         )}
                     </div>
 
-                    <Button onClick={handleUpload} disabled={uploading || !uploadFile} className="bg-purple-600 text-white hover:bg-purple-700">
+                    <Button onClick={handleUpload} disabled={uploading || !uploadFile} className="bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e] hover:opacity-90">
                         {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                         {uploading ? "Uploading…" : "Upload to Knowledge Base"}
                     </Button>
@@ -827,7 +827,7 @@ export function AdminPanel() {
                             This downloads an Excel (.xlsx) file with one row per PILOT survey run — BAT-4 and
                             CBI-WRB3 totals/averages, pre/post blink rate and pupil dilation, and response latency.
                         </p>
-                        {exportError && <p className="mb-3 text-xs text-red-500">{exportError}</p>}
+                        {exportError && <p className="mb-3 text-xs text-petroleum-flare">{exportError}</p>}
                         <div className="flex justify-end gap-3">
                             <Button type="button" variant="ghost" onClick={() => setShowExportModal(false)} disabled={exporting}>
                                 Cancel

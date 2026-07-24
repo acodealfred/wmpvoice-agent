@@ -6,7 +6,7 @@ import {
 import { SurveyRecord } from "@/types";
 
 const RISK_COLOR: Record<string, string> = {
-    Low: "#22c55e", Moderate: "#f59e0b", High: "#f43f5e",
+    Low: "var(--ciq-accent-green)", Moderate: "var(--ciq-accent-amber)", High: "var(--ciq-accent-red)",
 };
 
 function label(iso: string): string {
@@ -69,11 +69,11 @@ export function GuestScoreTrend({ records }: { records: SurveyRecord[] }) {
                                     borderRadius: 12, fontSize: 12,
                                 }}
                                 formatter={(v: number, _n, p) => [`${v} · ${p.payload.risk}`, "Score"]} />
-                            <Line type="linear" dataKey="score" stroke="#a855f7" strokeWidth={2.5}
+                            <Line type="linear" dataKey="score" stroke="var(--ciq-accent-blue)" strokeWidth={2.5}
                                 dot={(props) => {
                                     const { cx, cy, payload } = props;
                                     return <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={3.5}
-                                        fill={RISK_COLOR[payload.risk] ?? "#a855f7"} stroke="none" />;
+                                        fill={RISK_COLOR[payload.risk] ?? "var(--ciq-accent-blue)"} stroke="none" />;
                                 }}
                                 activeDot={{ r: 5 }} />
                         </LineChart>
