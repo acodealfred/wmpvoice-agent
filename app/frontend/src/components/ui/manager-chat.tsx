@@ -2,7 +2,7 @@ import { Markdown } from "@/components/ui/markdown";
 import { useChatStream } from "@/hooks/useChatStream";
 
 const GREETING =
-    "Hi! I'm the Wellbeing Assistant. Ask me about the organisation's burnout trends — by department, shift, job title or over time — and I'll ground answers in the dashboard data and the research knowledge base.";
+    "Hi! I'm the CIQ Field Assistant. Ask me about the crew's hitch readiness trends — by department, shift, job title or over time — and I'll ground answers in the dashboard data and the research knowledge base.";
 
 // Optional filter context sent with each turn so answers respect the manager's
 // current lens. Parent can pass this in later; defaults to none.
@@ -17,7 +17,7 @@ export function ManagerChat({ filters }: { filters?: Record<string, string> }) {
     return (
         <div className="ml-card ml-pad ml-chat">
             <div className="ml-sec-h">
-                <h2>Wellbeing Assistant</h2>
+                <h2>CIQ Field Assistant</h2>
                 <div className="ml-chat-head-right">
                     <button className="ml-chat-new" onClick={newChat} disabled={busy} title="Start a new chat">+ New chat</button>
                     <span className="ml-badge ml-b-cyan">Grounded · beta</span>
@@ -55,7 +55,7 @@ export function ManagerChat({ filters }: { filters?: Record<string, string> }) {
                 <input
                     type="text"
                     value={input}
-                    placeholder="Ask about burnout trends…"
+                    placeholder="Ask about hitch readiness, fatigue, or shift trends…"
                     disabled={busy}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") send(); }}

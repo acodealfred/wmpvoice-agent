@@ -16,27 +16,27 @@ from db import _open_db
 
 logger = logging.getLogger("voicerag")
 
-# Six departments with distinct burnout profiles so the dashboard reads as a
-# realistic organisation. risk = (Low, Moderate, High) weights; participation is
-# the share of staff that have completed at least one assessment.
+# Six departments with distinct fatigue-risk profiles so the dashboard reads as a
+# realistic rig/field operation. risk = (Fit, Monitor, Act) weights; participation is
+# the share of crew that have completed at least one check.
 DEPARTMENTS = [
-    {"name": "Emergency",   "staff": 12, "participation": 0.70, "risk": (0.20, 0.30, 0.50)},
-    {"name": "ICU",         "staff": 10, "participation": 0.80, "risk": (0.25, 0.35, 0.40)},
-    {"name": "Outpatients", "staff": 14, "participation": 0.85, "risk": (0.65, 0.25, 0.10)},
-    {"name": "Pediatrics",  "staff": 9,  "participation": 0.78, "risk": (0.55, 0.30, 0.15)},
-    {"name": "Surgery",     "staff": 11, "participation": 0.60, "risk": (0.40, 0.35, 0.25)},
-    {"name": "Critical Care", "staff": 8, "participation": 0.50, "risk": (0.25, 0.35, 0.40)},
+    {"name": "Drilling",                "staff": 12, "participation": 0.70, "risk": (0.20, 0.30, 0.50)},
+    {"name": "Frac / Completions",      "staff": 10, "participation": 0.80, "risk": (0.25, 0.35, 0.40)},
+    {"name": "Production",              "staff": 14, "participation": 0.85, "risk": (0.65, 0.25, 0.10)},
+    {"name": "Maintenance / Workover",  "staff": 9,  "participation": 0.78, "risk": (0.55, 0.30, 0.15)},
+    {"name": "HSE",                     "staff": 11, "participation": 0.60, "risk": (0.40, 0.35, 0.25)},
+    {"name": "Logistics / Yard",        "staff": 8,  "participation": 0.50, "risk": (0.25, 0.35, 0.40)},
 ]
 
-# Rotating shifts assigned per staff member. Night/Evening staff skew slightly
-# more burnt-out, so the High band is multiplied by the shift's risk factor —
-# this makes the Shift filter tell a real story in the dashboard. Shifts are
-# assigned round-robin so every shift is guaranteed to appear among the
-# completed assessments (so selecting any Shift filter always returns data).
+# Rotating shifts (tours) assigned per crew member. Night/Evening crew skew
+# slightly more fatigued, so the Act band is multiplied by the shift's risk
+# factor — this makes the Shift filter tell a real story in the dashboard.
+# Shifts are assigned round-robin so every shift is guaranteed to appear among
+# the completed assessments (so selecting any Shift filter always returns data).
 SHIFTS = ["Day", "Evening", "Night"]
 _SHIFT_RISK_MULT = {"Day": 0.85, "Evening": 1.0, "Night": 1.4}
 
-# Each completed staff member has a *monthly history* of assessments rather than
+# Each completed crew member has a *monthly history* of assessments rather than
 # a single one, so the trend chart and every filter/period combination has real
 # date spread. History length is randomised per person within this range (in
 # months, counting back from the current month), so recent months are densely
@@ -44,21 +44,21 @@ _SHIFT_RISK_MULT = {"Day": 0.85, "Evening": 1.0, "Night": 1.4}
 _MIN_HISTORY = 8
 _MAX_HISTORY = 24
 
-# A few demo employees are flagged inactive (departed staff) so the dashboard's
-# "active employees" total differs visibly from the raw headcount. Global
+# A few demo crew are flagged inactive (departed hands) so the dashboard's
+# "active crew" total differs visibly from the raw headcount. Global
 # employee indices (0-based, across all departments in order).
 _INACTIVE_EMP_INDICES = {6, 22, 40, 58}
 
 # Department-appropriate job titles (the Job Title filter dimension).
 JOB_TITLES = {
-    "Emergency":     ["ER Physician", "ER Nurse", "Paramedic", "Triage Nurse"],
-    "ICU":           ["Intensivist", "ICU Nurse", "Respiratory Therapist"],
-    "Outpatients":   ["Physician", "Clinic Nurse", "Medical Assistant", "Receptionist"],
-    "Pediatrics":    ["Pediatrician", "Pediatric Nurse", "Child Life Specialist"],
-    "Surgery":       ["Surgeon", "Anaesthetist", "Scrub Nurse", "Surgical Tech"],
-    "Critical Care": ["Charge Nurse", "Critical Care Nurse", "Orderly"],
+    "Drilling":               ["Driller", "Derrickhand", "Floorhand", "Motorman"],
+    "Frac / Completions":     ["Frac Engineer", "Pump Operator", "Wireline Tech"],
+    "Production":             ["Production Operator", "Pumper", "Gauger", "Dispatcher"],
+    "Maintenance / Workover": ["Workover Hand", "Mechanic", "Electrician"],
+    "HSE":                    ["HSE Manager", "Safety Officer", "Medic"],
+    "Logistics / Yard":       ["Yard Foreman", "Truck Driver", "Warehouse Hand"],
 }
-_DEFAULT_TITLES = ["Physician", "Nurse", "Technician", "Administrator"]
+_DEFAULT_TITLES = ["Operator", "Technician", "Foreman", "Administrator"]
 
 _DEMO_PASSWORD = "demo123"
 _MAX_SCORE = 33  # BAT-style ceiling; Low ≤12, Moderate ≤22, High >22
@@ -111,7 +111,7 @@ async def demo_data_status() -> dict:
 
 
 async def seed_demo_data() -> dict:
-    """Create demo departments, staff and assessments. Idempotent: clears any
+    """Create demo departments, crew and assessments. Idempotent: clears any
     existing demo rows first so a re-seed never duplicates."""
     await clear_demo_data()
     random.seed(42)  # reproducible demo runs
@@ -120,7 +120,7 @@ async def seed_demo_data() -> dict:
     now = datetime.utcnow()
     user_rows: list[tuple] = []
     survey_rows: list[tuple] = []
-    emp_idx = 0  # global employee counter (drives the inactive selection)
+    emp_idx = 0  # global crew counter (drives the inactive selection)
 
     for dept in DEPARTMENTS:
         weights = dept["risk"]
@@ -128,17 +128,17 @@ async def seed_demo_data() -> dict:
         completed = round(dept["staff"] * dept["participation"])
         for i in range(dept["staff"]):
             user_id = str(uuid.uuid4())
-            name = f"demo_{dept['name'].lower().replace(' ', '')}_{i + 1}"
+            name = f"demo_{dept['name'].lower().replace(' ', '').replace('/', '')}_{i + 1}"
             # Round-robin shift + job title so every option appears among the
             # completed assessments and every filter selection returns data.
             shift = SHIFTS[i % len(SHIFTS)]
             job_title = titles[i % len(titles)]
 
             # Only the "completed" share of each department has assessments —
-            # and each such staff member carries a monthly history, so the trend
+            # and each such crew member carries a monthly history, so the trend
             # chart and every filter/period combination has real date spread.
             if i < completed:
-                # Bias the High band by the shift's risk factor so night staff
+                # Bias the High band by the shift's risk factor so night crew
                 # read as more at-risk without changing the overall department mix much.
                 w = list(weights)
                 w[2] *= _SHIFT_RISK_MULT[shift]

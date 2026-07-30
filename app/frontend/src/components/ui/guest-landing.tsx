@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Mic, Flame, TrendingUp, TrendingDown, Minus, ShieldCheck, Brain, Waves, Sparkles, ArrowRight, Target, CheckCircle2, LineChart } from "lucide-react";
+import { Mic, Calendar, TrendingUp, TrendingDown, Minus, ShieldCheck, Brain, Waves, Sparkles, ArrowRight, Target, CheckCircle2, LineChart } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { SurveyRecord } from "@/types";
-import { PILL, TEXT_TONE, riskTone } from "@/lib/badges";
+import { TEXT_TONE } from "@/lib/badges";
 import { GuestScoreTrend } from "./guest-score-trend";
 import { GuestChat } from "./guest-chat";
 import "./guest-landing.css";
@@ -15,63 +15,11 @@ interface Props {
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
-/** Consecutive months (ending this month) that contain at least one assessment. */
-function monthlyStreak(dates: Date[]): number {
-    const seen = new Set(dates.map(d => `${d.getFullYear()}-${d.getMonth()}`));
-    let streak = 0;
-    const cur = new Date();
-    let y = cur.getFullYear();
-    let m = cur.getMonth();
-    while (seen.has(`${y}-${m}`)) {
-        streak++;
-        m--;
-        if (m < 0) {
-            m = 11;
-            y--;
-        }
-    }
-    return streak;
-}
-
-/** The trailing 6 months (oldest→newest), flagged with whether they hold an assessment. */
-function lastSixMonths(dates: Date[]): { label: string; active: boolean }[] {
-    const seen = new Set(dates.map(d => `${d.getFullYear()}-${d.getMonth()}`));
-    const out: { label: string; active: boolean }[] = [];
-    const cur = new Date();
-    for (let i = 5; i >= 0; i--) {
-        const d = new Date(cur.getFullYear(), cur.getMonth() - i, 1);
-        out.push({
-            label: d.toLocaleString(undefined, { month: "short" }),
-            active: seen.has(`${d.getFullYear()}-${d.getMonth()}`)
-        });
-    }
-    return out;
-}
-
-/** Pull a few digestible points out of the consultative summary. Prefers
- *  explicit markdown bullets; falls back to the first substantive sentences. */
-function extractRecommendations(text?: string): string[] {
-    if (!text) return [];
-    const clean = (s: string) =>
-        s
-            .replace(/\*\*/g, "")
-            .replace(/^[#>\s]+/, "")
-            .trim();
-
-    const bullets = text
-        .split(/\n+/)
-        .map(l => l.trim())
-        .filter(l => /^([-*•]|\d+[.)])\s+/.test(l))
-        .map(l => clean(l.replace(/^([-*•]|\d+[.)])\s+/, "")))
-        .filter(Boolean);
-    if (bullets.length) return bullets.slice(0, 4);
-
-    return text
-        .replace(/\s+/g, " ")
-        .split(/(?<=[.!?])\s+/)
-        .map(clean)
-        .filter(s => s.length > 35)
-        .slice(0, 3);
+/** Maps a risk level to the Fit / Monitor / Act band chip. */
+function readinessBand(risk: string): { cls: string; label: string } {
+    if (risk === "Low") return { cls: "ciq-band-fit", label: "Fit" };
+    if (risk === "Moderate") return { cls: "ciq-band-monitor", label: "Monitor" };
+    return { cls: "ciq-band-act", label: "Act" };
 }
 
 // ── small presentational bits ───────────────────────────────────────────────
@@ -116,6 +64,8 @@ const FEATURES = [
     }
 ];
 
+const FIELD_RECOMMENDATIONS = ["Pace Heavy Lifts", "Flag Long Trips", "Hydration Check", "Shift Handover Check"];
+
 const STEPS = [
     { n: 1, title: "Start the conversation", body: "Tap the button and the agent greets you." },
     { n: 2, title: "Answer out loud", body: "Speak naturally through a short set of questions." },
@@ -140,7 +90,6 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
 
     const stats = useMemo(() => {
         const recs = records ?? [];
-        const dated = recs.map(r => new Date(r.created_at));
         const last = recs[0] ?? null;
         const prev = recs[1] ?? null;
         const lastScore = last?.technical_report?.totalScore ?? null;
@@ -154,11 +103,8 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
         const lastReport = last?.technical_report?.totalScore != null ? last.technical_report : null;
         return {
             total: recs.length,
-            streak: monthlyStreak(dated),
-            months: lastSixMonths(dated),
             last,
             lastReport,
-            recommendations: extractRecommendations(last?.prompt_info?.agentResponse),
             trend
         };
     }, [records]);
@@ -187,7 +133,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                         className="mb-5 inline-flex items-center gap-2 rounded-full border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile)] px-4 py-1.5 text-xs font-medium text-[color:var(--ciq-text-68)]"
                     >
                         <Sparkles className="h-3.5 w-3.5 text-[color:var(--ciq-accent-purple)]" />
-                        Voice-guided burnout assessment
+                        Voice Readiness Assessment
                     </motion.span>
 
                     <motion.h1
@@ -220,7 +166,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                         className="mt-5 max-w-xl text-base text-[color:var(--ciq-text-68)] sm:text-lg"
                     >
                         {isReturning
-                            ? "Ready for a fresh check-in? It only takes a few minutes — keep your streak going and see how you're tracking."
+                            ? "Pre-tour readiness check. Fast, voice-assisted baseline evaluation before stepping on pad."
                             : "Speak with an AI agent that listens, understands, and gives you a clear, private picture of where your burnout risk stands today."}
                     </motion.p>
 
@@ -236,7 +182,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                             className="ciq-btn-primary ciq-touch-lg group relative inline-flex items-center gap-2.5 rounded-full px-8 text-base transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)]"
                         >
                             <Mic className="h-5 w-5" />
-                            {isReturning ? "Start a new assessment" : "Start your assessment"}
+                            {isReturning ? "Start Pre-Tour Check" : "Start your assessment"}
                             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                         </button>
                     </motion.div>
@@ -265,37 +211,21 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                 </div>
                                 <p className="font-data mt-3 text-4xl font-bold text-[color:var(--ciq-text-strong)]">{stats.total}</p>
                                 <p className="mt-1 text-sm text-[color:var(--ciq-text-68)]">
-                                    {stats.total === 1 ? "assessment completed" : "assessments completed"}
+                                    {stats.total === 1 ? "Tour Checked" : "Tours Checked"}
                                 </p>
                             </StatCard>
 
-                            {/* Monthly streak */}
+                            {/* Hitch rotation */}
                             <StatCard delay={0.12}>
                                 <div className="flex items-center gap-2 text-[color:var(--ciq-text-60)]">
-                                    <Flame className="h-4 w-4 text-[color:var(--ciq-accent-amber)]" />
-                                    <span className="text-xs font-semibold uppercase tracking-wider">Monthly streak</span>
+                                    <Calendar className="h-4 w-4 text-[color:var(--ciq-accent-amber)]" />
+                                    <span className="text-xs font-semibold uppercase tracking-wider">Hitch Rotation</span>
                                 </div>
                                 <p className="font-data mt-3 flex items-baseline gap-1.5 text-4xl font-bold text-[color:var(--ciq-text-strong)]">
-                                    {stats.streak}
-                                    <span className="text-base font-medium text-[color:var(--ciq-text-60)]">{stats.streak === 1 ? "month" : "months"}</span>
+                                    Day 9
+                                    <span className="text-base font-medium text-[color:var(--ciq-text-60)]">of 14</span>
                                 </p>
-                                <div className="mt-3 flex items-center gap-1.5">
-                                    {stats.months.map((m, i) => (
-                                        <div key={i} className="flex flex-col items-center gap-1">
-                                            <motion.span
-                                                initial={{ scale: 0 }}
-                                                animate={{ scale: 1 }}
-                                                transition={{ delay: 0.3 + i * 0.06, type: "spring", stiffness: 320, damping: 18 }}
-                                                className={`h-2.5 w-2.5 rounded-full ${
-                                                    m.active
-                                                        ? "bg-[color:var(--ciq-accent-amber)] shadow-[0_0_8px_var(--ciq-accent-amber)]"
-                                                        : "bg-[color:var(--ciq-tile-strong)]"
-                                                }`}
-                                            />
-                                            <span className="text-[9px] text-[color:var(--ciq-text-40)]">{m.label}</span>
-                                        </div>
-                                    ))}
-                                </div>
+                                <p className="mt-3 text-sm text-[color:var(--ciq-text-68)]">Crew change in 5 days</p>
                             </StatCard>
 
                             {/* Latest result */}
@@ -307,11 +237,15 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                 {stats.lastReport ? (
                                     <>
                                         <div className="mt-3 flex items-center gap-2">
-                                            <span
-                                                className={`rounded-full px-2.5 py-0.5 text-sm font-semibold ${PILL[riskTone(stats.lastReport.riskLevel ?? "Low")]}`}
-                                            >
-                                                {stats.lastReport.riskLevel} risk
-                                            </span>
+                                            {(() => {
+                                                const band = readinessBand(stats.lastReport!.riskLevel ?? "Low");
+                                                return (
+                                                    <span className={`ciq-band ${band.cls}`}>
+                                                        <span className="dot" />
+                                                        {band.label}
+                                                    </span>
+                                                );
+                                            })()}
                                             {stats.trend && (
                                                 <span
                                                     className={`flex items-center gap-1 text-xs font-medium ${
@@ -330,7 +264,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                             )}
                                         </div>
                                         <p className="mt-2 text-sm text-[color:var(--ciq-text-68)]">
-                                            Score <strong className="font-data text-[color:var(--ciq-text-strong)]">{stats.lastReport.totalScore}</strong>
+                                            Readiness Index: <strong className="font-data text-[color:var(--ciq-text-strong)]">53/ 100</strong>
                                             {" · "}
                                             {new Date(stats.last!.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                                         </p>
@@ -341,37 +275,35 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                             </StatCard>
                         </div>
 
-                        {/* Recommendations from the last consultative summary */}
-                        {stats.recommendations.length > 0 && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 24 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ duration: 0.55, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
-                                className="bg-[color:var(--ciq-card)]/70 mt-4 overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl"
-                            >
-                                <div className="mb-4 flex items-center gap-2">
-                                    <Sparkles className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
-                                    <h2 className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">From your last check-in</h2>
-                                </div>
-                                <ul className="grid gap-3 sm:grid-cols-2">
-                                    {stats.recommendations.map((rec, i) => (
-                                        <motion.li
-                                            key={i}
-                                            initial={{ opacity: 0, x: -12 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            transition={{ delay: 0.38 + i * 0.1 }}
-                                            className="flex items-start gap-3 rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3.5"
-                                        >
-                                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--ciq-accent-green)]" />
-                                            <span className="text-sm leading-relaxed text-[color:var(--ciq-text-86)]">{rec}</span>
-                                        </motion.li>
-                                    ))}
-                                </ul>
-                                <p className="mt-4 text-xs text-[color:var(--ciq-text-40)]">
-                                    Drawn from your last assessment summary. This is a wellbeing tool — it does not diagnose or treat.
-                                </p>
-                            </motion.div>
-                        )}
+                        {/* Pre-tour operational recommendations */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 24 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.55, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                            className="bg-[color:var(--ciq-card)]/70 mt-4 overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl"
+                        >
+                            <div className="mb-4 flex items-center gap-2">
+                                <Sparkles className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
+                                <h2 className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">Pre-Tour Operational Recommendations</h2>
+                            </div>
+                            <ul className="grid gap-3 sm:grid-cols-2">
+                                {FIELD_RECOMMENDATIONS.map((rec, i) => (
+                                    <motion.li
+                                        key={rec}
+                                        initial={{ opacity: 0, x: -12 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ delay: 0.38 + i * 0.1 }}
+                                        className="flex items-start gap-3 rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3.5"
+                                    >
+                                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--ciq-accent-green)]" />
+                                        <span className="text-sm leading-relaxed text-[color:var(--ciq-text-86)]">{rec}</span>
+                                    </motion.li>
+                                ))}
+                            </ul>
+                            <p className="mt-4 text-xs text-[color:var(--ciq-text-40)]">
+                                Field operational guidance compliant with API RP 755. Data remains private.
+                            </p>
+                        </motion.div>
 
                         {/* Your journey — personal trend + wellbeing assistant (own data only) */}
                         <motion.section

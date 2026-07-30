@@ -27,6 +27,9 @@ const RANGE_LABEL: Record<RangeKey, string> = {
 };
 const RISK_COLOR = { Low: "var(--green)", Moderate: "var(--amber)", High: "var(--rose)" } as const;
 const BANDS = ["Low", "Moderate", "High"] as const;
+// Displays the underlying Low/Moderate/High risk data as the FIT/MONITOR/ACT
+// verdict bands (CIQ-RP-PET-001 § 4.1) — the data keys are unchanged.
+const RISK_LABEL: Record<string, string> = { Low: "Fit", Moderate: "Monitor", High: "Act" };
 
 // `from` date (YYYY-MM-DD) for a range, or "" for all-time.
 function rangeStart(range: RangeKey): string {
@@ -90,7 +93,7 @@ export function ManagerAnalytics() {
     return (
         <div className="ml-card ml-pad ml-span12 ml-an">
             <div className="ml-sec-h">
-                <h2>Assessment Analytics</h2>
+                <h2>Readiness Analytics</h2>
                 <span className="ml-badge ml-b-cyan">Interactive · filterable</span>
             </div>
 
@@ -120,13 +123,13 @@ export function ManagerAnalytics() {
                         {data?.atRiskPct ?? 0}%
                     </span>
                     <span className="ml-an-headline-txt">
-                        at-risk across <b>{data?.totalAssessed ?? 0}</b> {(data?.totalAssessed ?? 0) === 1 ? "employee" : "employees"}
-                        in <b>{groups.length}</b> {groups.length === 1 ? "department" : "departments"} — ranked by burnout concentration.
+                        in Monitor/Act across <b>{data?.totalAssessed ?? 0}</b> {(data?.totalAssessed ?? 0) === 1 ? "hand" : "crew"}
+                        in <b>{groups.length}</b> {groups.length === 1 ? "department" : "departments"} — ranked by fatigue-risk concentration.
                     </span>
                 </p>
                 <div className="ml-an-legend">
                     {(["High", "Moderate", "Low"] as const).map(b => (
-                        <span key={b}><i style={{ background: RISK_COLOR[b] }} />{b}</span>
+                        <span key={b}><i style={{ background: RISK_COLOR[b] }} />{RISK_LABEL[b]}</span>
                     ))}
                 </div>
             </div>
@@ -147,12 +150,12 @@ export function ManagerAnalytics() {
                                 <div className="ml-an-row-top">
                                     <span className="ml-an-dept">{g.key}</span>
                                     <span className="ml-an-rmeta">
-                                        <b style={{ color: g.atRiskPct > 0 ? "var(--rose)" : "var(--green)" }}>{g.atRiskPct}%</b> at-risk
+                                        <b style={{ color: g.atRiskPct > 0 ? "var(--rose)" : "var(--green)" }}>{g.atRiskPct}%</b> Monitor/Act
                                         <em>· {g.total} assessed</em>
                                     </span>
                                 </div>
                                 <div className="ml-an-ribbon" role="img"
-                                    aria-label={`${g.key}: ${g.riskCounts.Low} low, ${g.riskCounts.Moderate} moderate, ${g.riskCounts.High} high`}>
+                                    aria-label={`${g.key}: ${g.riskCounts.Low} fit, ${g.riskCounts.Moderate} monitor, ${g.riskCounts.High} act`}>
                                     {BANDS.map(band => {
                                         const c = g.riskCounts[band];
                                         if (c <= 0) return null;
@@ -160,7 +163,7 @@ export function ManagerAnalytics() {
                                             <i key={band}
                                                 className={`ml-an-seg ml-an-seg-${band.toLowerCase()}`}
                                                 style={{ flexGrow: c, background: RISK_COLOR[band] }}
-                                                title={`${band}: ${c} (${Math.round(c / g.total * 100)}%)`} />
+                                                title={`${RISK_LABEL[band]}: ${c} (${Math.round(c / g.total * 100)}%)`} />
                                         );
                                     })}
                                 </div>
@@ -172,7 +175,7 @@ export function ManagerAnalytics() {
 
             <p className="ml-an-foot">
                 Aggregate, de-identified signal — grouped counts only, never individual reports.
-                Risk bands come from the deterministic BAT scoring pipeline.
+                Readiness bands come from the deterministic scoring pipeline.
             </p>
         </div>
     );

@@ -24,9 +24,9 @@ SEED_USERS = [
     ("admin1", "sys123", "admin", None, None, None),
     ("admin2", "sys123", "admin", None, None, None),
     ("admin3", "sys123", "admin", None, None, None),
-    ("guest1", "sys123", "employee", "Emergency", "Day", "ER Nurse"),
-    ("guest2", "sys123", "employee", "ICU", "Night", "ICU Nurse"),
-    ("guest3", "sys123", "employee", "Surgery", "Evening", "Scrub Nurse"),
+    ("guest1", "sys123", "employee", "Legal / Regulatory", "Day", "Legal officer"),
+    ("guest2", "sys123", "employee", "HR / Workforce", "Night", "HR officer"),
+    ("guest3", "sys123", "employee", "IT / Digital", "Evening", "IT support"),
     ("manager1", "sys123", "manager", None, None, None),
     ("manager2", "sys123", "manager", None, None, None),
 ]

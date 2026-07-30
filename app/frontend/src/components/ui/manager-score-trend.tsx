@@ -84,8 +84,8 @@ export function ManagerScoreTrend() {
     return (
         <div className="ml-card ml-pad ml-chart">
             <div className="ml-sec-h">
-                <h2>Monthly Burnout Score</h2>
-                <span className="ml-badge ml-b-cyan">Org average · trend</span>
+                <h2>Monthly Readiness Index</h2>
+                <span className="ml-badge ml-b-cyan">Crew average · trend</span>
             </div>
 
             {/* ── Filter toolbar ──────────────────────────────────────── */}
@@ -125,7 +125,7 @@ export function ManagerScoreTrend() {
                                     borderRadius: 10, color: "var(--bright)", fontSize: 12,
                                 }}
                                 labelStyle={{ color: "var(--muted)" }}
-                                formatter={(v: number, _n, p) => [`${v}  ·  ${p.payload.assessed} assessed`, "Avg score"]} />
+                                formatter={(v: number, _n, p) => [`${v}  ·  ${p.payload.assessed} assessed`, "Avg readiness"]} />
                             <Line type="linear" dataKey="avgScore" stroke="var(--cyan)" strokeWidth={2.5}
                                 dot={{ r: 3, fill: "var(--cyan)", strokeWidth: 0 }}
                                 activeDot={{ r: 5, fill: "var(--cyan)" }} />
@@ -136,7 +136,7 @@ export function ManagerScoreTrend() {
             </div>
 
             <p className="ml-an-foot">
-                Mean of the deterministic BAT total score across all assessments in each month —
+                Mean of the deterministic readiness index across all assessments in each month —
                 aggregate and de-identified.
             </p>
         </div>

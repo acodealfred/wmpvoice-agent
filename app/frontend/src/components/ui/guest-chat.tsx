@@ -4,7 +4,7 @@ import { useChatStream } from "@/hooks/useChatStream";
 import "./guest-chat.css";
 
 const GREETING =
-    "Hi! I'm your personal Wellbeing Assistant. Ask me about your own burnout scores, how you're trending over time, or evidence-based ways to cope — everything here stays private to you.";
+    "Hi! I'm your CIQ Field Assistant. Ask me about your own readiness scores, how you're trending over the hitch, or ways to manage fatigue — everything here stays private to you.";
 
 // Personal assistant for a returning guest. Grounded ONLY in the signed-in
 // user's own data (see /me/chat + RBAC-gated personal tools).
@@ -20,7 +20,7 @@ export function GuestChat() {
             <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <MessageCircleHeart className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
-                    <h2 className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">Wellbeing Assistant</h2>
+                    <h2 className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">CIQ Field Assistant</h2>
                 </div>
                 <button className="gc-new" onClick={newChat} disabled={busy} title="Start a new chat">+ New chat</button>
             </div>
@@ -55,7 +55,7 @@ export function GuestChat() {
                 <input
                     type="text"
                     value={input}
-                    placeholder="Ask about your wellbeing…"
+                    placeholder="Ask about tour readiness, fatigue, or shift guidelines…"
                     disabled={busy}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") send(); }}

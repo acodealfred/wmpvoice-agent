@@ -38,7 +38,7 @@ export function GuestScoreTrend({ records }: { records: SurveyRecord[] }) {
             <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <LineChartIcon className="h-4 w-4 text-[color:var(--ciq-accent-purple)]" />
-                    <h2 className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">Your burnout score</h2>
+                    <h2 className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">Hitch Readiness Trend</h2>
                 </div>
                 <span className="rounded-full border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] px-3 py-1 text-xs font-medium text-[color:var(--ciq-text-60)]">
                     Per assessment

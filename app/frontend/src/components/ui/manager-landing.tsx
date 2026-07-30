@@ -43,6 +43,13 @@ function riskFill(level: string): string {
     if (level === "Moderate") return "ml-rfill-mod";
     return "ml-rfill-low";
 }
+// Displays the underlying Low/Moderate/High risk data as the FIT/MONITOR/ACT
+// verdict bands (CIQ-RP-PET-001 § 4.1) — the data keys are unchanged.
+function riskLabel(level: string): string {
+    if (level === "High") return "Act";
+    if (level === "Moderate") return "Monitor";
+    return "Fit";
+}
 
 // ── per-theme palette for the 3D map (one per app colour mode) ─────────
 type ThemeMode = "light" | "dark" | "ocean" | "petroleum";
@@ -244,11 +251,24 @@ export function ManagerLanding({ theme }: Props) {
             const cv = document.createElement("canvas"); cv.width = 640; cv.height = 160;
             const g = cv.getContext("2d")!;
             const hex = "#" + accent.toString(16).padStart(6, "0");
+
+            // Shrink the font to fit longer department names inside the pill
+            // (e.g. "Community & Government Relations") instead of overflowing
+            // the fixed-width background at a fixed size.
+            const maxTextWidth = 600;
+            const minFontSize = 26;
+            let fontSize = 56;
+            g.font = `800 ${fontSize}px Inter, sans-serif`;
+            while (g.measureText(text).width > maxTextWidth && fontSize > minFontSize) {
+                fontSize -= 2;
+                g.font = `800 ${fontSize}px Inter, sans-serif`;
+            }
+
             g.fillStyle = "rgba(10,12,14,0.88)"; roundRect(g, 8, 40, 624, 80, 22); g.fill();
             g.strokeStyle = hex; g.lineWidth = 4; roundRect(g, 8, 40, 624, 80, 22); g.stroke();
             // accent glow underline
             g.shadowColor = hex; g.shadowBlur = 18;
-            g.font = "800 56px Inter, sans-serif"; g.fillStyle = "#e8edf0";
+            g.fillStyle = "#e8edf0";
             g.textBaseline = "middle"; g.textAlign = "center";
             g.fillText(text, 320, 84);
             const tex = new THREE.CanvasTexture(cv);
@@ -407,19 +427,19 @@ export function ManagerLanding({ theme }: Props) {
             const d = b.dept;
             const hex = "#" + b.col.toString(16).padStart(6, "0");
             holo.style.setProperty("--hc", hex);
-            (holo.querySelector(".ml-tag") as HTMLElement).textContent = `${d.dominantRisk} risk`;
+            (holo.querySelector(".ml-tag") as HTMLElement).textContent = `${riskLabel(d.dominantRisk)} verdict`;
             (holo.querySelector("h2") as HTMLElement).textContent = d.name;
-            (holo.querySelector(".ml-hsub") as HTMLElement).textContent = "Department · aggregate, de-identified";
+            (holo.querySelector(".ml-hsub") as HTMLElement).textContent = "Crew · aggregate, de-identified";
             const cells = holo.querySelectorAll(".ml-cell .ml-cv");
             (cells[0] as HTMLElement).textContent = `${d.participationPct}%`;
             (cells[1] as HTMLElement).textContent = `${d.atRiskPct}%`;
             (cells[2] as HTMLElement).textContent = `${d.completed}/${d.eligible}`;
             (holo.querySelectorAll(".ml-cell .ml-ck")[0] as HTMLElement).textContent = "Participation";
-            (holo.querySelectorAll(".ml-cell .ml-ck")[1] as HTMLElement).textContent = "At-Risk";
+            (holo.querySelectorAll(".ml-cell .ml-ck")[1] as HTMLElement).textContent = "Monitor/Act";
             (holo.querySelectorAll(".ml-cell .ml-ck")[2] as HTMLElement).textContent = "Assessed";
             (holo.querySelector(".ml-meter i") as HTMLElement).style.width = d.participationPct + "%";
             (holo.querySelector(".ml-desc") as HTMLElement).textContent =
-                `${d.completed} of ${d.eligible} staff assessed · ${d.atRiskPct}% in Moderate/High burnout${d.avgScore != null ? ` · avg score ${d.avgScore}` : ""}.`;
+                `${d.completed} of ${d.eligible} crew assessed · ${d.atRiskPct}% in Monitor/Act band${d.avgScore != null ? ` · avg readiness index ${d.avgScore}` : ""}.`;
             holo.classList.add("show");
         }
         function closeHolo() { holo?.classList.remove("show"); clearSelect(); }
@@ -512,17 +532,17 @@ export function ManagerLanding({ theme }: Props) {
 
     // "Where to Focus" derived purely from real risk/participation numbers
     const focus: { title: string; detail: string }[] = [];
-    if (rc.High > 0) focus.push({ title: "Prioritise High-risk outreach", detail: `${rc.High} ${rc.High === 1 ? "person is" : "people are"} in the High burnout band — schedule check-ins first.` });
-    if (rc.Moderate > 0) focus.push({ title: "Monitor Moderate-risk staff", detail: `${rc.Moderate} ${rc.Moderate === 1 ? "person sits" : "people sit"} in the Moderate band — watch for escalation.` });
-    if (total > participants) focus.push({ title: "Lift participation", detail: `${total - participants} of ${total} staff have not completed an assessment yet.` });
-    if (focus.length === 0) focus.push({ title: riskTotal > 0 ? "All assessed staff are Low-risk" : "Awaiting first assessment", detail: riskTotal > 0 ? "No Moderate or High burnout detected in current data." : "Encourage staff to complete the voice assessment to populate this view." });
+    if (rc.High > 0) focus.push({ title: "Prioritise Act-band outreach", detail: `${rc.High} ${rc.High === 1 ? "hand is" : "hands are"} in the Act band — schedule check-ins first.` });
+    if (rc.Moderate > 0) focus.push({ title: "Watch Monitor-band crew", detail: `${rc.Moderate} ${rc.Moderate === 1 ? "hand sits" : "hands sit"} in the Monitor band — watch for escalation.` });
+    if (total > participants) focus.push({ title: "Lift participation", detail: `${total - participants} of ${total} crew have not completed a check yet.` });
+    if (focus.length === 0) focus.push({ title: riskTotal > 0 ? "All assessed crew are Fit" : "Awaiting first assessment", detail: riskTotal > 0 ? "No Monitor or Act band fatigue risk detected in current data." : "Encourage crew to complete the voice check to populate this view." });
 
     return (
         <div className={`ml${theme === "light" ? " ml-light" : theme === "dark" ? " ml-dark" : theme === "petroleum" ? " ml-petroleum" : ""}`}>
             {loading && (
                 <div className="ml-loader">
                     <div className="ml-ring" />
-                    <p>Initializing digital twin</p>
+                    <p>Initializing crew digital twin</p>
                 </div>
             )}
 
@@ -536,16 +556,16 @@ export function ManagerLanding({ theme }: Props) {
                 <section className="ml-hero">
                     <div className="ml-map-head">
                         <div>
-                            <p className="ml-eyebrow">Live Assessment Map</p>
-                            <h2>Wellbeing across the organisation</h2>
+                            <p className="ml-eyebrow">Live Readiness Map</p>
+                            <h2>Hitch readiness across the crew</h2>
                         </div>
                         <span className="ml-badge ml-b-cyan">Interactive · click a building</span>
                     </div>
                     <div className="ml-map-controls">
                         <div className="ml-map-legend">
-                            <span><i style={{ background: "var(--green)", color: "var(--green)" }} />Low</span>
-                            <span><i style={{ background: "var(--amber)", color: "var(--amber)" }} />Moderate</span>
-                            <span><i style={{ background: "var(--rose)", color: "var(--rose)" }} />High</span>
+                            <span><i style={{ background: "var(--green)", color: "var(--green)" }} />Fit</span>
+                            <span><i style={{ background: "var(--amber)", color: "var(--amber)" }} />Monitor</span>
+                            <span><i style={{ background: "var(--rose)", color: "var(--rose)" }} />Act</span>
                         </div>
                         <div className="ml-zoom-controls">
                             <span className="ml-drag-note">Drag to rotate</span>
@@ -556,7 +576,7 @@ export function ManagerLanding({ theme }: Props) {
                     {isEmpty && !loading && (
                         <div style={{ position: "absolute", left: "50%", top: "42%", transform: "translate(-50%,-50%)", textAlign: "center", pointerEvents: "none" }}>
                             <p style={{ color: "var(--bright)", fontSize: 18, fontWeight: 700, margin: 0 }}>Awaiting first assessment</p>
-                            <p style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0 0" }}>Buildings appear here as staff complete the voice assessment.</p>
+                            <p style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0 0" }}>Buildings appear here as crew complete the voice check.</p>
                         </div>
                     )}
 
@@ -568,8 +588,8 @@ export function ManagerLanding({ theme }: Props) {
                             <h2>—</h2>
                             <p className="ml-hsub">—</p>
                             <div className="ml-stats">
-                                <div className="ml-cell"><span className="ml-ck">Risk</span><span className="ml-cv">—</span></div>
-                                <div className="ml-cell"><span className="ml-ck">Score</span><span className="ml-cv">—</span></div>
+                                <div className="ml-cell"><span className="ml-ck">Verdict</span><span className="ml-cv">—</span></div>
+                                <div className="ml-cell"><span className="ml-ck">Index</span><span className="ml-cv">—</span></div>
                                 <div className="ml-cell"><span className="ml-ck">Date</span><span className="ml-cv">—</span></div>
                             </div>
                             <div className="ml-meter"><i style={{ width: "0%" }} /></div>
@@ -600,7 +620,7 @@ export function ManagerLanding({ theme }: Props) {
                         {/* Risk distribution */}
                         <div className="ml-card ml-pad ml-span4">
                             <div className="ml-sec-h">
-                                <h2>Risk Distribution</h2>
+                                <h2>Readiness Distribution</h2>
                                 <span className="ml-badge ml-b-muted">{riskTotal} assessed</span>
                             </div>
                             {(["High", "Moderate", "Low"] as const).map(level => {
@@ -609,7 +629,7 @@ export function ManagerLanding({ theme }: Props) {
                                 const sharePct = riskTotal > 0 ? Math.round((count / riskTotal) * 100) : 0;
                                 return (
                                     <div className="ml-risk" key={level}>
-                                        <label>{level}</label>
+                                        <label>{riskLabel(level)}</label>
                                         <div className="ml-rtrack">
                                             <div className={`ml-rfill ${riskFill(level)}`} style={{ width: `${widthPct}%` }} />
                                         </div>
@@ -621,7 +641,7 @@ export function ManagerLanding({ theme }: Props) {
 
                         {/* Participation donut */}
                         <div className="ml-card ml-pad ml-span4">
-                            <div className="ml-sec-h"><h2>Participation</h2><span className="ml-badge ml-b-cyan">Took vs not</span></div>
+                            <div className="ml-sec-h"><h2>Participation</h2><span className="ml-badge ml-b-cyan">Checked vs not</span></div>
                             <div className="ml-donut-wrap">
                                 <div className="ml-donut" style={{ position: "relative" }}>
                                     <svg width="112" height="112" viewBox="0 0 112 112" style={{ display: "block" }}>
@@ -635,7 +655,7 @@ export function ManagerLanding({ theme }: Props) {
                                     </div>
                                 </div>
                                 <div>
-                                    <p className="ml-pcov"><b>{participants}</b> of <b>{total}</b> staff have completed at least one assessment.</p>
+                                    <p className="ml-pcov"><b>{participants}</b> of <b>{total}</b> crew have completed at least one check.</p>
                                     <div className="ml-leg">
                                         <span><i style={{ background: "var(--green)" }} />Assessed</span>
                                         <span><i style={{ background: "color-mix(in srgb, var(--rose) 40%, transparent)" }} />Not yet</span>
@@ -646,26 +666,26 @@ export function ManagerLanding({ theme }: Props) {
 
                         {/* Org snapshot — headline totals consolidated into one card */}
                         <div className="ml-card ml-pad ml-span4">
-                            <div className="ml-sec-h"><h2>Org Snapshot</h2><span className="ml-badge ml-b-muted">Totals</span></div>
+                            <div className="ml-sec-h"><h2>Crew Snapshot</h2><span className="ml-badge ml-b-muted">Totals</span></div>
                             <div className="ml-snap">
                                 <div className="ml-snap-row">
                                     <div>
-                                        <p className="ml-snap-k">Total Staff</p>
-                                        <p className="ml-snap-t">Active employees in system</p>
+                                        <p className="ml-snap-k">Total Crew</p>
+                                        <p className="ml-snap-t">Active hands in system</p>
                                     </div>
                                     <b className="ml-snap-v">{total}</b>
                                 </div>
                                 <div className="ml-snap-row">
                                     <div>
-                                        <p className="ml-snap-k">Surveys Completed</p>
+                                        <p className="ml-snap-k">Checks Completed</p>
                                         <p className="ml-snap-t">Total assessment runs</p>
                                     </div>
                                     <b className="ml-snap-v" style={{ color: "var(--cyan)" }}>{done}</b>
                                 </div>
                                 <div className="ml-snap-row">
                                     <div>
-                                        <p className="ml-snap-k">At-Risk Share</p>
-                                        <p className="ml-snap-t">{atRisk} of {riskTotal} · mod + high</p>
+                                        <p className="ml-snap-k">Monitor/Act Share</p>
+                                        <p className="ml-snap-t">{atRisk} of {riskTotal} · monitor + act</p>
                                     </div>
                                     <b className="ml-snap-v" style={{ color: atRisk > 0 ? "var(--rose)" : "var(--green)" }}>{atRiskPct}%</b>
                                 </div>
@@ -675,7 +695,7 @@ export function ManagerLanding({ theme }: Props) {
                         {/* Assessment analytics — filterable visualization */}
                         <ManagerAnalytics />
 
-                        {/* Monthly burnout trend (wide) + wellbeing chat (narrow), 6:4 */}
+                        {/* Monthly readiness trend (wide) + field assistant chat (narrow), 6:4 */}
                         <div className="ml-span12 ml-duo">
                             <ManagerScoreTrend />
                             <ManagerChat />
@@ -684,7 +704,7 @@ export function ManagerLanding({ theme }: Props) {
 
                     <p className="ml-note">
                         Grouped, anonymised signals only — never personal reports, biometrics, transcripts or identities.
-                        Risk levels come from the deterministic BAT scoring pipeline. A wellness tool; it does not diagnose, treat or prescribe.
+                        Verdicts come from the deterministic scoring pipeline. An operational readiness aid; it does not diagnose, treat or prescribe.
                     </p>
                 </div>
                 </div>
