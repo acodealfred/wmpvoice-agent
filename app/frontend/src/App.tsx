@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Activity, Maximize2, Minimize2, Bot, Video } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Activity, Maximize2, Minimize2, Bot, Video, Menu, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -54,6 +54,9 @@ function App() {
     // each survey is persisted as its own history record instead of overwriting the last.
     const [surveyRunId, setSurveyRunId] = useState<string>(() => crypto.randomUUID());
     const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "assessment" | "admin" | "test" | "history">("assessment");
+    // Nav collapses into this drawer below the `lg` breakpoint (see the header markup) —
+    // desktop keeps the always-visible pill row untouched.
+    const [mobileNavOpen, setMobileNavOpen] = useState(false);
     const isAdmin = currentUser?.role === "admin";
     const isManager = currentUser?.role === "manager";
     // Plain guests (neither admin nor manager) get the Home landing as their default.
@@ -699,16 +702,18 @@ function App() {
     return (
         <div className="ciq-page flex h-screen flex-col overflow-hidden text-[color:var(--ciq-text-strong)]">
             {/* ── Floating pill header ── */}
-            <div className="sticky top-0 z-40 px-5 pb-2 pt-4">
-                <div className="flex items-center justify-between rounded-[40px] border border-[color:var(--ciq-border)] bg-[color:var(--ciq-header-bg)] px-6 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] saturate-150 backdrop-blur-[34px]">
-                    <div className="flex items-center gap-3">
-                        <img src={logo} alt="CIQ logo" className="ciq-logo h-10 w-10" />
-                        <div>
-                            <h1 className="font-display text-xl font-bold tracking-tight text-[color:var(--ciq-text-strong)]">CIQ Voice Agent</h1>
-                            <p className="text-xs text-[color:var(--ciq-text-46)]">Burnout Assessment Platform</p>
+            <div className="sticky top-0 z-40 px-3 pb-2 pt-4 sm:px-5">
+                <div className="flex items-center justify-between gap-3 rounded-[28px] border border-[color:var(--ciq-border)] bg-[color:var(--ciq-header-bg)] px-4 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] saturate-150 backdrop-blur-[34px] sm:rounded-[40px] sm:px-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <img src={logo} alt="CIQ logo" className="ciq-logo h-9 w-9 shrink-0 sm:h-10 sm:w-10" />
+                        <div className="min-w-0">
+                            <h1 className="truncate font-display text-base font-bold tracking-tight text-[color:var(--ciq-text-strong)] sm:text-xl">CIQ Voice Agent</h1>
+                            <p className="hidden truncate text-xs text-[color:var(--ciq-text-46)] sm:block">Burnout Assessment Platform</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
+
+                    {/* Desktop/laptop nav — unchanged, always visible at lg+ */}
+                    <div className="hidden items-center gap-3 lg:flex">
                         <nav className="flex items-center gap-1">
                             {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin) && (!tab.guestOnly || isGuest)).map(tab => (
                                 <button
@@ -735,7 +740,48 @@ function App() {
                             </button>
                         </div>
                     </div>
+
+                    {/* Mobile/tablet hamburger — collapses the nav below lg */}
+                    <button
+                        onClick={() => setMobileNavOpen(o => !o)}
+                        aria-label={mobileNavOpen ? "Close menu" : "Open menu"}
+                        aria-expanded={mobileNavOpen}
+                        className="ciq-touch flex shrink-0 items-center justify-center rounded-full text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-tile)] lg:hidden"
+                    >
+                        {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                    </button>
                 </div>
+
+                {/* Mobile/tablet nav drawer — stacked list, shown below lg only */}
+                {mobileNavOpen && (
+                    <div className="mt-2 rounded-[24px] border border-[color:var(--ciq-border)] bg-[color:var(--ciq-header-bg)] p-3 shadow-[0_30px_100px_rgba(0,0,0,0.42)] backdrop-blur-[34px] lg:hidden">
+                        <nav className="flex flex-col gap-1">
+                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin) && (!tab.guestOnly || isGuest)).map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => { setActiveTab(tab.id); setMobileNavOpen(false); }}
+                                    aria-current={activeTab === tab.id ? "page" : undefined}
+                                    className={`ciq-touch w-full rounded-2xl px-4 text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] ${
+                                        activeTab === tab.id
+                                            ? "border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] font-semibold text-[color:var(--ciq-text-strong)]"
+                                            : "font-medium text-[color:var(--ciq-text-60)] hover:bg-[color:var(--ciq-tile)] hover:text-[color:var(--ciq-text-86)]"
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[color:var(--ciq-divider)] px-1 pt-3">
+                            <span className="truncate text-xs text-[color:var(--ciq-text-60)]">{currentUser?.name}</span>
+                            <button
+                                onClick={() => { setMobileNavOpen(false); handleLogout(); }}
+                                className="ciq-touch shrink-0 rounded-full bg-[color:var(--ciq-tile-strong)] px-4 text-xs font-medium text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)]"
+                            >
+                                Sign Out
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* ── Guest Home / landing ── (plain guests only) */}

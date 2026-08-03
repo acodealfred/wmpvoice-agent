@@ -362,8 +362,13 @@ export function ManagerLanding({ theme }: Props) {
         // ── orbit camera (auto-spin + drag), zoom via buttons ────────────
         const target = new THREE.Vector3(0, 8, 0);
         let theta = 0.7, phi = 1.02;
-        let radius = Math.min(130, Math.max(46, spacing * Math.max(cols, rowsN) * 0.62 + 26));
-        const minR = 32, maxR = 180, minPhi = 0.18, maxPhi = 1.5;
+        // Camera FOV (50) is vertical; on a narrow/portrait mount (phones) the
+        // effective horizontal FOV shrinks proportionally, cropping the outer
+        // buildings unless the base distance widens to compensate.
+        const aspect = W / H;
+        const portraitPad = aspect < 1 ? Math.min(1.7, 1 / aspect) : 1;
+        let radius = Math.min(220, Math.max(46, spacing * Math.max(cols, rowsN) * 0.62 + 26) * portraitPad);
+        const minR = 32, maxR = 220, minPhi = 0.18, maxPhi = 1.5;
         function applyCam() {
             camera.position.x = target.x + radius * Math.sin(phi) * Math.cos(theta);
             camera.position.y = target.y + radius * Math.cos(phi);
@@ -391,7 +396,8 @@ export function ManagerLanding({ theme }: Props) {
         dom.addEventListener("touchmove", e => onMove(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
         dom.addEventListener("touchend", onUp);
 
-        zoomRef.current = (delta: number) => { radius = Math.max(minR, Math.min(maxR, radius + delta)); applyCam(); pauseAuto(); };
+        let userZoomed = false;
+        zoomRef.current = (delta: number) => { userZoomed = true; radius = Math.max(minR, Math.min(maxR, radius + delta)); applyCam(); pauseAuto(); };
 
         // ── picking + holo card ──────────────────────────────────────────
         const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
@@ -490,6 +496,13 @@ export function ManagerLanding({ theme }: Props) {
         const onResize = () => {
             const nW = mount.clientWidth, nH = mount.clientHeight;
             camera.aspect = nW / nH; camera.updateProjectionMatrix(); renderer.setSize(nW, nH);
+            // Re-fit the camera distance for the new aspect (e.g. a phone orientation
+            // change) as long as the user hasn't manually zoomed — don't fight their input.
+            if (!userZoomed) {
+                const nPad = nW / nH < 1 ? Math.min(1.7, nH / nW) : 1;
+                radius = Math.min(maxR, Math.max(46, spacing * Math.max(cols, rowsN) * 0.62 + 26) * nPad);
+                applyCam();
+            }
         };
         window.addEventListener("resize", onResize);
 

@@ -66,3 +66,10 @@
 .gc-new { padding: 5px 12px; font-size: 11px; border-radius: 999px; }
 .gc-input button:hover:not(:disabled), .gc-new:hover:not(:disabled) { filter: brightness(1.1); }
 .gc-input button:disabled, .gc-new:disabled { opacity: .45; cursor: default; }
+
+/* ─── Mobile touch + readability ─── (bumps to 16px/44px only under 640px;
+   desktop keeps its compact 11–13px instrument type untouched) */
+@media (max-width: 640px) {
+  .gc-input input { font-size: 16px; }
+  .gc-input input, .gc-input button, .gc-new { min-height: 44px; }
+}

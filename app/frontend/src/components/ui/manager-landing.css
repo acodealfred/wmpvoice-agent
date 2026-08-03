@@ -393,13 +393,18 @@
   .ml .ml-span6 { grid-column: span 12; }
   .ml .ml-span4 { grid-column: span 6; }
   .ml .ml-focus-grid { grid-template-columns: 1fr; }
-  .ml .ml-hero { min-height: 32vh; }
+  /* The 3D canvas stays pinned as a sticky background for a full scroll-length
+     no matter what — the hero's min-height is what buys the user an unobstructed
+     window to rotate/tap buildings before .ml-cards (pointer-events:auto) starts
+     rising up and intercepting clicks meant for the map. Keep this close to the
+     desktop figure (86vh) so touch users get the same interactive room. */
+  .ml .ml-hero { min-height: 62vh; }
 }
 @media (max-width: 640px) {
   .ml .ml-span4 { grid-column: span 12; }
   .ml .ml-head { flex-direction: column; align-items: flex-start; }
   .ml .ml-map-controls { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .ml .ml-hero { min-height: 26vh; }
+  .ml .ml-hero { min-height: 58vh; }
 }
 
 /* ─── Assessment Analytics card (replaces Recent Assessments) ─── */
@@ -590,4 +595,30 @@
   .ml .ml-duo > .ml-chart, .ml .ml-duo > .ml-chat { height: auto; }
   .ml .ml-chart-body { min-height: 300px; }
   .ml .ml-chat-log { height: 420px; }
+}
+
+/* ─── Mobile touch + readability ───────────────────────────────────────
+   Desktop keeps its compact 11–13px instrument type; mobile bumps form
+   controls to 16px (prevents iOS Safari auto-zoom on focus) and grows
+   tap targets to the 44x44 minimum, without touching the >640px rules above. */
+@media (max-width: 640px) {
+  .ml .ml-an-field select,
+  .ml .ml-chat-input input {
+    font-size: 16px;
+  }
+  .ml .ml-an-field select,
+  .ml .ml-an-clear,
+  .ml .ml-chat-new,
+  .ml .ml-chat-input button {
+    min-height: 44px;
+  }
+  .ml .ml-zoom-btn,
+  .ml .ml-holo .ml-close {
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+  }
+  .ml .ml-an-row-top { flex-wrap: wrap; }
+  .ml .ml-holo { width: min(280px, calc(100vw - 16px)); right: 8px; left: auto; }
 }
