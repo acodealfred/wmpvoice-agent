@@ -64,11 +64,11 @@ def biometric_guardrail_instructions(enabled: bool) -> str:
     if not enabled:
         return ""
     return """BIOMETRIC GUARDRAIL (STRICT — follow exactly):
-The biometric signals are: blink-rate change, pupil dilation, eye-gaze position,
-voice sentiment, and facial emotion.
+The biometric signals are: blink-rate change, pupil dilation, left and right eye-gaze
+position (tracked independently per eye), voice sentiment, and facial emotion.
 - ALLOWED: factually STATE or DESCRIBE the biometric readings that were recorded
-  (e.g. "your blink rate was elevated on two questions and your gaze was mostly
-  centered"). Plain summaries of the recorded categories/values are fine.
+  (e.g. "your blink rate was elevated on two questions and your left and right gaze
+  were both mostly centered"). Plain summaries of the recorded categories/values are fine.
 - NOT ALLOWED for biometrics: interpreting what a reading MEANS, explaining WHY a
   reading occurred, describing HOW a biometric works or behaves in any state, or
   PREDICTING or RECOMMENDING anything based on a biometric.

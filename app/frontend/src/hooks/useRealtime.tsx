@@ -16,6 +16,16 @@ import {
     SurveyBiometricUpdate
 } from "@/types";
 
+// Server VAD tuning shared by every session.update — the default threshold (~0.5)
+// is tuned for a quiet room, so raise it here to require a louder signal before
+// ambient noise (fans, hum, cross-talk) counts as speech and triggers a turn.
+const VAD_TURN_DETECTION = {
+    type: "server_vad" as const,
+    threshold: 0.65,
+    prefix_padding_ms: 300,
+    silence_duration_ms: 500
+};
+
 type Parameters = {
     sessionId?: string;
     // Carried on the /realtime WS connect URL so the backend can resolve this
@@ -107,7 +117,7 @@ export default function useRealTime({
     const buildSessionUpdateCommand = (): SessionUpdateCommand => {
         const command: SessionUpdateCommand = {
             type: "session.update",
-            session: { turn_detection: { type: "server_vad" } }
+            session: { turn_detection: VAD_TURN_DETECTION }
         };
         if (enableInputAudioTranscription) {
             command.session.input_audio_transcription = { model: "whisper-1" };
@@ -180,9 +190,7 @@ export default function useRealTime({
         const command: SessionUpdateCommand = {
             type: "session.update",
             session: {
-                turn_detection: {
-                    type: "server_vad"
-                }
+                turn_detection: VAD_TURN_DETECTION
             }
         };
         if (enableInputAudioTranscription) {

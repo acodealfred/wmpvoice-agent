@@ -497,10 +497,15 @@ class RTMiddleTier:
                                         if survey_result_data and survey_result_data.get("blink_rate_change_percent") is not None
                                         else sess.average_blink_rate_change()
                                     )
-                                    gaze_position = (
-                                        survey_result_data.get("gaze_position")
-                                        if survey_result_data and survey_result_data.get("gaze_position")
-                                        else sess.current_gaze_position
+                                    left_gaze_position = (
+                                        survey_result_data.get("left_gaze_position")
+                                        if survey_result_data and survey_result_data.get("left_gaze_position")
+                                        else sess.current_left_gaze_position
+                                    )
+                                    right_gaze_position = (
+                                        survey_result_data.get("right_gaze_position")
+                                        if survey_result_data and survey_result_data.get("right_gaze_position")
+                                        else sess.current_right_gaze_position
                                     )
                                     pupil_mm_change = (
                                         survey_result_data.get("pupil_mm_change")
@@ -518,7 +523,8 @@ class RTMiddleTier:
                                                 "voiceSentiment": voice_sentiment,
                                                 "blinkRateChange": blink_change,
                                                 "pupilMmChange": pupil_mm_change,
-                                                "gazePosition": gaze_position,
+                                                "leftGazePosition": left_gaze_position,
+                                                "rightGazePosition": right_gaze_position,
                                                 "responseLatencyMs": survey_result_data.get("response_latency_ms"),
                                             },
                                             "totalScore": sum(r["score"] for r in sess.survey_results.values()),
@@ -527,7 +533,8 @@ class RTMiddleTier:
                                         }
                                     )
                                     logger.info(
-                                        f"Survey biometric update sent: {question_id}, sentiment={voice_sentiment}, blink_change={blink_change}, gaze={gaze_position}"
+                                        f"Survey biometric update sent: {question_id}, sentiment={voice_sentiment}, "
+                                        f"blink_change={blink_change}, gaze_left={left_gaze_position}, gaze_right={right_gaze_position}"
                                     )
 
                                     # Clear biometric history if survey is complete for next round

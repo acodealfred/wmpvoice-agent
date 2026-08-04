@@ -556,7 +556,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <table className="w-full border-collapse text-sm">
                         <thead>
                             <tr className="bg-[color:var(--ciq-card-2)]">
-                                {["Question", "Domain", "Score", "Blink Rate", "Pupil Dilation", "Gaze Position", "Response Latency"].map(h => (
+                                {["Question", "Domain", "Score", "Blink Rate", "Pupil Dilation", "Left Gaze", "Right Gaze", "Response Latency"].map(h => (
                                     <th
                                         key={h}
                                         className="border border-[color:var(--ciq-line)] px-3 py-2 text-left font-semibold text-[color:var(--ciq-text-strong)]"
@@ -584,7 +584,10 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${p.color}`}>{p.label}</span>
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
-                                            {s.gazePosition}
+                                            {s.leftGazePosition}
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
+                                            {s.rightGazePosition}
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
                                             {s.responseLatencyMs != null ? `${(s.responseLatencyMs / 1000).toFixed(1)}s` : "—"}

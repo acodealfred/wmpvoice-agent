@@ -160,15 +160,23 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
         avg_blink = sum(blink_changes) / len(blink_changes) if blink_changes else 0
         pupil_changes = [r.get("pupil_mm_change") or 0 for r in results.values()]
         avg_pupil = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
-        gaze_counts: dict = {}
+        # Each eye's dominant position is voted independently — the two eyes can
+        # disagree (e.g. one partially occluded), so collapsing them into one count
+        # would hide that rather than surface it.
+        left_gaze_counts: dict = {}
+        right_gaze_counts: dict = {}
         for r in results.values():
-            g = r.get("gaze_position") or "Center"
-            gaze_counts[g] = gaze_counts.get(g, 0) + 1
-        dominant_gaze = max(gaze_counts, key=gaze_counts.get) if gaze_counts else "Center"
+            lg = r.get("left_gaze_position") or "Center"
+            rg = r.get("right_gaze_position") or "Center"
+            left_gaze_counts[lg] = left_gaze_counts.get(lg, 0) + 1
+            right_gaze_counts[rg] = right_gaze_counts.get(rg, 0) + 1
+        dominant_left_gaze = max(left_gaze_counts, key=left_gaze_counts.get) if left_gaze_counts else "Center"
+        dominant_right_gaze = max(right_gaze_counts, key=right_gaze_counts.get) if right_gaze_counts else "Center"
         response_data["biometrics"] = {
             "overall_blink_rate_category": blink_band(avg_blink),
             "overall_pupil_dilation_category": pupil_band(avg_pupil),
-            "dominant_gaze_position": dominant_gaze,
+            "dominant_left_gaze_position": dominant_left_gaze,
+            "dominant_right_gaze_position": dominant_right_gaze,
             "per_question": [
                 {
                     "question_id": qid,
@@ -176,7 +184,8 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
                     "voice_sentiment": r.get("voice_sentiment"),
                     "blink_rate_category": blink_band(r.get("blink_rate_change_percent")),
                     "pupil_dilation_category": pupil_band(r.get("pupil_mm_change")),
-                    "gaze_position": r.get("gaze_position"),
+                    "left_gaze_position": r.get("left_gaze_position"),
+                    "right_gaze_position": r.get("right_gaze_position"),
                 }
                 for qid, r in results.items()
             ],
@@ -224,7 +233,8 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
         else sess.average_blink_rate_change()
     )
 
-    gaze_position = sess.current_gaze_position
+    left_gaze_position = sess.current_left_gaze_position
+    right_gaze_position = sess.current_right_gaze_position
     pupil_mm_change = sess.current_pupil_mm_change
 
     # Voice response latency captured between the agent finishing the question
@@ -235,7 +245,7 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
     logger.info(
         f"[RTMT] ★ Survey Tool Debug - question_id={question_id}, "
         f"provided_blink={provided_blink}, calculated_blink={blink_rate_change_percent}%, "
-        f"gaze_position={gaze_position}"
+        f"left_gaze_position={left_gaze_position}, right_gaze_position={right_gaze_position}"
     )
     logger.info(f"[RTMT] ★ Blink History: {sess.blink_rate_history[-10:]}")
 
@@ -245,7 +255,8 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
         "voice_sentiment": voice_sentiment,
         "blink_rate_change_percent": blink_rate_change_percent,
         "pupil_mm_change": pupil_mm_change,
-        "gaze_position": gaze_position,
+        "left_gaze_position": left_gaze_position,
+        "right_gaze_position": right_gaze_position,
         "response_latency_ms": response_latency_ms,
     }
 
@@ -261,7 +272,8 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
         start_behaviour_capture(sess, "post")
 
     logger.info(
-        f"Survey response recorded: {question_id} = {score}, sentiment={voice_sentiment}, blink_change={blink_rate_change_percent}%, gaze={gaze_position}"
+        f"Survey response recorded: {question_id} = {score}, sentiment={voice_sentiment}, "
+        f"blink_change={blink_rate_change_percent}%, gaze_left={left_gaze_position}, gaze_right={right_gaze_position}"
     )
 
     client_message = {
@@ -273,7 +285,8 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
             "voiceSentiment": voice_sentiment,
             "blinkRateChange": blink_rate_change_percent,
             "pupilMmChange": pupil_mm_change,
-            "gazePosition": gaze_position,
+            "leftGazePosition": left_gaze_position,
+            "rightGazePosition": right_gaze_position,
             "responseLatencyMs": response_latency_ms,
         },
         "totalScore": total_score,

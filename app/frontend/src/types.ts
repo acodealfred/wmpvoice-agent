@@ -15,6 +15,12 @@ export type SessionUpdateCommand = {
     session: {
         turn_detection?: {
             type: "server_vad" | "none";
+            // Tuning knobs for server_vad — raising `threshold` makes the model require
+            // a louder signal before it counts as speech, so ambient noise below that
+            // level is ignored instead of triggering a turn.
+            threshold?: number;
+            prefix_padding_ms?: number;
+            silence_duration_ms?: number;
         };
         input_audio_transcription?: {
             model: "whisper-1";
@@ -97,7 +103,8 @@ export interface BiometricSnapshot {
     voiceSentiment: "positive" | "neutral" | "negative";
     blinkRateChange: number;
     pupilMmChange?: number;
-    gazePosition: string;
+    leftGazePosition: string;
+    rightGazePosition: string;
     responseLatencyMs?: number | null;
 }
 
@@ -146,7 +153,11 @@ export interface BiometricMetrics {
     faceHeight: number;
     interocularDistance: number;
     irisPosition: { x: number; y: number };
-    gaze: { x: number; y: number };
+    // Binocular — each eye tracked independently (see useBiometrics.ts). No combined
+    // `gaze` field: the two eyes can disagree (e.g. one occluded), so collapsing them
+    // into one signal would hide that rather than surface it.
+    leftGaze: { x: number; y: number; label: string };
+    rightGaze: { x: number; y: number; label: string };
     pupilSize: number;
     pupilSizeMm: number;
     pupilSizeChangePercent: number;
@@ -289,7 +300,8 @@ export type SurveyRecord = {
             domain: string;
             voiceSentiment: string;
             blinkRateChange: number;
-            gazePosition: string;
+            leftGazePosition: string;
+            rightGazePosition: string;
             responseLatencyMs?: number | null;
         }
     > | null;

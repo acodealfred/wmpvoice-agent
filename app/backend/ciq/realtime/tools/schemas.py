@@ -75,7 +75,7 @@ SURVEY_SCHEMA = {
 QUERY_SURVEY_SCHEMA = {
     "type": "function",
     "name": "query_survey_results",
-    "description": "Query the survey results to answer user questions about their burnout assessment. Use this to provide insights about burnout score, contributing domains, stress indicators, specific question responses, and biometric readings (blink-rate change, gaze position). The 'summary' query type returns the biometric readings.",
+    "description": "Query the survey results to answer user questions about their burnout assessment. Use this to provide insights about burnout score, contributing domains, stress indicators, specific question responses, and biometric readings (blink-rate change, left/right eye-gaze position). The 'summary' query type returns the biometric readings.",
     "parameters": {
         "type": "object",
         "properties": {

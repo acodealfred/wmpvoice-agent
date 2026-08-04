@@ -81,7 +81,8 @@ async def clear_stress_state(request):
         sess.current_blink_rate_change = 0.0
         sess.current_blink_rate_bpm = 0.0
         sess.current_face_emotion = "NEUTRAL"
-        sess.current_gaze_position = "Center"
+        sess.current_left_gaze_position = "Center"
+        sess.current_right_gaze_position = "Center"
         logger.info("[APP] ★ Stress state and biometric history cleared (session=%s)", session_id)
         return web.json_response({"success": True, "stress_state": "normal"})
     except Exception as e:
@@ -140,7 +141,8 @@ async def update_biometrics(request):
         blink_rate_change = data.get("blink_rate_change_percent", 0.0)
         blink_rate_bpm = data.get("blink_rate_bpm", 0.0)
         face_emotion = data.get("face_emotion", "NEUTRAL")
-        gaze_position = data.get("gaze_position", "Center")
+        left_gaze_position = data.get("left_gaze_position", "Center")
+        right_gaze_position = data.get("right_gaze_position", "Center")
         pupil_mm_change = data.get("pupil_mm_change", 0.0)
 
         if not session_id:
@@ -151,12 +153,14 @@ async def update_biometrics(request):
         sess.current_blink_rate_change = blink_rate_change
         sess.current_blink_rate_bpm = blink_rate_bpm
         sess.current_face_emotion = face_emotion
-        sess.current_gaze_position = gaze_position
+        sess.current_left_gaze_position = left_gaze_position
+        sess.current_right_gaze_position = right_gaze_position
         sess.current_pupil_mm_change = pupil_mm_change
         sess.update_biometric_history(blink_rate_change, face_emotion)
 
         logger.info(
-            f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, emotion={face_emotion}, gaze={gaze_position} (session={session_id})"
+            f"[APP] ★ Biometrics updated: sentiment={sentiment}, blink_change={blink_rate_change}%, "
+            f"emotion={face_emotion}, gaze_left={left_gaze_position}, gaze_right={right_gaze_position} (session={session_id})"
         )
         logger.info(
             f"[APP] ★ History Debug - blink_history length: {len(sess.blink_rate_history)}, "

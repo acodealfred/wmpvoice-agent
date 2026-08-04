@@ -21,6 +21,7 @@ from db import (
     save_behaviour_snapshot_after,
     save_behaviour_snapshot_before,
     save_cbi3_scores,
+    save_survey_item_responses,
     save_survey_record_results,
     save_survey_record_snapshot,
     update_survey_record_ssot,
@@ -104,6 +105,14 @@ async def analyze_report(request):
                 logger.info("[APP] Deterministic report persisted to DB for run %s", survey_run_id[:8])
             except Exception as db_err:
                 logger.error("[APP] Report persist failed: %s", db_err)
+
+            try:
+                await save_survey_item_responses(
+                    survey_run_id, request["auth_session"]["user_id"], session_id,
+                    survey_config, snapshots,
+                )
+            except Exception as item_err:
+                logger.error("[APP] Item-level response persist failed: %s", item_err)
 
             if survey_type == "PILOT":
                 try:
@@ -366,6 +375,14 @@ async def generate_ssot_report(request):
                 )
             except Exception as snap_err:
                 logger.error("[APP] Failed to save survey snapshot from SSoT: %s", snap_err)
+
+            try:
+                await save_survey_item_responses(
+                    survey_run_id, request["auth_session"]["user_id"], session_id,
+                    survey_config, snapshots,
+                )
+            except Exception as item_err:
+                logger.error("[APP] Item-level response persist failed (SSoT path): %s", item_err)
 
         # Allow the frontend (test generator) to supply a custom query.
         if query_override:

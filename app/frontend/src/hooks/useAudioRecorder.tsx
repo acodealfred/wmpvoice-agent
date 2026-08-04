@@ -38,7 +38,17 @@ export default function useAudioRecorder({ onAudioRecorded }: Parameters) {
         if (!audioRecorder.current) {
             audioRecorder.current = new Recorder(handleAudioData);
         }
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Explicit constraints (not just `audio: true`) so echo-cancellation, noise
+        // suppression, and auto-gain are reliably on across browsers/devices instead
+        // of depending on undocumented defaults — cuts steady-state background noise
+        // (fans, hum, chatter) before it ever reaches the realtime API's VAD.
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
         audioRecorder.current.start(stream);
     };
 

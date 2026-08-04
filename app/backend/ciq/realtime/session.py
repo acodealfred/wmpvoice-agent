@@ -46,7 +46,9 @@ class SessionState:
     # windows in ciq.realtime.behaviour_capture, which need an absolute rate.
     current_blink_rate_bpm: float = 0.0
     current_face_emotion: str = "NEUTRAL"
-    current_gaze_position: str = "Center"
+    # Binocular — each eye tracked independently (see useBiometrics.ts on the frontend).
+    current_left_gaze_position: str = "Center"
+    current_right_gaze_position: str = "Center"
     current_pupil_mm_change: float = 0.0
     blink_rate_history: list = field(default_factory=list)
     face_emotion_history: list = field(default_factory=list)
@@ -141,7 +143,8 @@ class SessionState:
         self.current_blink_rate_change = 0.0
         self.current_blink_rate_bpm = 0.0
         self.current_face_emotion = "NEUTRAL"
-        self.current_gaze_position = "Center"
+        self.current_left_gaze_position = "Center"
+        self.current_right_gaze_position = "Center"
         self.stress_state = "normal"
         self.connection_count = 0
         # Back to the gated warm-up phase; the next WS connect re-resolves whether
@@ -169,7 +172,8 @@ class SessionState:
         self.current_blink_rate_change = 0.0
         self.current_blink_rate_bpm = 0.0
         self.current_face_emotion = "NEUTRAL"
-        self.current_gaze_position = "Center"
+        self.current_left_gaze_position = "Center"
+        self.current_right_gaze_position = "Center"
         logger.info("[RTMT] ★ Biometric history cleared")
 
     def average_blink_rate_change(self) -> float:

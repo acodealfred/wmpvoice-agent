@@ -118,6 +118,38 @@ async def init_db() -> None:
             ON survey_records(user_id, created_at DESC)
         """)
 
+        # Generic per-question response table — one row per answered question,
+        # for any survey type (not just PILOT). Replaces the need for fixed
+        # response_1..4 / item_7/11/13-style columns going forward.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS survey_item_responses (
+                id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+                survey_run_id             TEXT NOT NULL REFERENCES survey_records(survey_run_id),
+                user_id                   TEXT NOT NULL REFERENCES users(user_id),
+                session_id                TEXT,
+                question_id               TEXT NOT NULL,
+                domain                    TEXT,
+                raw_score                 INTEGER,
+                effective_score           INTEGER,
+                voice_sentiment           TEXT,
+                blink_rate_change_percent REAL,
+                pupil_mm_change           REAL,
+                left_gaze_position        TEXT,
+                right_gaze_position       TEXT,
+                response_latency_ms       REAL,
+                created_at                TEXT NOT NULL,
+                UNIQUE (survey_run_id, question_id)
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_survey_item_responses_run
+            ON survey_item_responses(survey_run_id)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_survey_item_responses_user
+            ON survey_item_responses(user_id, created_at)
+        """)
+
         # One calibrated biometric baseline per user (pupil size + blink rate),
         # keyed by user_id so it follows the user across devices/browsers. A new
         # recording upserts this row; "Re-record" deletes it so a fresh one is taken.

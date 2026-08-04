@@ -5,6 +5,8 @@ from pathlib import Path
 
 import aiosqlite
 
+from survey_loader import effective_score
+
 DB_PATH = Path(__file__).parent / "data" / "ciq.db"
 
 # A stored baseline is considered valid for this long after it was recorded.
@@ -378,6 +380,72 @@ async def save_cbi3_scores(
             ),
         )
         await db.commit()
+
+
+async def save_survey_item_responses(
+    survey_run_id: str,
+    user_id: str,
+    session_id: str | None,
+    survey_config: dict,
+    snapshots: list[dict],
+) -> None:
+    """Upsert one row per answered question for a survey run (any survey type).
+
+    Computes effective_score via survey_loader so this table can never diverge
+    from the deterministic report. Built from `snapshots` (the raw request
+    body), not serialize_survey_results, because snapshots still carries
+    pupilMmChange.
+    """
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        for s in snapshots:
+            question_id = s.get("questionId")
+            if not question_id:
+                continue
+            raw_score = s.get("score")
+            await db.execute(
+                """INSERT INTO survey_item_responses
+                   (survey_run_id, user_id, session_id, question_id, domain,
+                    raw_score, effective_score, voice_sentiment,
+                    blink_rate_change_percent, pupil_mm_change,
+                    left_gaze_position, right_gaze_position,
+                    response_latency_ms, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(survey_run_id, question_id) DO UPDATE SET
+                       domain = excluded.domain,
+                       raw_score = excluded.raw_score,
+                       effective_score = excluded.effective_score,
+                       voice_sentiment = excluded.voice_sentiment,
+                       blink_rate_change_percent = excluded.blink_rate_change_percent,
+                       pupil_mm_change = excluded.pupil_mm_change,
+                       left_gaze_position = excluded.left_gaze_position,
+                       right_gaze_position = excluded.right_gaze_position,
+                       response_latency_ms = excluded.response_latency_ms""",
+                (
+                    survey_run_id, user_id, session_id, question_id, s.get("domain"),
+                    raw_score,
+                    effective_score(survey_config, question_id, raw_score) if raw_score is not None else None,
+                    s.get("voiceSentiment", "neutral"),
+                    s.get("blinkRateChange", 0),
+                    s.get("pupilMmChange"),
+                    s.get("leftGazePosition", "Center"),
+                    s.get("rightGazePosition", "Center"),
+                    s.get("responseLatencyMs"),
+                    now,
+                ),
+            )
+        await db.commit()
+
+
+async def get_survey_item_responses(survey_run_id: str) -> list[dict]:
+    """All item-level response rows for one survey run, in insertion order."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM survey_item_responses WHERE survey_run_id = ? ORDER BY id",
+            (survey_run_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
 
 
 async def save_behaviour_snapshot_before(

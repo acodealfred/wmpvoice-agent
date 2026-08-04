@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { LoginScreen } from "@/components/ui/login-screen";
 import { SignupScreen } from "@/components/ui/signup-screen";
 import { VideoPanel } from "@/components/ui/video-panel";
-import { GazeIndicator, gazeLabel } from "@/components/ui/gaze-indicator";
+import { GazeIndicator } from "@/components/ui/gaze-indicator";
 import { CyberAvatar } from "@/components/ui/cyber-avatar";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 // Lazy-loaded so Recharts (heavy) is code-split out of the initial bundle and
@@ -347,7 +347,8 @@ function App() {
                         blink_rate_bpm: biometrics.metrics.blinkRate,
                         pupil_mm_change: pupilMmChange,
                         face_emotion: "NEUTRAL",
-                        gaze_position: gazeLabel(biometrics.metrics.gaze)
+                        left_gaze_position: biometrics.metrics.leftGaze.label,
+                        right_gaze_position: biometrics.metrics.rightGaze.label
                     })
                 });
             } catch (err) {
@@ -1184,12 +1185,26 @@ function App() {
                                                         style={{ ["--ciq-metric-accent" as string]: "var(--ciq-accent-purple)" } as React.CSSProperties}
                                                     >
                                                         <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[color:var(--ciq-text-60)]">
-                                                            Gaze
+                                                            Gaze — Left Eye
                                                         </p>
                                                         <div className="mt-0.5 flex items-center gap-1.5">
-                                                            <GazeIndicator gaze={currentBiometrics.metrics.gaze} />
+                                                            <GazeIndicator gaze={currentBiometrics.metrics.leftGaze} />
                                                             <span className="font-data text-base font-bold text-[color:var(--ciq-text-strong)]">
-                                                                {gazeLabel(currentBiometrics.metrics.gaze)}
+                                                                {currentBiometrics.metrics.leftGaze.label}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div
+                                                        className="ciq-metric"
+                                                        style={{ ["--ciq-metric-accent" as string]: "var(--ciq-accent-purple)" } as React.CSSProperties}
+                                                    >
+                                                        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[color:var(--ciq-text-60)]">
+                                                            Gaze — Right Eye
+                                                        </p>
+                                                        <div className="mt-0.5 flex items-center gap-1.5">
+                                                            <GazeIndicator gaze={currentBiometrics.metrics.rightGaze} />
+                                                            <span className="font-data text-base font-bold text-[color:var(--ciq-text-strong)]">
+                                                                {currentBiometrics.metrics.rightGaze.label}
                                                             </span>
                                                         </div>
                                                     </div>

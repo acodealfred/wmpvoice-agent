@@ -223,7 +223,8 @@ def serialize_survey_results(snapshots: list) -> dict:
             "domain": s.get("domain"),
             "voiceSentiment": s.get("voiceSentiment", "neutral"),
             "blinkRateChange": s.get("blinkRateChange", 0),
-            "gazePosition": s.get("gazePosition", "Center"),
+            "leftGazePosition": s.get("leftGazePosition", "Center"),
+            "rightGazePosition": s.get("rightGazePosition", "Center"),
             "responseLatencyMs": s.get("responseLatencyMs"),
         }
         for s in snapshots

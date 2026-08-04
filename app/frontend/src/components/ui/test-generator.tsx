@@ -97,7 +97,8 @@ function generateScenarios(count: number): TestScenario[] {
             score: primaryDomains.includes(q.domain) ? primary : other,
             voiceSentiment: risk === "high" ? "negative" : risk === "moderate" ? "neutral" : "positive",
             blinkRateChange: risk === "high" ? 35 : risk === "moderate" ? 10 : -10,
-            gazePosition: risk === "high" ? "Down" : risk === "moderate" ? "Center" : "Center"
+            leftGazePosition: risk === "high" ? "Down" : risk === "moderate" ? "Center" : "Center",
+            rightGazePosition: risk === "high" ? "Down" : risk === "moderate" ? "Center" : "Center"
         }));
 
         results.push({
@@ -495,7 +496,8 @@ export function TestGenerator() {
                                     <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-left text-[color:var(--ciq-text-body)]">Domain</th>
                                     <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Score</th>
                                     <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Sentiment</th>
-                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Gaze</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Left Gaze</th>
+                                    <th className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-body)]">Right Gaze</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -514,7 +516,10 @@ export function TestGenerator() {
                                             {s.voiceSentiment}
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center text-[color:var(--ciq-text-body)]">
-                                            {s.gazePosition}
+                                            {s.leftGazePosition}
+                                        </td>
+                                        <td className="border border-[color:var(--ciq-line)] px-3 py-1.5 text-center text-[color:var(--ciq-text-body)]">
+                                            {s.rightGazePosition}
                                         </td>
                                     </tr>
                                 ))}

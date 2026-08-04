@@ -191,7 +191,8 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                                             <th className="px-3 py-2 text-center">Score</th>
                                             <th className="hidden px-3 py-2 text-left sm:table-cell">Voice</th>
                                             <th className="hidden px-3 py-2 text-left md:table-cell">Blink Δ</th>
-                                            <th className="hidden px-3 py-2 text-left md:table-cell">Gaze Position</th>
+                                            <th className="hidden px-3 py-2 text-left md:table-cell">Left Gaze</th>
+                                            <th className="hidden px-3 py-2 text-left md:table-cell">Right Gaze</th>
                                             <th className="hidden px-3 py-2 text-left lg:table-cell">Response Latency</th>
                                         </tr>
                                     </thead>
@@ -211,7 +212,8 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                                                         {r.blinkRateChange.toFixed(1)}%
                                                     </span>
                                                 </td>
-                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">{r.gazePosition || "—"}</td>
+                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">{r.leftGazePosition || "—"}</td>
+                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">{r.rightGazePosition || "—"}</td>
                                                 <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] lg:table-cell">
                                                     {r.responseLatencyMs != null ? `${(r.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
                                                 </td>
