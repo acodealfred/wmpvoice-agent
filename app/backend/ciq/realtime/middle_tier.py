@@ -26,6 +26,12 @@ from ciq.realtime.session import (
     reset_active_session,
     set_active_session,
 )
+from ciq.realtime.timeline_capture import (
+    extract_turn_transcript,
+    resolve_agent_turn,
+    start_timeline_capture,
+    stop_timeline_capture,
+)
 from ciq.realtime.tools.base import RTToolCall, Tool, ToolResultDirection
 from ciq.realtime.tools.handlers import query_survey_tool, sentiment_tool, survey_tool
 from ciq.realtime.tools.schemas import (
@@ -204,6 +210,16 @@ class RTMiddleTier:
         sess = self._store.get_or_create(session_id)
         return {"pre": sess.pre_behaviour_snapshot, "post": sess.post_behaviour_snapshot}
 
+    def get_timeline_frames_for_session(self, session_id: str) -> list:
+        """Return the buffered per-second timeline frames (report/export endpoints).
+
+        The list is mutated in place by the live sampler until the survey
+        completes/disconnects (see ciq.realtime.timeline_capture) — callers
+        that persist it should do so after that point (report generation).
+        """
+        sess = self._store.get_or_create(session_id)
+        return sess.timeline_frames
+
     async def await_post_behaviour_capture(self, session_id: str, timeout_s: float = 11.0) -> None:
         """Block briefly for the fire-and-forget post-survey 10s capture task to finish.
 
@@ -311,15 +327,24 @@ class RTMiddleTier:
                 case "response.created":
                     # Azure has started generating a new response.
                     self._response_in_progress = True
+                    sess = self._sess
+                    sess.agent_speaking = True
+                    sess.current_turn_seq += 1
 
                 case "input_audio_buffer.speech_started":
                     # User started speaking — close the "voice response latency" window.
                     sess = self._sess
+                    sess.user_speaking = True
                     if sess.last_agent_turn_end_at is not None:
                         latency_ms = (time.time() - sess.last_agent_turn_end_at) * 1000
                         sess.current_response_latency_ms = max(0.0, latency_ms)
                         sess.last_agent_turn_end_at = None
                         logger.info(f"[RTMT] Voice response latency: {sess.current_response_latency_ms:.0f}ms")
+
+                case "input_audio_buffer.speech_stopped":
+                    # User stopped speaking — close out the "user is answering" window
+                    # for the per-second timeline log (see ciq.realtime.timeline_capture).
+                    self._sess.user_speaking = False
 
                 case "response.output_item.added":
                     if "item" in message and message["item"]["type"] == "function_call":
@@ -550,6 +575,14 @@ class RTMiddleTier:
 
                     # Mark the end of the agent's turn as the start of the latency window.
                     self._sess.last_agent_turn_end_at = time.time()
+
+                    # Per-second timeline: the agent's turn is over — resolve whether
+                    # it was actually asking the next survey question (transcript-
+                    # matched against the question bank) or just other agent speech.
+                    self._sess.agent_speaking = False
+                    if self._sess.timeline_active:
+                        resolve_agent_turn(self._sess, extract_turn_transcript(message))
+
                     if len(self._tools_pending) > 0:
                         self._tools_pending.clear()
                         # Only request the follow-up response if nothing is already running.
@@ -875,6 +908,12 @@ class RTMiddleTier:
                 requested_type = request.rel_url.query.get("survey_type") or requested_type
             self.set_survey_type_for_session(session_id, requested_type)
 
+        # Start the per-second timeline sampler (see ciq.realtime.timeline_capture).
+        # Guarded by timeline_active so a reconnect never spawns a second sampler
+        # for the same session — it just keeps appending to the same buffer.
+        if self.enable_survey_mode and sess.survey_config and not sess.timeline_active:
+            start_timeline_capture(sess)
+
         # Returning users skip the 30s baseline recording and start straight in the
         # "survey" phase (set in _resolve_survey_phase above), so POST /survey-phase —
         # which is what starts the PILOT "pre" capture window for everyone else — is
@@ -894,6 +933,10 @@ class RTMiddleTier:
             await ws.prepare(request)
             await self._forward_messages(ws)
         finally:
+            # Stop the timeline sampler on disconnect (safety net against a
+            # leaked task if the browser closes mid-survey); a later reconnect
+            # on this session_id restarts it and just keeps appending frames.
+            stop_timeline_capture(sess)
             reset_active_session(token)
         return ws
 

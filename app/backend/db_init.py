@@ -150,6 +150,42 @@ async def init_db() -> None:
             ON survey_item_responses(user_id, created_at)
         """)
 
+        # Per-second timeline log for a survey run: one row per elapsed second,
+        # covering the whole session (not just answered questions). turn_state
+        # is agent_question | agent_other | user_answer | idle — resolved by
+        # matching the agent's spoken transcript against the survey's question
+        # bank (see ciq.realtime.timeline_capture). question_id/question_index
+        # are only set while a matched question is being asked or its answer
+        # window is open. Buffered in memory for the whole survey and bulk
+        # inserted once at report time (same pattern as survey_item_responses).
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS survey_timeline_frames (
+                id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+                survey_run_id             TEXT NOT NULL REFERENCES survey_records(survey_run_id),
+                session_id                TEXT,
+                user_id                   TEXT NOT NULL REFERENCES users(user_id),
+                frame_index               INTEGER NOT NULL,
+                timestamp                 TEXT NOT NULL,
+                turn_state                TEXT NOT NULL,
+                question_id               TEXT,
+                question_index            INTEGER,
+                blink_rate_bpm            REAL,
+                blink_rate_change_percent REAL,
+                pupil_mm_change           REAL,
+                left_gaze_position        TEXT,
+                right_gaze_position       TEXT,
+                face_emotion              TEXT,
+                voice_sentiment           TEXT,
+                stress_state              TEXT,
+                created_at                TEXT NOT NULL,
+                UNIQUE (survey_run_id, frame_index)
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_survey_timeline_frames_run
+            ON survey_timeline_frames(survey_run_id, frame_index)
+        """)
+
         # One calibrated biometric baseline per user (pupil size + blink rate),
         # keyed by user_id so it follows the user across devices/browsers. A new
         # recording upserts this row; "Re-record" deletes it so a fresh one is taken.

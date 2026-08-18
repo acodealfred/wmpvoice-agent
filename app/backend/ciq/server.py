@@ -14,6 +14,8 @@ from ciq.api.baseline_routes import clear_baseline, get_baseline, save_baseline
 from ciq.api.consent_routes import get_consent, save_consent
 from ciq.api.history_routes import (
     admin_export_pilot_survey,
+    admin_export_survey_timeline,
+    admin_list_user_survey_runs,
     admin_list_users,
     get_demo_data,
     manager_analytics,
@@ -122,6 +124,8 @@ async def create_app():
     app.router.add_get("/admin/demo-data", get_demo_data)
     app.router.add_post("/admin/demo-data", set_demo_data)
     app.router.add_get("/admin/pilot-survey/export", admin_export_pilot_survey)
+    app.router.add_get("/admin/users/{userId}/survey-runs", admin_list_user_survey_runs)
+    app.router.add_get("/admin/survey-timeline/export", admin_export_survey_timeline)
     app.router.add_get("/manager/overview", manager_overview)
     app.router.add_get("/manager/analytics", manager_analytics)
     app.router.add_get("/manager/score-trend", manager_score_trend)

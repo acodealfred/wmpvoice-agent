@@ -242,6 +242,24 @@ async def get_user_survey_records(user_id: str) -> list[dict]:
             return [dict(r) for r in rows]
 
 
+async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
+    """Lightweight per-run list (id/type/date, no JSON blobs) for admin run-pickers
+    like the survey-timeline export UI. Same "has recorded data" filter as
+    get_user_survey_records, so only runs that actually produced a report (and
+    therefore may have timeline frames) show up as pickable.
+    """
+    async with _open_db() as db:
+        async with db.execute("""
+            SELECT survey_run_id, survey_type, created_at
+            FROM survey_records
+            WHERE user_id = ?
+              AND (survey_results IS NOT NULL OR prompt_info IS NOT NULL)
+            ORDER BY created_at DESC
+        """, (user_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
 async def get_user_baseline(user_id: str) -> dict | None:
     """Return the user's calibrated baseline if it is still within the TTL, else None.
 
@@ -442,6 +460,59 @@ async def get_survey_item_responses(survey_run_id: str) -> list[dict]:
     async with _open_db() as db:
         async with db.execute(
             "SELECT * FROM survey_item_responses WHERE survey_run_id = ? ORDER BY id",
+            (survey_run_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def save_survey_timeline_frames(
+    survey_run_id: str,
+    user_id: str,
+    session_id: str | None,
+    frames: list[dict],
+) -> None:
+    """Bulk-insert the per-second timeline log captured live during one survey run.
+
+    Frames accumulate in memory on SessionState for the whole survey (see
+    ciq.realtime.timeline_capture) and are only written here once, at report
+    time — nothing hits the DB per-second while the survey is live, same
+    pattern as save_survey_item_responses. INSERT OR IGNORE + the
+    (survey_run_id, frame_index) unique constraint make this safe to call more
+    than once for the same run (e.g. both /analyze-report and /ssot-report).
+    """
+    if not frames:
+        return
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.executemany(
+            """INSERT OR IGNORE INTO survey_timeline_frames
+               (survey_run_id, session_id, user_id, frame_index, timestamp, turn_state,
+                question_id, question_index, blink_rate_bpm, blink_rate_change_percent,
+                pupil_mm_change, left_gaze_position, right_gaze_position, face_emotion,
+                voice_sentiment, stress_state, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    survey_run_id, session_id, user_id,
+                    f["frame_index"], f["timestamp"], f["turn_state"],
+                    f.get("question_id"), f.get("question_index"),
+                    f.get("blink_rate_bpm"), f.get("blink_rate_change_percent"),
+                    f.get("pupil_mm_change"), f.get("left_gaze_position"),
+                    f.get("right_gaze_position"), f.get("face_emotion"),
+                    f.get("voice_sentiment"), f.get("stress_state"), now,
+                )
+                for f in frames
+            ],
+        )
+        await db.commit()
+
+
+async def get_survey_timeline_frames(survey_run_id: str) -> list[dict]:
+    """All per-second timeline rows for one survey run, in chronological order."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM survey_timeline_frames WHERE survey_run_id = ? ORDER BY frame_index",
             (survey_run_id,),
         ) as cursor:
             rows = await cursor.fetchall()

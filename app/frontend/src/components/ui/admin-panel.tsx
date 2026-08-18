@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type, Download, X } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type, Download, X, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { KBDocument, AdminUser } from "@/types";
+import { KBDocument, AdminUser, SurveyRunSummary } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
 import { PILL, BANNER } from "@/lib/badges";
@@ -282,6 +282,62 @@ export function AdminPanel() {
         }
     }, []);
 
+    // ── Survey Timeline Export ─────────────────────────────────────────
+    // Per-second turn-state + biometric log for one survey run (see
+    // ciq.realtime.timeline_capture / GET /admin/survey-timeline/export).
+    // There's no existing UI to browse individual survey_run_ids, so this
+    // picks a user first, loads that user's runs, then downloads the CSV.
+    const [timelineUserId, setTimelineUserId] = useState("");
+    const [timelineRuns, setTimelineRuns] = useState<SurveyRunSummary[]>([]);
+    const [timelineRunsLoading, setTimelineRunsLoading] = useState(false);
+    const [timelineRunId, setTimelineRunId] = useState("");
+    const [timelineExporting, setTimelineExporting] = useState(false);
+    const [timelineError, setTimelineError] = useState<string | null>(null);
+
+    const handleTimelineUserChange = useCallback(async (userId: string) => {
+        setTimelineUserId(userId);
+        setTimelineRunId("");
+        setTimelineRuns([]);
+        setTimelineError(null);
+        if (!userId) return;
+        setTimelineRunsLoading(true);
+        try {
+            const resp = await apiFetch(`/admin/users/${encodeURIComponent(userId)}/survey-runs`, { credentials: "same-origin" });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            setTimelineRuns(data.runs ?? []);
+        } catch (err) {
+            setTimelineError(err instanceof Error ? `Couldn't load survey runs (${err.message})` : "Couldn't load survey runs");
+        } finally {
+            setTimelineRunsLoading(false);
+        }
+    }, []);
+
+    const handleDownloadTimeline = useCallback(async () => {
+        if (!timelineRunId) return;
+        setTimelineExporting(true);
+        setTimelineError(null);
+        try {
+            const resp = await apiFetch(`/admin/survey-timeline/export?survey_run_id=${encodeURIComponent(timelineRunId)}`, {
+                credentials: "same-origin"
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `survey_timeline_${timelineRunId.slice(0, 8)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            setTimelineError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");
+        } finally {
+            setTimelineExporting(false);
+        }
+    }, [timelineRunId]);
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -508,6 +564,64 @@ export function AdminPanel() {
                     <Download className="h-4 w-4" />
                     Download Pilot Survey Details
                 </button>
+            </div>
+
+            {/* ── Survey Timeline Export ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Survey Timeline Export</h2>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    Download a per-second log of one survey run — whether the agent was asking a question or the
+                    user was answering it each second, plus the biometric snapshot (blink rate, pupil change, gaze,
+                    stress state) at that moment. Pick a user, then one of their completed survey runs.
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="flex-1">
+                        <label className="mb-1 block text-xs font-medium text-[color:var(--ciq-text-muted)]">User</label>
+                        <select
+                            value={timelineUserId}
+                            onChange={e => handleTimelineUserChange(e.target.value)}
+                            className="w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none"
+                        >
+                            <option value="">Select a user…</option>
+                            {users.map(u => (
+                                <option key={u.user_id} value={u.user_id}>
+                                    {u.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex-1">
+                        <label className="mb-1 block text-xs font-medium text-[color:var(--ciq-text-muted)]">Survey Run</label>
+                        <select
+                            value={timelineRunId}
+                            onChange={e => setTimelineRunId(e.target.value)}
+                            disabled={!timelineUserId || timelineRunsLoading}
+                            className="w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none disabled:opacity-50"
+                        >
+                            <option value="">
+                                {timelineRunsLoading ? "Loading…" : !timelineUserId ? "Select a user first" : timelineRuns.length === 0 ? "No completed runs" : "Select a run…"}
+                            </option>
+                            {timelineRuns.map(r => (
+                                <option key={r.survey_run_id} value={r.survey_run_id}>
+                                    {(r.survey_type ?? "Survey")} — {new Date(r.created_at).toLocaleString()}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleDownloadTimeline}
+                        disabled={!timelineRunId || timelineExporting}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[color:var(--ciq-accent-purple)] to-[color:var(--ciq-accent-blue)] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        {timelineExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        {timelineExporting ? "Downloading…" : "Download CSV"}
+                    </button>
+                </div>
+                {timelineError && <p className="mt-2 text-xs text-petroleum-flare">{timelineError}</p>}
             </div>
 
             {/* ── Section A: KB Registration ── */}

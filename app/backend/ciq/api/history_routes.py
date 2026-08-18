@@ -1,4 +1,5 @@
 """User/admin history endpoints (thin wrappers over the db module)."""
+import csv
 import io
 import json
 
@@ -12,9 +13,19 @@ from db import (
     get_manager_overview,
     get_manager_score_trend,
     get_pilot_survey_export_rows,
+    get_survey_timeline_frames,
     get_user_survey_records,
+    get_user_survey_run_summaries,
 )
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
+
+_TIMELINE_EXPORT_HEADERS = [
+    "frame_index", "elapsed_seconds", "timestamp", "turn_state",
+    "is_question_frame", "is_answer_frame", "question_id", "question_index",
+    "blink_rate_bpm", "blink_rate_change_percent", "pupil_mm_change",
+    "left_gaze_position", "right_gaze_position", "face_emotion",
+    "voice_sentiment", "stress_state",
+]
 
 _PILOT_EXPORT_HEADERS = [
     "Index",
@@ -128,6 +139,51 @@ async def admin_export_pilot_survey(request: web.Request) -> web.Response:
         body=buf.getvalue(),
         headers={"Content-Disposition": 'attachment; filename="pilot_survey_export.xlsx"'},
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+async def admin_list_user_survey_runs(request: web.Request) -> web.Response:
+    """GET /admin/users/{userId}/survey-runs — lightweight run-picker list for the
+    survey-timeline export UI (one entry per completed survey run for this user)."""
+    user_id = request.match_info.get("userId", "")
+    if not user_id:
+        return web.json_response({"error": "userId is required"}, status=400)
+    runs = await get_user_survey_run_summaries(user_id)
+    return web.json_response({"runs": runs})
+
+
+async def admin_export_survey_timeline(request: web.Request) -> web.Response:
+    """GET /admin/survey-timeline/export?survey_run_id=... — per-second timeline as CSV.
+
+    One row per elapsed second of the survey (see ciq.realtime.timeline_capture /
+    db.get_survey_timeline_frames): whether the agent was asking a survey
+    question, the user was answering it, or neither, plus the live biometric
+    snapshot at that second. elapsed_seconds is always == frame_index since
+    frames are captured exactly 1s apart by construction.
+    """
+    survey_run_id = request.query.get("survey_run_id", "")
+    if not survey_run_id:
+        return web.json_response({"error": "survey_run_id is required"}, status=400)
+
+    frames = await get_survey_timeline_frames(survey_run_id)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_TIMELINE_EXPORT_HEADERS)
+    for f in frames:
+        writer.writerow([
+            f["frame_index"], f["frame_index"], f["timestamp"], f["turn_state"],
+            f["turn_state"] == "agent_question", f["turn_state"] == "user_answer",
+            f["question_id"], f["question_index"],
+            f["blink_rate_bpm"], f["blink_rate_change_percent"], f["pupil_mm_change"],
+            f["left_gaze_position"], f["right_gaze_position"], f["face_emotion"],
+            f["voice_sentiment"], f["stress_state"],
+        ])
+
+    return web.Response(
+        body=buf.getvalue(),
+        headers={"Content-Disposition": f'attachment; filename="survey_timeline_{survey_run_id[:8]}.csv"'},
+        content_type="text/csv",
     )
 
 

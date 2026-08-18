@@ -24,6 +24,7 @@ from db import (
     save_survey_item_responses,
     save_survey_record_results,
     save_survey_record_snapshot,
+    save_survey_timeline_frames,
     update_survey_record_ssot,
 )
 from survey_loader import (
@@ -113,6 +114,16 @@ async def analyze_report(request):
                 )
             except Exception as item_err:
                 logger.error("[APP] Item-level response persist failed: %s", item_err)
+
+            try:
+                frames = rtmt.get_timeline_frames_for_session(session_id)
+                await save_survey_timeline_frames(
+                    survey_run_id, request["auth_session"]["user_id"], session_id, frames,
+                )
+                logger.info("[APP] Timeline frames persisted for run %s (%d frames)",
+                            survey_run_id[:8], len(frames))
+            except Exception as tl_err:
+                logger.error("[APP] Timeline frame persist failed: %s", tl_err)
 
             if survey_type == "PILOT":
                 try:
@@ -383,6 +394,15 @@ async def generate_ssot_report(request):
                 )
             except Exception as item_err:
                 logger.error("[APP] Item-level response persist failed (SSoT path): %s", item_err)
+
+            if rtmt:
+                try:
+                    frames = rtmt.get_timeline_frames_for_session(session_id)
+                    await save_survey_timeline_frames(
+                        survey_run_id, request["auth_session"]["user_id"], session_id, frames,
+                    )
+                except Exception as tl_err:
+                    logger.error("[APP] Timeline frame persist failed (SSoT path): %s", tl_err)
 
         # Allow the frontend (test generator) to supply a custom query.
         if query_override:

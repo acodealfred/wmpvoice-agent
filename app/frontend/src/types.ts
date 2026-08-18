@@ -287,6 +287,12 @@ export type AdminUser = {
     last_session_id: string | null;
 };
 
+export type SurveyRunSummary = {
+    survey_run_id: string;
+    survey_type: string | null;
+    created_at: string;
+};
+
 export type SurveyRecord = {
     survey_run_id: string;
     session_id: string;

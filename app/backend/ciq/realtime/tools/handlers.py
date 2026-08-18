@@ -10,6 +10,10 @@ from typing import Any
 
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import SessionState
+from ciq.realtime.timeline_capture import (
+    retag_pending_frames,
+    schedule_stop_timeline_capture,
+)
 from ciq.realtime.tools.base import ToolResult, ToolResultDirection
 from ciq.survey import get_question_domain
 from survey_loader import (
@@ -260,10 +264,26 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
         "response_latency_ms": response_latency_ms,
     }
 
+    # Close out (or correct) the timeline log's "pending answer" window opened
+    # by timeline_capture.resolve_agent_turn when this question was asked. If
+    # the scored question_id doesn't match what transcript-matching predicted
+    # (e.g. out-of-order scoring), retag the frames already tied to the stale
+    # prediction rather than silently mislabeling them.
+    if sess.pending_answer_question_id is not None and sess.pending_answer_question_id != question_id:
+        retag_pending_frames(sess, question_id, None)
+    sess.pending_answer_question_id = None
+    sess.pending_answer_question_index = None
+
     domain = get_question_domain(question_id, survey_config)
     total_score = sum(r["score"] for r in sess.survey_results.values())
     completed = len(sess.survey_results)
     total = len(survey_config.get("questions", []))
+
+    if completed == total:
+        # Survey done — keep the per-second timeline sampler running a bit
+        # longer (see _POST_SURVEY_GRACE_S) instead of cutting it off instantly,
+        # so closing remarks / the start of report delivery still get logged.
+        schedule_stop_timeline_capture(sess)
 
     # PILOT-only: the last question just closed out the survey — start the
     # post-survey 10s behaviour capture window (mirrors the "pre" one started

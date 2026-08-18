@@ -78,6 +78,35 @@ class SessionState:
     post_behaviour_snapshot: dict | None = None
     _behaviour_task: Any = field(default=None, repr=False, compare=False)
 
+    # ── Per-second timeline log (see ciq.realtime.timeline_capture) ─────────────
+    # Buffered in memory for the whole survey — nothing hits the DB per-second —
+    # and bulk-persisted once at report time, same as survey_results/behaviour
+    # snapshots. agent_speaking/user_speaking are flipped live by the Azure
+    # realtime turn-taking events (response.created/.done,
+    # input_audio_buffer.speech_started/.stopped); current_turn_seq tags each
+    # sampled frame with the agent turn it was captured during, so once that
+    # turn's transcript is known (response.done) the frames can be retroactively
+    # labeled agent_question (transcript matched the next survey question's
+    # wording) or agent_other (anything else — greetings, acknowledgments...).
+    timeline_frames: list = field(default_factory=list)
+    timeline_active: bool = False
+    # Bumped every time start_timeline_capture actually (re)starts the sampler —
+    # lets a delayed post-survey stop (see timeline_capture.schedule_stop_timeline_capture)
+    # detect "a retake already started a NEW sampler on this session_id" and bail
+    # out instead of cutting off a survey it has nothing to do with.
+    timeline_generation: int = 0
+    _timeline_task: Any = field(default=None, repr=False, compare=False)
+    _timeline_stop_task: Any = field(default=None, repr=False, compare=False)
+    agent_speaking: bool = False
+    user_speaking: bool = False
+    current_turn_seq: int = 0
+    # The question a transcript-matched agent turn just asked — subsequent
+    # user_answer/idle frames are tagged with it until record_survey_response
+    # scores that question (see handlers.survey_tool).
+    pending_answer_question_id: str | None = None
+    pending_answer_question_index: int | None = None
+    pending_answer_started_at_frame_index: int | None = None
+
     # ── survey binding ────────────────────────────────────────────────────────
     def set_survey_type(self, survey_type: str, config: dict) -> None:
         """Bind this session to a specific survey type/config.
@@ -154,6 +183,20 @@ class SessionState:
         self.pre_behaviour_snapshot = None
         self.post_behaviour_snapshot = None
         self._behaviour_task = None
+        self.timeline_frames = []
+        self.timeline_active = False
+        # NOT reset — must keep increasing across retakes on the same session_id
+        # so a stale delayed-stop task from the PREVIOUS survey (see
+        # timeline_capture.schedule_stop_timeline_capture) can never collide with
+        # the generation number of a sampler started after this reset.
+        self._timeline_task = None
+        self._timeline_stop_task = None
+        self.agent_speaking = False
+        self.user_speaking = False
+        self.current_turn_seq = 0
+        self.pending_answer_question_id = None
+        self.pending_answer_question_index = None
+        self.pending_answer_started_at_frame_index = None
         logger.info("[RTMT] ★ Session fully reset for new survey (session=%s)", self.session_id)
 
     # ── biometric history ────────────────────────────────────────────────────
