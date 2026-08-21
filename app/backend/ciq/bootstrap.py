@@ -44,7 +44,9 @@ def build_rtmt() -> RTMiddleTier:
     if enable_survey:
         from survey_loader import SURVEY_MAP, load_survey
         override = env_flag("OVERRIDE_SURVEY_TYPE")
-        survey_type_env = os.environ.get("SURVEY_TYPE", "TEST").upper()
+        # Unset SURVEY_TYPE means "nothing explicitly configured" -> implicit
+        # default is the natural-conversation READINESS assessment.
+        survey_type_env = os.environ.get("SURVEY_TYPE", "READINESS").upper()
         if survey_type_env not in SURVEY_MAP:
             logger.warning("Unknown SURVEY_TYPE=%s, defaulting to TEST", survey_type_env)
             survey_type_env = "TEST"

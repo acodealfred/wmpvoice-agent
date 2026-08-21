@@ -275,7 +275,9 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
     sess.pending_answer_question_index = None
 
     domain = get_question_domain(question_id, survey_config)
-    total_score = sum(r["score"] for r in sess.survey_results.values())
+    # Qualitative surveys (e.g. READINESS) record no numeric score, so this is a
+    # best-effort live progress total only — the real result comes from the report LLM.
+    total_score = sum(r.get("score") or 0 for r in sess.survey_results.values())
     completed = len(sess.survey_results)
     total = len(survey_config.get("questions", []))
 
@@ -302,6 +304,7 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
             "questionId": question_id,
             "domain": domain,
             "score": score,
+            "userResponse": user_response,
             "voiceSentiment": voice_sentiment,
             "blinkRateChange": blink_rate_change_percent,
             "pupilMmChange": pupil_mm_change,

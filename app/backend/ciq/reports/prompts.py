@@ -253,6 +253,156 @@ Keep your response conversational and audio-friendly (short paragraphs, clear po
 IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code formatting."""
 
 
+def build_readiness_analysis_prompt(survey_config: dict, snapshots: list) -> str:
+    """System prompt for the qualitative (READINESS) behavioral-analysis engine.
+
+    No per-question numeric score exists for this survey type — the LLM reasons
+    holistically over each question's natural-language answer (userResponse) plus
+    the same biometric categories used elsewhere, and must derive readiness_score
+    itself rather than have it computed deterministically.
+    """
+    input_data = []
+    for s in snapshots:
+        input_data.append({
+            "question": s.get("questionId", ""),
+            "domain": s.get("domain", ""),
+            "user_response": s.get("userResponse", ""),
+            "voice_sentiment": s.get("voiceSentiment", "neutral"),
+            "blink_rate_category": blink_band(s.get("blinkRateChange")),
+            "pupil_dilation_category": pupil_band(s.get("pupilMmChange")),
+            "left_gaze_position": s.get("leftGazePosition", "Center"),
+            "right_gaze_position": s.get("rightGazePosition", "Center"),
+        })
+
+    return f"""You are a workplace readiness assessment engine producing a DETAILED,
+specific report — never generic template language. Every claim you make must be
+traceable to something the user actually said in INPUT DATA below.
+
+You MUST follow these rules strictly:
+
+GROUNDING RULES:
+- Use ONLY the provided "Research Rules" and "Input Data" — this was a natural,
+  open-ended conversation, not a numeric-scale survey.
+- Do NOT use external knowledge, assumptions, or general psychology.
+- Every insight must reference the SPECIFIC content of what the user said (paraphrase
+  or quote it) — never write generic filler that could apply to any user's report.
+- If a topic has no real answer captured (empty or off-topic user_response), say so
+  plainly for that topic rather than inventing content.
+
+RESEARCH RULES:
+{RESEARCH_RULES}
+
+INPUT DATA (one entry per topic discussed, in the order discussed):
+{input_data}
+
+OUTPUT RULES:
+- Output MUST be valid JSON, exactly the shape below.
+- No explanations outside JSON, no additional commentary.
+
+FIELD GUIDANCE:
+- "assessment_summary": a DETAILED, multi-paragraph narrative (not a one-liner) walking
+  through what the conversation revealed across ALL topics — workload, energy/recovery,
+  support/connection, confidence/growth, and overall readiness. Weave in specific
+  paraphrases of what the user actually said for each theme, and note how the themes
+  connect to each other (e.g. how workload comments relate to what they said about
+  energy). This is the main deliverable — be thorough, not brief.
+- "readiness_score": your own holistic 0-100 estimate of the user's readiness, derived
+  from the tone and content of their answers plus the biometric categories — there is
+  no per-question number to sum, reason about the conversation as a whole.
+- "topic_feedback": a list with ONE entry per topic in INPUT DATA. For each, include:
+  "domain" (the topic's domain), "user_response_excerpt" (a short, faithful quote or
+  close paraphrase — a few words to one sentence — of what the user actually said, or
+  "(no substantive response captured)" if none), and "comment" (your specific,
+  grounded observation or reflection on THAT answer — what it suggests, any notable
+  tone/biometric corroboration or contradiction, phrased warmly and specifically to
+  what they said, never generic).
+- "user_experience_feedback": a DETAILED account of the user's OVERALL experience of
+  this survey/conversation, start to finish — not one topic, the whole session. Cover:
+  how they seemed to navigate it (engaged, hesitant, rushed, comfortable), how their
+  openness or tone shifted over the course of the conversation (e.g. more relaxed by
+  the end, or consistently guarded), the overall pacing, and anything notable about the
+  conversation as a whole. Ground every claim in concrete observations (response
+  length/detail across topics, sentiment shifts, biometric signals) — never a generic
+  platitude.
+- "actionable_recommendations": a list of positive, practical next steps, each one tied
+  to something SPECIFIC the user actually said (not generic wellness advice) — for the
+  user personally and, where relevant, for their organization/team.
+
+Output JSON format:
+{{
+  "assessment_summary": "...",
+  "readiness_score": 0,
+  "topic_feedback": [
+    {{"domain": "...", "user_response_excerpt": "...", "comment": "..."}}
+  ],
+  "user_experience_feedback": "...",
+  "actionable_recommendations": ["...", "..."]
+}}
+"""
+
+
+def build_readiness_consultative_prompt(analysis_result_str: str, biometric_facts: str) -> str:
+    """Consultative spoken-summary prompt for a qualitative (READINESS) report."""
+    return f"""You are a supportive workplace readiness consultant reviewing this assessment.
+
+ASSESSMENT (for your reference):
+{analysis_result_str}
+
+BIOMETRIC READINGS (state these as plain facts — do NOT interpret them):
+{biometric_facts}
+
+Please provide a DETAILED consultative response (several short paragraphs, not a
+one-liner) that:
+1. Warmly summarizes the assessment_summary in your own words, touching on each theme
+   it covers.
+2. Goes through topic_feedback and speaks to what the user specifically said on at
+   least the most notable topics — reference their own words/ideas, not generic
+   statements, so it's clear you were really listening.
+3. States the readiness_score as a supportive, encouraging reflection — not a clinical
+   verdict.
+4. Shares the user_experience_feedback (their overall experience of the conversation),
+   gently, as an observation, not a critique.
+5. Offers the actionable_recommendations as positive next steps, connecting each back
+   to what prompted it.
+6. Maintains a warm, supportive, professional tone throughout, and ends on an
+   encouraging note — never abrupt.
+7. Ends with a SEPARATE final paragraph that begins with the word "Also" and simply
+   STATES the biometric readings above as plain facts.
+
+STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
+- Only report the biometric values exactly as given in BIOMETRIC READINGS.
+- Do NOT explain, interpret, or speculate on what the biometrics mean.
+- Do NOT connect the biometrics to the readiness score or the user's wellbeing in any way.
+- Keep it to one or two short factual sentences.
+
+Keep your response conversational and audio-friendly (short paragraphs, clear points).
+IMPORTANT: Speak this response aloud to the user. Do NOT include JSON or code formatting."""
+
+
+def build_readiness_report_context(snapshots: list, response_text: str = "", analysis_data: dict | None = None) -> str:
+    """Qualitative sibling of build_report_context — no per-question numeric score block."""
+    analysis_block = (
+        json.dumps(analysis_data, indent=2) if isinstance(analysis_data, dict) and analysis_data else "(not generated yet)"
+    )
+    topics = "\n".join(
+        f"{s.get('questionId','')} ({s.get('domain','')}): {s.get('userResponse','') or '(no response captured)'}"
+        for s in snapshots
+    )
+    return f"""=== READINESS ASSESSMENT REPORT (COMPLETE) ===
+This was a qualitative, open-ended conversation — there is no numeric per-question score.
+
+=== TOPICS DISCUSSED ===
+{topics}
+
+=== AGENT CONSULTATIVE RESPONSE (spoken to user) ===
+{response_text or "(not generated yet)"}
+
+=== ASSESSMENT (JSON: assessment_summary, readiness_score, topic_feedback, user_experience_feedback, actionable_recommendations) ===
+{analysis_block}
+=== END REPORT ===
+"""
+
+
 def build_report_context(summary, snapshots, response_text="", analysis_data=None):
     """Full report context injected for the agent's follow-up Q&A. The consultative
     response and behavioral analysis are optional (filled in only once generated)."""

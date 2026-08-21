@@ -709,7 +709,9 @@ function App() {
                         <img src={logo} alt="CIQ logo" className="ciq-logo h-9 w-9 shrink-0 sm:h-10 sm:w-10" />
                         <div className="min-w-0">
                             <h1 className="truncate font-display text-base font-bold tracking-tight text-[color:var(--ciq-text-strong)] sm:text-xl">CIQ Voice Agent</h1>
-                            <p className="hidden truncate text-xs text-[color:var(--ciq-text-46)] sm:block">Burnout Assessment Platform</p>
+                            <p className="hidden truncate text-xs text-[color:var(--ciq-text-46)] sm:block">
+                                {surveyTypeConfig?.activeSurveyType === "READINESS" ? "Readiness Assessment Platform" : "Burnout Assessment Platform"}
+                            </p>
                         </div>
                     </div>
 

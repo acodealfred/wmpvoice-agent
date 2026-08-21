@@ -12,6 +12,9 @@ from ciq.reports.prompts import (
     build_biometric_facts,
     build_consultative_prompt,
     build_consultative_prompt_sections,
+    build_readiness_analysis_prompt,
+    build_readiness_consultative_prompt,
+    build_readiness_report_context,
     build_report_context,
 )
 from db import (
@@ -61,11 +64,17 @@ async def analyze_report(request):
         if not rtmt:
             return web.json_response({"error": "Analysis service not available"}, status=503)
         survey_config = rtmt.get_survey_config_for_session(session_id)
+        is_qualitative = bool(survey_config.get("qualitative"))
 
-        # ── Deterministic scoring (no LLM) via the shared source of truth. ──
+        survey_results_snapshot = serialize_survey_results(snapshots)
+
+        # ── Deterministic scoring (no LLM) via the shared source of truth — the SAME
+        # path for every survey type, including READINESS (whose questions carry a
+        # Low/Medium/High-mapped 1/3/5 scale + reverse:true — see readiness-survey.json
+        # — so its report uses the identical gauge/domain-chart/table structure as
+        # TEST/BATFULL/PILOT/CBTFULL, just with different underlying labels). ──
         summary = compute_survey_summary(survey_config, snapshots)
         domain_totals = summary["domainTotals"]
-        survey_results_snapshot = serialize_survey_results(snapshots)
 
         # Surveys with independent scoringSections (e.g. PILOT's BAT-4 / CBI-WRB3) report
         # `sections` instead of one combined totalScore/riskLevel — see compute_survey_summary.
@@ -136,9 +145,11 @@ async def analyze_report(request):
 
         # Seed the agent's follow-up Q&A context with the deterministic report.
         if session_id:
-            rtmt.set_conversation_state_for_session(
-                session_id, "report_delivered", build_report_context(summary, snapshots)
+            report_context = (
+                build_readiness_report_context(snapshots) if is_qualitative
+                else build_report_context(summary, snapshots)
             )
+            rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context)
         logger.info("[APP] ★ Deterministic report ready, state=report_delivered")
 
         return web.json_response(response_body)
@@ -243,8 +254,13 @@ async def report_behavioral_analysis(request):
         if not rtmt:
             return web.json_response({"error": "Analysis service not available"}, status=503)
         survey_config = rtmt.get_survey_config_for_session(session_id)
+        is_qualitative = bool(survey_config.get("qualitative"))
 
-        analysis_result_str = await rtmt.analyze_with_prompt(build_analysis_prompt(survey_config, snapshots))
+        analysis_prompt = (
+            build_readiness_analysis_prompt(survey_config, snapshots) if is_qualitative
+            else build_analysis_prompt(survey_config, snapshots)
+        )
+        analysis_result_str = await rtmt.analyze_with_prompt(analysis_prompt)
         analysis_result_str = strip_llm_error(analysis_result_str)
         if not analysis_result_str:
             return web.json_response({"error": "Behavioral analysis is unavailable right now."}, status=503)
@@ -253,7 +269,6 @@ async def report_behavioral_analysis(request):
             analysis_data = {"raw": analysis_result_str}
 
         # Persist analysis into the existing history row + refresh the agent's context.
-        summary = compute_survey_summary(survey_config, snapshots)
         if request.get("auth_session") and survey_run_id:
             try:
                 await merge_survey_record_json(
@@ -262,10 +277,11 @@ async def report_behavioral_analysis(request):
             except Exception as db_err:
                 logger.error("[APP] Failed to persist behavioral analysis: %s", db_err)
         if session_id:
-            rtmt.set_conversation_state_for_session(
-                session_id, "report_delivered",
-                build_report_context(summary, snapshots, analysis_data=analysis_data),
+            report_context = (
+                build_readiness_report_context(snapshots, analysis_data=analysis_data) if is_qualitative
+                else build_report_context(compute_survey_summary(survey_config, snapshots), snapshots, analysis_data=analysis_data)
             )
+            rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context)
 
         return web.json_response({"analysis": analysis_data})
     except Exception as e:
@@ -292,18 +308,23 @@ async def report_consultative_summary(request):
         if not rtmt:
             return web.json_response({"error": "Analysis service not available"}, status=503)
         survey_config = rtmt.get_survey_config_for_session(session_id)
+        is_qualitative = bool(survey_config.get("qualitative"))
 
-        summary = compute_survey_summary(survey_config, snapshots)
         biometric_facts = build_biometric_facts(snapshots)
         analysis_str = json.dumps(analysis_data) if isinstance(analysis_data, dict) else ""
 
-        if "sections" in summary:
-            prompt = build_consultative_prompt_sections(summary["sections"], biometric_facts, analysis_str)
+        summary = None
+        if is_qualitative:
+            prompt = build_readiness_consultative_prompt(analysis_str, biometric_facts)
         else:
-            prompt = build_consultative_prompt(
-                summary["totalScore"], summary["maxScore"], summary["interpretation"],
-                biometric_facts, analysis_str,
-            )
+            summary = compute_survey_summary(survey_config, snapshots)
+            if "sections" in summary:
+                prompt = build_consultative_prompt_sections(summary["sections"], biometric_facts, analysis_str)
+            else:
+                prompt = build_consultative_prompt(
+                    summary["totalScore"], summary["maxScore"], summary["interpretation"],
+                    biometric_facts, analysis_str,
+                )
         response_text = await rtmt.analyze_with_prompt(prompt)
         response_text = strip_llm_error(response_text)
         if not response_text:
@@ -318,10 +339,12 @@ async def report_consultative_summary(request):
             except Exception as db_err:
                 logger.error("[APP] Failed to persist consultative summary: %s", db_err)
         if session_id:
-            rtmt.set_conversation_state_for_session(
-                session_id, "report_delivered",
-                build_report_context(summary, snapshots, response_text=response_text, analysis_data=analysis_data),
+            report_context = (
+                build_readiness_report_context(snapshots, response_text=response_text, analysis_data=analysis_data)
+                if is_qualitative
+                else build_report_context(summary, snapshots, response_text=response_text, analysis_data=analysis_data)
             )
+            rtmt.set_conversation_state_for_session(session_id, "report_delivered", report_context)
 
         return web.json_response({"agentResponse": response_text})
     except Exception as e:

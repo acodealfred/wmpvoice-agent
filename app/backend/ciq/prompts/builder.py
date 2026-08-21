@@ -105,9 +105,40 @@ def stress_instructions(stress_state: str) -> str:
 def conversation_state_instructions(sess: "SessionState") -> str:
     """Generate instructions based on current conversation state to maintain continuity."""
     _MAX_CTX = 2500  # chars; keeps combined instructions well inside Azure limits
+    is_qualitative = bool(sess.survey_config.get("qualitative"))
 
     if sess.conversation_state == "report_delivered":
-        instructions = """CONVERSATION STATE: REPORT JUST DELIVERED
+        if is_qualitative:
+            instructions = """CONVERSATION STATE: REPORT JUST DELIVERED
+- You have just finished delivering a warm, supportive readiness assessment summary.
+- The user may have follow-up questions about the results.
+- STAY IN THIS MODE until explicitly told otherwise or until a new assessment begins.
+
+STRICT REPORT-ONLY GROUNDING (follow exactly):
+- Answer ONLY from the REPORT CONTEXT below. This saved report is your single source
+  of truth.
+- DO NOT rely on anything said earlier in the conversation, on remembered chit-chat,
+  or on general/training knowledge.
+- If a question cannot be answered from the saved report, say plainly that you can
+  only discuss the completed assessment report, and offer to go over the results.
+- DO NOT restart, re-read, or re-run the assessment, and DO NOT ask the user to take
+  it again unless they explicitly request it.
+- There is no numeric per-question score to cite — this was a qualitative conversation.
+  Speak in terms of themes and reflections, never a 1-5 number.
+
+- Be prepared to explain (using only the report):
+  * The assessment summary and what it reflects about their readiness
+  * topic_feedback — your specific comments on what they said on each topic; if they
+    ask "what did you think about what I said about X", answer from that topic's
+    entry, referencing their own words
+  * The actionable recommendations
+  * The biometric readings that were recorded (see the BIOMETRIC GUARDRAIL above
+    if present — when active, only describe them, do not interpret or advise)
+- Maintain the consultative, supportive tone from the report delivery.
+- Answer questions directly and informatively while staying conversational.
+"""
+        else:
+            instructions = """CONVERSATION STATE: REPORT JUST DELIVERED
 - You have just finished delivering a comprehensive burnout assessment report with analysis.
 - The user may have follow-up questions about the results.
 - STAY IN THIS MODE until explicitly told otherwise or until a new assessment begins.
@@ -143,7 +174,25 @@ STRICT REPORT-ONLY GROUNDING (follow exactly):
             instructions += f"\nREPORT CONTEXT (for Q&A):\n{ctx}\n"
         return instructions
     elif sess.conversation_state == "qa_mode":
-        instructions = """CONVERSATION STATE: Q&A MODE
+        if is_qualitative:
+            instructions = """CONVERSATION STATE: Q&A MODE
+- You are answering user questions about their readiness assessment results.
+
+STRICT REPORT-ONLY GROUNDING (follow exactly):
+- Answer ONLY from the CURRENT REPORT CONTEXT below. This saved report is your single
+  source of truth.
+- DO NOT rely on anything said earlier in the conversation, on remembered chit-chat,
+  or on general/training knowledge.
+- If a question cannot be answered from the saved report, say plainly that you can
+  only discuss the completed assessment report.
+- DO NOT restart, re-read, or re-run the assessment.
+
+- Be precise, helpful, and supportive.
+- If the question is unrelated to their results, gently steer back to their wellbeing.
+- Continue in this mode until the conversation ends or a new assessment starts.
+"""
+        else:
+            instructions = """CONVERSATION STATE: Q&A MODE
 - You are answering user questions about their burnout assessment results.
 
 STRICT REPORT-ONLY GROUNDING (follow exactly):
@@ -184,25 +233,33 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
 
     questions = survey_config.get("questions", [])
     total_questions = len(questions)
+    is_qualitative = bool(survey_config.get("qualitative"))
 
     if sess.survey_results:
         answered_ids = list(sess.survey_results.keys())
         remaining_ids = [q["id"] for q in questions if q["id"] not in answered_ids]
 
-        parts.append(f"\nSURVEY STATUS: {len(answered_ids)}/{total_questions} questions answered.")
+        status_noun = "topics discussed" if is_qualitative else "questions answered"
+        parts.append(f"\nSURVEY STATUS: {len(answered_ids)}/{total_questions} {status_noun}.")
 
         score_lines = []
         for q in questions:
             qid = q["id"]
             if qid in sess.survey_results:
-                r = sess.survey_results[qid]
-                _, hi = get_score_bounds(survey_config, qid)
-                score_lines.append(f"  {q['text']} ({qid}): {r['score']}/{hi}")
+                if is_qualitative:
+                    score_lines.append(f"  {q['text']} ({qid}): discussed")
+                else:
+                    r = sess.survey_results[qid]
+                    _, hi = get_score_bounds(survey_config, qid)
+                    score_lines.append(f"  {q['text']} ({qid}): {r['score']}/{hi}")
         if score_lines:
-            parts.append("Scores recorded so far:\n" + "\n".join(score_lines))
+            lines_label = "Topics discussed so far" if is_qualitative else "Scores recorded so far"
+            parts.append(f"{lines_label}:\n" + "\n".join(score_lines))
 
         if not remaining_ids:
-            if survey_config.get("scoringSections"):
+            if is_qualitative:
+                parts.append(f"\nAll {total_questions} topics discussed.")
+            elif survey_config.get("scoringSections"):
                 # Independent subscales (e.g. PILOT's BAT-4 / CBI-WRB3) — never blend
                 # into one combined total, same canonical helper query_survey_tool uses.
                 snaps = [{"questionId": qid, "score": r["score"]} for qid, r in sess.survey_results.items()]
@@ -233,8 +290,9 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
                 parts.append(f"\nNext unanswered question: '{next_q['prompt']}' (id: {next_q_id}).")
 
     if sess.conversation_state in ("report_delivered", "qa_mode"):
+        report_noun = "readiness assessment report" if is_qualitative else "burnout report"
         parts.append(
-            "\nCONVERSATION STATE: The burnout report was already delivered and spoken to the user. "
+            f"\nCONVERSATION STATE: The {report_noun} was already delivered and spoken to the user. "
             "You MUST stay in Q&A mode. DO NOT re-read the full report. DO NOT re-run the survey. "
             "Answer specific questions the user asks about their results."
         )
@@ -268,6 +326,101 @@ def warmup_instructions() -> str:
   questions available. Simply keep the friendly chat going until you are told to continue."""
 
 
+def readiness_conversation_instructions(questions: list, is_returning_user: bool = False) -> str:
+    """Build the natural-conversation script for a qualitative survey (e.g. READINESS).
+
+    Deliberately NOT a numbered step script — this is a topic guide the agent weaves
+    into a genuine back-and-forth conversation, in its own words, in whatever order
+    feels natural, with real follow-up questions. Contrast with the rigid, verbatim
+    numbered SURVEY STEPS script used for numeric surveys (survey_instructions below).
+    """
+    topics = "\n".join(f'- {q.get("domain", q["id"])}: "{q["prompt"]}" (question_id: {q["id"]})' for q in questions)
+
+    if is_returning_user:
+        opening = """OPENING (returning user — skipped recording):
+1. Greet warmly: "Hello, welcome back!"
+2. Ask ONE short, neutral small-talk question (weather, weekend, coffee/tea, surroundings —
+   never work, stress, mood, or health) and acknowledge their reply in one sentence.
+3. Then give a short, warm bridge line inviting them into the conversation, e.g. "lovely —
+   if you're up for it, I'd love to hear how work's been feeling lately. Shall we chat?"
+   Then STOP and WAIT for their reply — that reply is a CONFIRMATION, not an answer to any
+   topic, so never call record_survey_response for it."""
+    else:
+        opening = """OPENING (you have just been making small talk with the user):
+1. Do NOT greet the user again as if meeting them for the first time — you were just chatting.
+2. Give ONE short, warm bridge line inviting them into the conversation, e.g. "nice chatting
+   — if you're up for it, I'd love to hear how work's been feeling lately. Shall we chat?"
+   Then STOP and WAIT for their reply — that reply is a CONFIRMATION, not an answer to any
+   topic, so never call record_survey_response for it."""
+
+    return f"""NATURAL CONVERSATION — FOLLOW THIS SPIRIT, NOT A SCRIPT
+
+Your job is to have a genuine, flowing conversation that naturally covers every topic
+below, then close warmly. This is NOT a scripted interview — do not read topics verbatim,
+do not announce step numbers or "next question", and do not make it feel like a checklist.
+
+{opening}
+
+TOPICS TO EXPLORE (a guide, not a script — cover all of them by the end, in whatever
+order the conversation naturally goes):
+{topics}
+
+HOW TO RUN THIS CONVERSATION:
+- Use each topic's prompt as inspiration for what to explore, not text to recite. Ask
+  about it in your own warm, natural words, phrased however fits the moment.
+- Actually engage with what the user says: reflect it back briefly, and ask a genuine
+  follow-up question when something is interesting, unclear, or worth digging into —
+  one or two natural follow-ups per topic is normal conversation, not an interrogation.
+- Let one topic flow into the next based on what the user just said, rather than
+  abruptly switching subjects. You may cover two related topics in one exchange, or
+  circle back to something they mentioned earlier, if that's how the conversation goes.
+- You do not have to cover topics in the listed order if the conversation naturally
+  leads somewhere else first — just make sure every topic ends up genuinely explored.
+- If the user goes somewhere completely unrelated to work/readiness, gently and warmly
+  steer back rather than abruptly redirecting.
+- Never ask for a number, rating, or scale — this is about how they actually feel, in
+  their own words.
+
+WHEN TO RECORD (silent, never tell the user — the user never hears a number or scale):
+- Once you've genuinely explored a topic (including any follow-up) and have a real,
+  substantive sense of the user's answer, call record_survey_response with that topic's
+  question_id — this can be after the follow-up exchange, not necessarily right after
+  your first question on it.
+- Silently classify how they came across on that topic as Low, Medium, or High (e.g. for
+  workload: Low = feeling overloaded/struggling, Medium = manageable but some strain,
+  High = comfortable/well-paced; adapt the same Low/Medium/High judgment call to each
+  topic's own meaning), and pass it as score using 1 for Low, 3 for Medium, 5 for High.
+  This is YOUR internal judgment call, made silently — NEVER mention Low/Medium/High,
+  a number, or any scale to the user; they simply had a natural conversation.
+- Also capture their natural-language answer via user_verbal_response, and include
+  voice_sentiment, blink_rate_change_percent, and face_emotion when available.
+- Do NOT call record_survey_response twice for the same question_id.
+
+AFTER ALL {len(questions)} TOPICS HAVE BEEN GENUINELY EXPLORED:
+- Do NOT calculate or state any score, rating, or number OUT LOUD — this is a qualitative
+  conversation and the Low/Medium/High classifications above are for the written report
+  only, never spoken.
+- Give the user a genuine SPOKEN SUMMARY of the conversation before signing off — this is
+  required, not optional. Briefly reflect back, in your own words, the key things you
+  heard across the topics you covered (e.g. how they described their workload, energy,
+  support, confidence, and overall readiness) so they know they were heard. Reference
+  what they actually said — never a generic "thanks for sharing" with no substance.
+  Keep it to a few warm, natural sentences, not a bullet-by-bullet recap.
+- Still do NOT turn this into a score, rating, evaluation, or diagnosis — it's a
+  reflection of what was discussed, not a verdict.
+- After the summary, warmly and explicitly acknowledge that you've covered everything,
+  and thank the user sincerely for their time and openness.
+- Deliver a short, genuine, encouraging closing note — never abrupt. Make sure the
+  conversation has a clear, positive close before you stop, e.g. "So it sounds like
+  things have been busy but manageable, you're recharging okay, and you're feeling
+  fairly confident about what's ahead — thank you so much for sharing all of that with
+  me, I really appreciate your openness. That's everything I needed for now. Take care
+  of yourself out there."
+- Do NOT call query_survey_results — there is no numeric result to report for this
+  conversation. This spoken summary is separate from, and does not replace, the
+  detailed written report generated afterward."""
+
+
 def survey_instructions(survey_config: dict, is_returning_user: bool = False) -> str:
     """Build the survey script the agent must follow exactly.
 
@@ -275,9 +428,15 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
     happened, so the agent transitions in with a short bridge line rather than a fresh
     greeting. A returning user (skipped the 30s recording) gets a brief inline welcome +
     one small-talk question first; a first-time user (just finished warm-up) only bridges.
+
+    Qualitative surveys (e.g. READINESS, ``config.get("qualitative")``) do NOT use this
+    rigid numbered-step script at all — see readiness_conversation_instructions instead,
+    which reads the same questions as a loose topic guide for a natural conversation.
     """
     config = survey_config
     questions = config.get("questions", [])
+    if config.get("qualitative"):
+        return readiness_conversation_instructions(questions, is_returning_user)
 
     # Each question can mark itself "statement" (a first-person claim the user rates
     # agreement with, e.g. BAT-4's "At work, I feel mentally exhausted.") or "question"
@@ -368,6 +527,23 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
         prev_style = style
     questions_script = "\n\n".join(question_blocks)
 
+    after_all_answers = f"""AFTER ALL {len(questions)} ANSWERS:
+- Do NOT calculate the score yourself. Call query_survey_results with query_type="burnout_score".
+- The result contains either one "interpretation", or a "sections" list with one
+  "interpretation" per section (e.g. two independent measures). Tell the user EVERY
+  interpretation it returns, word for word, one at a time if there is more than one —
+  they are independent results, never blend or average them together. Do not show numbers.
+- This is the authoritative result — it applies reverse-scoring and the correct thresholds,
+  so never override it with your own estimate."""
+    tool_rules = """TOOL RULES (silent, never tell the user):
+- record_survey_response: call ONLY after the user has answered that step's question.
+  Required fields: question_id (as shown per step), score (matching the scale explained
+  for that step — see the tool's own description for the exact value mapping),
+  voice_sentiment, blink_rate_change_percent, face_emotion.
+- DO NOT call record_survey_response for a question_id that you have already recorded.
+- query_survey_results: call with "burnout_score" to deliver the final result, and use it
+  again for any follow-up questions after the survey is complete."""
+
     return f"""SURVEY SCRIPT — FOLLOW THIS EXACTLY
 
 Your only job is to deliver this {len(questions)}-question check-in, then share the result.
@@ -402,23 +578,9 @@ STRICT RULES:
 - If the user goes off-topic, gently steer back: "Let's stay with this one for a moment —" and
   re-ask the current step's question.
 
-AFTER ALL {len(questions)} ANSWERS:
-- Do NOT calculate the score yourself. Call query_survey_results with query_type="burnout_score".
-- The result contains either one "interpretation", or a "sections" list with one
-  "interpretation" per section (e.g. two independent measures). Tell the user EVERY
-  interpretation it returns, word for word, one at a time if there is more than one —
-  they are independent results, never blend or average them together. Do not show numbers.
-- This is the authoritative result — it applies reverse-scoring and the correct thresholds,
-  so never override it with your own estimate.
+{after_all_answers}
 
-TOOL RULES (silent, never tell the user):
-- record_survey_response: call ONLY after the user has answered that step's question.
-  Required fields: question_id (as shown per step), score (matching the scale explained
-  for that step — see the tool's own description for the exact value mapping),
-  voice_sentiment, blink_rate_change_percent, face_emotion.
-- DO NOT call record_survey_response for a question_id that you have already recorded.
-- query_survey_results: call with "burnout_score" to deliver the final result, and use it
-  again for any follow-up questions after the survey is complete."""
+{tool_rules}"""
 
 
 def build_session_instructions(

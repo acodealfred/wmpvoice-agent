@@ -19,6 +19,7 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 from ciq.llm.azure_chat import AzureChatClient
 from ciq.prompts.builder import build_session_instructions
+from ciq.prompts.personas import READINESS_SYSTEM_MESSAGE
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import (
     SessionStore,
@@ -73,7 +74,7 @@ class RTMiddleTier:
     # session's SessionState (survey_type/survey_config), never here — see
     # _websocket_handler / set_survey_type_for_session.
     default_survey_config: dict
-    default_survey_type: str = "TEST"
+    default_survey_type: str = "READINESS"
     survey_type_overridden: bool = False
     # Descriptive-only biometric guardrail (toggled from the Admin tab).
     biometric_guardrail_enabled: bool = True
@@ -720,8 +721,13 @@ class RTMiddleTier:
                     session = message["session"]
                     try:
                         sess = self._sess
+                        base_message = (
+                            READINESS_SYSTEM_MESSAGE
+                            if sess.survey_config.get("qualitative")
+                            else self.system_message
+                        )
                         session["instructions"] = build_session_instructions(
-                            base_message=self.system_message,
+                            base_message=base_message,
                             sess=sess,
                             survey_config=sess.survey_config,
                             enable_meta_intent=self.enable_meta_intent,

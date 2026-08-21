@@ -72,7 +72,7 @@ function buildQuery(snapshots: BiometricSnapshot[], riskLevel: RiskLevel): strin
     const interpretation = RISK_LABELS[riskLevel];
     const domainTotals: Record<string, number> = {};
     for (const s of snapshots) {
-        domainTotals[s.domain] = (domainTotals[s.domain] ?? 0) + s.score;
+        domainTotals[s.domain] = (domainTotals[s.domain] ?? 0) + (s.score ?? 0);
     }
     const top2 = Object.entries(domainTotals)
         .sort(([, a], [, b]) => b - a)

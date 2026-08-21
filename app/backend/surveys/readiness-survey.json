@@ -1,0 +1,56 @@
+{
+  "name": "Readiness Assessment",
+  "type": "READINESS",
+  "qualitative": true,
+  "options": [
+    {"value": 1, "label": "Low"},
+    {"value": 3, "label": "Medium"},
+    {"value": 5, "label": "High"}
+  ],
+  "questions": [
+    {
+      "id": "readiness_q1",
+      "text": "Workload",
+      "domain": "Workload",
+      "prompt": "How are you feeling about your workload and pace this week?",
+      "reverse": true
+    },
+    {
+      "id": "readiness_q2",
+      "text": "Energy & Recovery",
+      "domain": "Energy & Recovery",
+      "prompt": "How has your energy been lately — are you able to properly recharge outside of work?",
+      "reverse": true
+    },
+    {
+      "id": "readiness_q3",
+      "text": "Support & Connection",
+      "domain": "Support & Connection",
+      "prompt": "How connected do you feel to your team right now, and do you feel supported when things get tough?",
+      "reverse": true
+    },
+    {
+      "id": "readiness_q4",
+      "text": "Confidence & Growth",
+      "domain": "Confidence & Growth",
+      "prompt": "How confident are you feeling about what's ahead — are you getting what you need to grow and do your best work?",
+      "reverse": true
+    },
+    {
+      "id": "readiness_q5",
+      "text": "Overall Readiness",
+      "domain": "Overall Readiness",
+      "prompt": "Stepping back, how ready and prepared do you feel for what's coming up?",
+      "reverse": true
+    }
+  ],
+  "thresholds": {
+    "low_max": 11,
+    "moderate_max": 19
+  },
+  "interpretation": {
+    "low": "Strong overall readiness — your reflections point to solid workload balance, energy, support, and confidence. Keep up the great momentum!",
+    "moderate": "Moderate readiness — some areas sound steady while others may benefit from a bit more support or attention.",
+    "high": "Lower readiness right now — several areas suggest extra support could help. Consider checking in with your manager or a wellbeing resource."
+  }
+}

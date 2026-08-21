@@ -5,10 +5,11 @@ from pathlib import Path
 logger = logging.getLogger("voicerag")
 
 SURVEY_MAP: dict[str, str] = {
-    "TEST":    "surveys/test-survey.json",
-    "BATFULL": "surveys/bat-full-survey.json",
-    "PILOT":   "surveys/pilot-survey.json",
-    "CBTFULL": "surveys/cbt-full-survey.json",
+    "TEST":      "surveys/test-survey.json",
+    "BATFULL":   "surveys/bat-full-survey.json",
+    "PILOT":     "surveys/pilot-survey.json",
+    "CBTFULL":   "surveys/cbt-full-survey.json",
+    "READINESS": "surveys/readiness-survey.json",
 }
 
 _BASE_DIR = Path(__file__).parent
@@ -221,6 +222,7 @@ def serialize_survey_results(snapshots: list) -> dict:
         s.get("questionId", ""): {
             "score": s.get("score"),
             "domain": s.get("domain"),
+            "userResponse": s.get("userResponse", ""),
             "voiceSentiment": s.get("voiceSentiment", "neutral"),
             "blinkRateChange": s.get("blinkRateChange", 0),
             "leftGazePosition": s.get("leftGazePosition", "Center"),

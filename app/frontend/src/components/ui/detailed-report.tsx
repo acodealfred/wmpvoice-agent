@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { blinkBandLevel, pupilBandLevel } from "@/lib/bands";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
+import { ReadinessReportView } from "@/components/ui/readiness-report-view";
 import {
     ResponsiveContainer,
     RadialBarChart,
@@ -250,6 +251,26 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [analyzeData, surveyRunId]);
 
+    // READINESS uses the SAME deterministic gauge/domain-chart/table as every other
+    // survey type (see analyze_report — its questions carry a Low/Medium/High-mapped
+    // 1/3/5 scale). The only thing that's different is the "Behavioral Analysis" tab,
+    // which gets a richer narrative (assessment_summary/topic_feedback/etc, see
+    // build_readiness_analysis_prompt) instead of correlations/contradictions/patterns
+    // — kick that off automatically as soon as the deterministic report has persisted,
+    // instead of waiting for a tab click, since it's the main qualitative deliverable.
+    const isReadiness = surveyType === "READINESS";
+    useEffect(() => {
+        if (isReadiness && analyzeData && !analysisResult && !analysisLoading && !analysisError) {
+            // Also open the tab itself — otherwise the generated narrative sits in
+            // state with nothing rendering it until the user happens to click
+            // "Behavioral Analysis" manually (the content area is gated on
+            // activeReportTab === "analysis").
+            setActiveReportTab(prev => prev ?? "analysis");
+            handleGenerateAnalysis();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isReadiness, analyzeData]);
+
     // The headline score/risk MUST come from the backend (reverse-aware, config
     // thresholds). The local `totalScore` prop is a raw sum and would be wrong for
     // surveys with reverse-scored items, so we show "Calculating…" until /analyze-report
@@ -309,6 +330,17 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // color bands / chart axes must work off each question's own max, not a fixed 5.
     const maxForQuestion = (questionId: string) => (questionId.startsWith("cbi_") ? 100 : 5);
 
+    // READINESS questions use a Low/Medium/High-mapped 1/3/5 scale (see
+    // readiness-survey.json) — the data table shows that label instead of a bare
+    // number, per the qualitative, no-exact-score conversation this survey runs.
+    const READINESS_SCORE_LABELS: Record<number, string> = { 1: "Low", 3: "Medium", 5: "High" };
+    const scoreDisplay = (questionId: string, score?: number) => {
+        if (questionId.startsWith("readiness_")) {
+            return score != null ? (READINESS_SCORE_LABELS[score] ?? String(score)) : "—";
+        }
+        return `${score ?? "—"}/${maxForQuestion(questionId)}`;
+    };
+
     // Per-question score → color band (higher % of that question's own max = worse).
     const scoreHex = (pct: number) => (pct <= 20 ? tok.green : pct <= 60 ? tok.amber : tok.red);
 
@@ -317,7 +349,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     const domainMap = new Map<string, { sum: number; n: number }>();
     snapshots.forEach(s => {
         const d = domainMap.get(s.domain) ?? { sum: 0, n: 0 };
-        d.sum += (s.score / maxForQuestion(s.questionId)) * 100;
+        d.sum += ((s.score ?? 0) / maxForQuestion(s.questionId)) * 100;
         d.n += 1;
         domainMap.set(s.domain, d);
     });
@@ -457,8 +489,12 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             {/* ── Header ── */}
             <div className="mb-5 flex items-center justify-between">
                 <div>
-                    <h2 className="font-display text-2xl font-bold text-[color:var(--ciq-text-strong)]">Burnout Assessment</h2>
-                    <p className="text-sm text-[color:var(--ciq-text-muted)]">Behavioral &amp; physiological insight dashboard</p>
+                    <h2 className="font-display text-2xl font-bold text-[color:var(--ciq-text-strong)]">
+                        {isReadiness ? "Readiness Assessment" : "Burnout Assessment"}
+                    </h2>
+                    <p className="text-sm text-[color:var(--ciq-text-muted)]">
+                        {isReadiness ? "Readiness & physiological insight dashboard" : "Behavioral & physiological insight dashboard"}
+                    </p>
                 </div>
                 {onClose && (
                     <button
@@ -479,10 +515,12 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                 </div>
             )}
 
-            {/* ── Combined Overall Burnout: risk gauge + enlarged domain radar ── */}
+            {/* ── Combined Overall Burnout: risk gauge + enlarged domain radar ──
+                 Same structure for every survey type, including READINESS — see
+                 analyze_report / compute_survey_summary. ── */}
             <div className={`mb-4 ${cardClass}`}>
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
-                    <Gauge className="h-5 w-5" /> Overall Burnout
+                    <Gauge className="h-5 w-5" /> {isReadiness ? "Overall Readiness" : "Overall Burnout"}
                 </div>
                 <div className="grid items-center gap-4 md:grid-cols-5">
                     {/* Risk gauge(s) — two independent subscales for a scoringSections
@@ -575,7 +613,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.questionId}</td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.domain}</td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium text-[color:var(--ciq-text-strong)]">
-                                            {s.score}/{maxForQuestion(s.questionId)}
+                                            {scoreDisplay(s.questionId, s.score)}
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>{b.label}</span>
@@ -649,9 +687,16 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
                     {activeReportTab === "analysis" &&
                         (analysisLoading ? (
-                            <ReportLoading label="Analyzing behaviour…" />
+                            <ReportLoading label={isReadiness ? "Reflecting on the conversation…" : "Analyzing behaviour…"} />
                         ) : analysisError ? (
                             <ReportError text={analysisError} onRetry={handleGenerateAnalysis} />
+                        ) : isReadiness && analysisResult?.assessment_summary ? (
+                            <ReadinessReportView analysisResult={analysisResult} />
+                        ) : isReadiness && analysisResult?.raw ? (
+                            // The model's JSON didn't parse into the expected shape server-side
+                            // (parse_llm_json fell back to {raw: "..."}) — show it rather than
+                            // silently rendering nothing even though generation did succeed.
+                            <Markdown>{analysisResult.raw}</Markdown>
                         ) : hasAnalysis ? (
                             <div className="space-y-5">
                                 {insightCount > 0 ? (

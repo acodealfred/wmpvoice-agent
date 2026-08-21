@@ -99,7 +99,10 @@ export type SurveyUpdate = {
 export interface BiometricSnapshot {
     questionId: string;
     domain: string;
-    score: number;
+    // Absent for a qualitative (open-ended, no numeric scale) question — e.g. the
+    // READINESS survey type. See userResponse for the natural-language answer instead.
+    score?: number;
+    userResponse?: string;
     voiceSentiment: "positive" | "neutral" | "negative";
     blinkRateChange: number;
     pupilMmChange?: number;
@@ -212,6 +215,12 @@ export type AnalysisResult = {
     contradictions?: AnalysisInsight[];
     patterns?: AnalysisInsight[];
     summary?: string;
+    // Present only for a qualitative (e.g. READINESS) report — see build_readiness_analysis_prompt.
+    assessment_summary?: string;
+    readiness_score?: number;
+    topic_feedback?: { domain: string; user_response_excerpt: string; comment: string }[];
+    user_experience_feedback?: string;
+    actionable_recommendations?: string[];
     // Fallback when the LLM returns prose / markdown-wrapped JSON the backend
     // couldn't parse into the structured groups above.
     raw?: string;
@@ -263,7 +272,7 @@ export type SSoTReport = {
 
 export type SurveyTypeConfig = {
     surveyTypeOverridden: boolean;
-    activeSurveyType: "TEST" | "BATFULL" | "PILOT" | "CBTFULL";
+    activeSurveyType: "TEST" | "BATFULL" | "PILOT" | "CBTFULL" | "READINESS";
     availableSurveyTypes: string[];
 };
 

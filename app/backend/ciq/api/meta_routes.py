@@ -12,7 +12,7 @@ async def get_config(request):
             "enableSentimentAnalysis": env_flag("ENABLE_SENTIMENT_ANALYSIS"),
             "enableSurveyMode": env_flag("ENABLE_SURVEY_MODE"),
             "surveyTypeOverridden": rtmt.survey_type_overridden if rtmt else False,
-            "activeSurveyType": rtmt.default_survey_type if rtmt else "TEST",
+            "activeSurveyType": rtmt.default_survey_type if rtmt else "READINESS",
             "availableSurveyTypes": AVAILABLE_SURVEY_TYPES,
             "biometricGuardrailEnabled": rtmt.biometric_guardrail_enabled if rtmt else True,
         }

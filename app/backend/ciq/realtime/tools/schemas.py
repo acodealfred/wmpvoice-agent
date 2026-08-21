@@ -26,12 +26,15 @@ SURVEY_SCHEMA = {
     "type": "function",
     "name": "record_survey_response",
     "description": (
-        "Record the user's response to a burnout assessment question. The valid score "
+        "Record the user's response to an assessment question. The valid score "
         "depends on the question: 'bat_'-prefixed questions use a 1-5 Likert scale "
         "(1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always); 'cbi_'-prefixed questions "
         "use a 0-100 scale (0=Never/Almost Never, 25=Seldom, 50=Sometimes, 75=Often, "
         "100=Always). Always use the exact scale explained to the user for the current "
-        "question — never interpolate between values."
+        "question — never interpolate between values. For a qualitative, open-ended "
+        "conversation (e.g. 'readiness_'-prefixed questions), the user is never asked "
+        "for a number — silently classify how they came across as 1=Low, 3=Medium, or "
+        "5=High and pass that as score (see the survey script for the exact rule)."
     ),
     "parameters": {
         "type": "object",
@@ -46,7 +49,7 @@ SURVEY_SCHEMA = {
                 "description": (
                     "For 1-5 scale questions: 1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always. "
                     "For 0-100 scale questions: 0=Never/Almost Never, 25=Seldom, 50=Sometimes, "
-                    "75=Often, 100=Always."
+                    "75=Often, 100=Always. Omit entirely for a qualitative, open-ended question."
                 ),
             },
             "user_verbal_response": {
@@ -67,7 +70,7 @@ SURVEY_SCHEMA = {
                 "description": "Dominant emotion detected from face (e.g., HAPPY, SAD, ANGRY, NEUTRAL)",
             },
         },
-        "required": ["question_id", "score"],
+        "required": ["question_id"],
         "additionalProperties": False,
     },
 }

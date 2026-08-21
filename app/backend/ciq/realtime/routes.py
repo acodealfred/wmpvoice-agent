@@ -27,7 +27,7 @@ async def set_survey_type(request):
     session_id = data.get("session_id", "")
     if not session_id:
         return web.json_response({"error": "session_id is required"}, status=400)
-    survey_type = data.get("surveyType", "TEST").upper()
+    survey_type = data.get("surveyType", "READINESS").upper()
     resolved_type = rtmt.set_survey_type_for_session(session_id, survey_type)
     return web.json_response({"activeSurveyType": resolved_type, "sessionId": session_id})
 
