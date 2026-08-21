@@ -1,0 +1,768 @@
+<title>The CIQ Ritual</title>
+<meta name="color-scheme" content="dark" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,420..600&family=Inter:wght@400..800&display=swap" />
+<style>
+  :root {
+    --bg: #091015; --surface: #101a20; --raised: #17242d; --line: #283742;
+    --text: #edf3f6; --muted: #a9b5bd; --quiet: #75838e;
+    --blue: #61aff5; --green: #68d3a2; --green-ink: #a9edca; --green-bed: #18392d;
+    --amber: #f0b55a; --amber-ink: #ffd17e; --amber-bed: #4b391e; --danger: #ff8390;
+    --shadow: 0 22px 60px rgba(0, 0, 0, .3);
+    --serif: "Fraunces", Georgia, "Times New Roman", serif;
+    --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+  }
+  /* The care-recipient pack raises the scale — accessibility as a token, not a new screen. */
+  :root[data-context="recipient"] { font-size: 18px; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: radial-gradient(circle at 16% 0%, #17344b 0, transparent 33rem) var(--bg);
+    color: var(--text); font-family: var(--sans); font-size: 1rem; line-height: 1.55;
+  }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  button:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; border-radius: 4px; }
+  h1, h2, h3, p { margin-top: 0; }
+  h1 { font-family: var(--serif); font-weight: 480; letter-spacing: -.015em; text-wrap: balance; }
+  .shell { width: min(1080px, calc(100% - 2rem)); margin: 0 auto; }
+
+  /* ── Prototype console (demo chrome — not product UI) ─────────────── */
+  .console { position: sticky; top: 0; z-index: 9; background: #0b1319f2; border-bottom: 1px dashed #3a4f5e; backdrop-filter: blur(9px); }
+  .console-inner { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1.4rem; padding: .7rem 0; }
+  .console-tag { display: inline-flex; align-items: center; gap: .45rem; color: var(--quiet); font-size: .68rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  .console-tag::before { content: ""; width: 8px; height: 8px; border: 2px dashed var(--quiet); border-radius: 50%; }
+  .seg { display: inline-flex; border: 1px solid #35505f; border-radius: 999px; background: #101c24; padding: 3px; }
+  .seg button { border: 0; border-radius: 999px; background: transparent; color: var(--muted); padding: .4rem .85rem; font-size: .8rem; font-weight: 650; }
+  .seg button[aria-pressed="true"] { background: #e5f2f8; color: #142129; }
+  .console-note { flex: 1 1 14rem; min-width: 12rem; color: var(--quiet); font-size: .74rem; }
+  .console-note strong { color: var(--muted); }
+  .stepper { display: flex; flex-wrap: wrap; gap: .3rem; padding-bottom: .7rem; }
+  .stepper button { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--quiet); padding: .28rem .7rem; font-size: .74rem; font-weight: 650; }
+  .stepper button:hover { color: var(--muted); }
+  .stepper button[aria-current="true"] { border-color: #39505e; background: #14232c; color: var(--text); }
+  .stepper .n { font-size: .64rem; color: var(--quiet); font-variant-numeric: tabular-nums; }
+  .stepper .ops-step { margin-left: auto; border-style: dashed; border-color: #3a4f5e; }
+
+  /* ── Product header ───────────────────────────────────────────────── */
+  .site-header { display: flex; min-height: 5rem; align-items: center; justify-content: space-between; gap: 1.2rem; border-bottom: 1px solid rgba(147, 170, 184, .16); }
+  .brand { display: flex; align-items: center; gap: .75rem; }
+  .brand-mark { display: grid; width: 2.4rem; height: 2.4rem; place-items: center; border: 2px solid var(--text); border-radius: .7rem; color: var(--green); font-size: 1.25rem; font-weight: 900; letter-spacing: -.12em; }
+  .brand-name { display: block; font-size: 1.1rem; font-weight: 790; letter-spacing: -.02em; }
+  .brand-sub { display: block; color: var(--muted); font-size: .74rem; }
+  .privacy-badge { display: inline-flex; align-items: center; gap: .45rem; color: var(--green-ink); border: 1px solid #2e7458; border-radius: 999px; background: rgba(21, 74, 57, .45); padding: .42rem .7rem; font-size: .74rem; font-weight: 750; }
+  .privacy-badge::before { content: "●"; color: var(--green); font-size: .6rem; }
+
+  main { padding: 2rem 0 4rem; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .eyebrow { margin: 0 0 .7rem; color: var(--blue); font-size: .74rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+  .lead { max-width: 42rem; color: var(--muted); font-size: 1.1rem; }
+  .caption { color: var(--quiet); font-size: .8rem; }
+  .card { border: 1px solid var(--line); border-radius: 1.1rem; background: rgba(16, 26, 32, .92); box-shadow: var(--shadow); }
+  .button-primary, .button-secondary { display: inline-flex; min-height: 3.2rem; align-items: center; justify-content: center; gap: .55rem; border-radius: .7rem; padding: 0 1.3rem; font-weight: 800; text-decoration: none; transition: transform .16s ease, background .16s ease; }
+  .button-primary { border: 1px solid #c9edff; background: #e5f2f8; color: #142129; }
+  .button-primary:hover { transform: translateY(-1px); background: white; }
+  .button-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .button-secondary { border: 1px solid #39505e; background: transparent; color: var(--text); }
+  .button-secondary:hover { background: #1b2a33; }
+  .arrow { font-size: 1.3rem; line-height: 0; }
+  .link-button { border: 0; background: transparent; color: #bdddf3; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; padding: 0; }
+
+  /* ── 1 · Welcome ──────────────────────────────────────────────────── */
+  #welcome h1 { max-width: 44rem; margin-bottom: 1rem; font-size: clamp(2.3rem, 5vw, 3.7rem); line-height: 1.06; }
+  .welcome-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 1.9rem; }
+  .trust-chips { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.8rem; }
+  .trust-chips span { border: 1px solid #30535d; border-radius: 999px; background: rgba(19, 39, 47, .76); color: #d0e0e7; padding: .5rem .7rem; font-size: .76rem; }
+  .trust-chips span::before { content: "✓"; margin-right: .4rem; color: var(--green); font-weight: 900; }
+
+  /* ── 2 · Consent ──────────────────────────────────────────────────── */
+  .setup-layout { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(17rem, .88fr); gap: 1.5rem; align-items: start; margin-top: 1.6rem; }
+  .setup-card, .snapshot, .plan, .question-card { padding: 1.8rem; }
+  #consent-title, #checkin-title, #snapshot-title, #plan-title-h, #history-title, #ops-title { font-size: clamp(1.7rem, 3.4vw, 2.5rem); }
+  .steps { display: grid; gap: 1.1rem; margin: 1.5rem 0 0; }
+  .step { display: grid; grid-template-columns: 1.8rem 1fr; gap: .75rem; }
+  .step-number { display: grid; width: 1.75rem; height: 1.75rem; place-items: center; border: 1px solid #557080; border-radius: 50%; color: #c7d7df; font-size: .8rem; font-weight: 800; }
+  .step p { margin: .1rem 0 0; color: var(--muted); font-size: .88rem; }
+  .kept-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; margin-top: 1.4rem; }
+  .kept-col { border: 1px solid var(--line); border-radius: .8rem; background: #131f26; padding: 1rem; }
+  .kept-col h3 { margin-bottom: .6rem; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; }
+  .kept-col.keeps h3 { color: var(--green-ink); }
+  .kept-col.nots h3 { color: #f3b8be; }
+  .kept-col ul { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: .85rem; display: grid; gap: .45rem; }
+  .who-sees { margin-top: 1.1rem; padding: 1rem 1.1rem; border-left: 3px solid var(--green); border-radius: 0 .6rem .6rem 0; background: #14231f; color: #d6e8df; font-size: .87rem; }
+  .consent-check { display: flex; gap: .7rem; align-items: flex-start; margin: 1.5rem 0 1rem; padding: 1rem; border: 1px solid #31586a; border-radius: .8rem; background: #10212a; }
+  .consent-check input { width: 1.1rem; height: 1.1rem; margin: .2rem 0 0; accent-color: var(--green); }
+  .consent-check label { font-size: .9rem; font-weight: 650; }
+  .consent-check label span { display: block; margin-top: .3rem; color: var(--muted); font-size: .78rem; font-weight: 400; }
+  .perm-note { margin-top: .8rem; color: var(--quiet); font-size: .8rem; }
+  details.disclosure { margin-top: 1.2rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-size: .85rem; }
+  details.disclosure summary { cursor: pointer; color: #d7e6ed; font-weight: 700; }
+  details.disclosure p { margin: .7rem 0 0; }
+  .camera-frame { position: relative; display: grid; min-height: 19rem; place-items: center; overflow: hidden; border: 1px solid #30414b; border-radius: 1rem; background: radial-gradient(circle at 50% 35%, #253842, #10191f 60%); }
+  .camera-frame::before { content: ""; position: absolute; width: 10rem; height: 10rem; border: 2px dashed #6e99aa; border-radius: 50%; opacity: .78; }
+  .camera-frame span { position: absolute; bottom: 1.2rem; color: #c3d1d8; font-size: .8rem; }
+  .camera-icon { color: #a9c5d1; font-size: 2.6rem; }
+
+  /* ── 3 · Check-in ─────────────────────────────────────────────────── */
+  .assessment-wrap { width: min(54rem, 100%); margin: 1.5rem auto 0; }
+  .assessment-head { display: flex; justify-content: space-between; align-items: start; gap: 1.2rem; margin-bottom: 1rem; }
+  .progress { width: 9rem; height: .45rem; overflow: hidden; border-radius: 99px; background: #253640; }
+  .progress span { display: block; height: 100%; border-radius: inherit; background: var(--blue); transition: width .4s ease; }
+  .agent-line { display: flex; align-items: center; gap: .7rem; margin-bottom: 1rem; color: var(--muted); font-size: .85rem; }
+  .voice-dots { display: inline-flex; align-items: flex-end; gap: 3px; height: 1rem; }
+  .voice-dots i { width: 3px; border-radius: 2px; background: var(--blue); animation: talk 1.1s ease-in-out infinite; }
+  .voice-dots i:nth-child(1) { height: 40%; animation-delay: 0s; }
+  .voice-dots i:nth-child(2) { height: 90%; animation-delay: .18s; }
+  .voice-dots i:nth-child(3) { height: 60%; animation-delay: .34s; }
+  .voice-dots i:nth-child(4) { height: 85%; animation-delay: .5s; }
+  @keyframes talk { 0%, 100% { transform: scaleY(.5); } 50% { transform: scaleY(1); } }
+  .question-index { margin-bottom: .9rem; color: var(--blue); font-size: .8rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .question-card h1 { max-width: 40rem; font-size: clamp(1.5rem, 3vw, 2.1rem); margin-bottom: 0; }
+  .answer-set { display: grid; gap: .6rem; margin-top: 1.6rem; }
+  .answer { display: flex; align-items: center; gap: .7rem; width: 100%; min-height: 3.4rem; border: 1px solid #38505d; border-radius: .7rem; background: #142129; color: var(--text); padding: .5rem 1rem; text-align: left; font-size: .95rem; }
+  .answer:hover, .answer.selected { border-color: var(--blue); background: #173044; }
+  .radio { flex: none; width: 1rem; height: 1rem; border: 2px solid #91a7b3; border-radius: 50%; }
+  .answer.selected .radio { border: 5px solid var(--blue); }
+  .capture-strip { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.1rem; padding: .9rem 1.1rem; }
+  .capture-strip strong { display: block; color: var(--green); font-size: .87rem; }
+  .capture-strip p { margin: .1rem 0 0; color: var(--muted); font-size: .76rem; }
+  .stop-link { color: #ffd1d5; border: 0; background: transparent; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+
+  /* ── 4 · Snapshot ─────────────────────────────────────────────────── */
+  .results-hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(17rem, .75fr); gap: 1.5rem; align-items: stretch; margin-top: 1.5rem; }
+  .status-label { display: inline-flex; align-items: center; gap: .45rem; margin-bottom: .9rem; border-radius: 999px; background: var(--green-bed); color: var(--green-ink); padding: .38rem .65rem; font-size: .76rem; font-weight: 800; }
+  .snapshot h1 { max-width: 38rem; margin-bottom: .7rem; }
+  .snapshot .lead { font-size: 1rem; }
+  .compare-note { margin-top: 1rem; color: #cfe0e8; font-size: .87rem; }
+  .compare-note::before { content: "↔"; margin-right: .5rem; color: var(--blue); font-weight: 800; }
+  .boundary { margin-top: 1.4rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-size: .82rem; }
+  .employer-card { padding: 1.6rem; background: #11232d; }
+  .employer-card .eyebrow { color: #9fc9ec; }
+  .employer-card p { color: #cad8df; font-size: .88rem; }
+  .employer-card strong { color: white; }
+
+  /* ── 5 · Next step ────────────────────────────────────────────────── */
+  .plan { margin-top: 1.5rem; }
+  .featured-resource { display: grid; grid-template-columns: 1fr auto; gap: 1.3rem; align-items: center; margin-top: 1.3rem; padding: 1.4rem; border: 1px solid #355363; border-radius: .9rem; background: #14252d; }
+  .resource-type { color: var(--green); font-size: .7rem; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
+  .featured-resource h3 { margin: .55rem 0 .35rem; font-size: 1.25rem; }
+  .featured-resource p { max-width: 38rem; margin: 0; color: var(--muted); font-size: .9rem; }
+  .resource-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; margin-top: 1rem; }
+  .resource { display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; border: 1px solid #2e4551; border-radius: .8rem; background: #131f26; color: var(--text); padding: 1.05rem; text-align: left; }
+  .resource:hover { border-color: var(--blue); background: #172c36; }
+  .resource strong { font-size: .95rem; }
+  .resource span { color: var(--muted); font-size: .8rem; }
+  .curated-note { margin-top: 1.1rem; color: var(--quiet); font-size: .78rem; }
+
+  /* ── 6 · History ──────────────────────────────────────────────────── */
+  .history-head { display: flex; align-items: end; justify-content: space-between; gap: 1.2rem; margin: 1.5rem 0 1.3rem; }
+  .history-head p { margin: .3rem 0 0; color: var(--muted); }
+  .history-list { display: grid; gap: .7rem; }
+  .history-row { display: grid; grid-template-columns: 1.1fr .9fr 1fr auto; gap: .9rem; align-items: center; padding: 1.05rem 1.2rem; }
+  .history-row strong { display: block; }
+  .history-row .meta, .history-row .note { color: var(--muted); font-size: .82rem; }
+  .tag { display: inline-block; width: fit-content; border-radius: 999px; padding: .3rem .55rem; font-size: .76rem; font-weight: 800; }
+  .tag.green { background: var(--green-bed); color: var(--green-ink); }
+  .tag.amber { background: var(--amber-bed); color: var(--amber-ink); }
+  .history-note { display: flex; gap: .75rem; margin-top: 1.2rem; padding: 1.05rem; border-radius: .8rem; background: #14212a; color: var(--muted); font-size: .87rem; }
+  .history-note strong { color: var(--text); }
+
+  /* ── 7 · Ops view (a separate product) ────────────────────────────── */
+  .ops-banner { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-top: 1.4rem; padding: .8rem 1.1rem; border: 1px dashed #3a4f5e; border-radius: .8rem; color: var(--muted); font-size: .8rem; }
+  .ops-banner b { color: #9fc9ec; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
+  #ops h1 { margin-top: 1.3rem; }
+  .ops-sub { color: var(--muted); margin-bottom: 1.4rem; }
+  .tile-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .9rem; margin-bottom: 1.2rem; }
+  .tile { padding: 1.1rem 1.2rem; }
+  .tile .k { color: var(--quiet); font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+  .tile .v { margin: .3rem 0 .1rem; font-size: 1.9rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--muted); font-size: .78rem; }
+  .chart-card { padding: 1.4rem 1.4rem 1rem; }
+  .chart-wrap { position: relative; }
+  .chart-wrap svg { display: block; width: 100%; height: auto; }
+  .chart-wrap text { font-family: var(--sans); font-variant-numeric: tabular-nums; }
+  .tip { position: absolute; display: none; pointer-events: none; transform: translate(-50%, -130%); border: 1px solid #35505f; border-radius: .5rem; background: #0d171d; color: var(--text); padding: .35rem .6rem; font-size: .76rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .chart-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6rem 1.2rem; margin-top: .6rem; color: var(--quiet); font-size: .76rem; }
+  details.chart-table { margin-top: .6rem; color: var(--muted); font-size: .8rem; }
+  details.chart-table summary { cursor: pointer; color: #d7e6ed; font-weight: 700; }
+  details.chart-table table { margin-top: .6rem; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  details.chart-table td, details.chart-table th { border: 1px solid var(--line); padding: .3rem .6rem; text-align: right; }
+  .nevers { margin-top: 1.2rem; padding: 1.2rem 1.3rem; }
+  .nevers h3 { font-size: .8rem; letter-spacing: .09em; text-transform: uppercase; color: #f3b8be; margin-bottom: .7rem; }
+  .nevers ul { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: .87rem; display: grid; gap: .4rem; }
+
+  footer { padding: 1.5rem 0 3rem; color: var(--quiet); font-size: .78rem; text-align: center; }
+
+  @media (max-width: 800px) {
+    .setup-layout, .results-hero { grid-template-columns: 1fr; }
+    .kept-grid, .resource-grid, .featured-resource { grid-template-columns: 1fr; }
+    .tile-row { grid-template-columns: 1fr; }
+    .history-row { grid-template-columns: 1fr 1fr; }
+    .stepper .ops-step { margin-left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+
+<!-- ═══ Prototype console — demo chrome, not product UI ═══ -->
+<div class="console">
+  <div class="shell">
+    <div class="console-inner">
+      <span class="console-tag">Prototype console</span>
+      <div class="seg" role="group" aria-label="Deployment context">
+        <button type="button" data-ctx="petroleum" aria-pressed="true">Petroleum</button>
+        <button type="button" data-ctx="caregiver" aria-pressed="false">Eldercare · caregiver</button>
+        <button type="button" data-ctx="recipient" aria-pressed="false">Eldercare · care recipient</button>
+      </div>
+      <p class="console-note"><strong>Switch the deployment — the words change, the screens don't.</strong> <span id="demo-note"></span></p>
+    </div>
+    <nav class="stepper" aria-label="Ritual screens">
+      <button type="button" data-screen="welcome" aria-current="true"><span class="n">1</span> Welcome</button>
+      <button type="button" data-screen="consent"><span class="n">2</span> Consent</button>
+      <button type="button" data-screen="checkin"><span class="n">3</span> Check-in</button>
+      <button type="button" data-screen="snapshot"><span class="n">4</span> Snapshot</button>
+      <button type="button" data-screen="nextstep"><span class="n">5</span> Next step</button>
+      <button type="button" data-screen="history"><span class="n">6</span> History</button>
+      <button type="button" data-screen="ops" class="ops-step"><span class="n">7</span> Ops view · separate product</button>
+    </nav>
+  </div>
+</div>
+
+<header class="shell site-header">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">CIQ</span>
+    <span><span class="brand-name">CIQ</span><span class="brand-sub" data-t="tenant"></span></span>
+  </div>
+  <span class="privacy-badge">Private to you</span>
+</header>
+
+<main class="shell">
+
+  <!-- ═══ 1 · Welcome ═══ -->
+  <section class="screen active" id="welcome" aria-labelledby="welcome-title">
+    <p class="eyebrow" data-t="invite.eyebrow"></p>
+    <h1 id="welcome-title" data-t="invite.h1"></h1>
+    <p class="lead" data-t="invite.lead"></p>
+    <div class="welcome-actions">
+      <button class="button-primary next" data-next="consent">Start check-in <span class="arrow">→</span></button>
+      <span class="caption" data-t="invite.time"></span>
+    </div>
+    <div class="trust-chips" id="trust-chips"></div>
+  </section>
+
+  <!-- ═══ 2 · Consent — always, for everyone, before any permission prompt ═══ -->
+  <section class="screen" id="consent" aria-labelledby="consent-title">
+    <p class="eyebrow">Before you begin</p>
+    <h1 id="consent-title">You stay in control.</h1>
+    <div class="setup-layout">
+      <div class="card setup-card">
+        <div class="steps" id="consent-steps"></div>
+        <div class="kept-grid">
+          <div class="kept-col keeps">
+            <h3>Kept — privately, for you</h3>
+            <ul id="kept-list"></ul>
+          </div>
+          <div class="kept-col nots">
+            <h3>Never kept</h3>
+            <ul id="notkept-list"></ul>
+          </div>
+        </div>
+        <p class="who-sees" data-t="consent.whoSees"></p>
+        <div class="consent-check">
+          <input id="agree" type="checkbox" />
+          <label for="agree"><span data-t="consent.checkLabel" style="display:inline"></span>
+            <span data-t="consent.checkSub"></span>
+          </label>
+        </div>
+        <button id="continue-consent" class="button-primary next" data-next="checkin" disabled>Continue to my check-in <span class="arrow">→</span></button>
+        <p class="perm-note" data-t="consent.permNote"></p>
+        <details class="disclosure">
+          <summary>What exactly does CIQ measure?</summary>
+          <p data-t="consent.detail"></p>
+        </details>
+      </div>
+      <div>
+        <div class="camera-frame"><span class="camera-icon" aria-hidden="true">◉</span><span>Camera preview appears here after you continue</span></div>
+        <p class="caption" style="margin-top:.8rem" data-t="consent.frameNote"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 3 · Check-in — voice-led, one question, no live metrics ═══ -->
+  <section class="screen" id="checkin" aria-labelledby="checkin-title">
+    <div class="assessment-wrap">
+      <div class="assessment-head">
+        <div>
+          <p class="eyebrow">Private check-in</p>
+          <h1 id="checkin-title">A few honest moments for yourself.</h1>
+        </div>
+        <div style="text-align:right">
+          <span class="caption" data-t="q.index"></span>
+          <div class="progress" style="margin-top:.4rem" aria-hidden="true"><span id="progress-fill"></span></div>
+        </div>
+      </div>
+      <div class="card question-card">
+        <div class="agent-line"><span class="voice-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span data-t="q.agent"></span></div>
+        <p class="question-index" data-t="q.count"></p>
+        <h1 data-t="q.text" style="font-family:var(--serif)"></h1>
+        <div class="answer-set" id="answers" role="group" aria-label="Answer options"></div>
+      </div>
+      <div class="card capture-strip">
+        <div>
+          <strong>Camera &amp; microphone are on</strong>
+          <p>Raw video and audio are not being saved — only derived numbers, kept privately for you.</p>
+        </div>
+        <button class="stop-link" type="button">Stop check-in</button>
+      </div>
+      <div class="welcome-actions" style="margin-top:1.2rem">
+        <button class="button-primary next" data-next="snapshot">Continue <span class="arrow">→</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 4 · Snapshot — direction of travel, never a verdict ═══ -->
+  <section class="screen" id="snapshot" aria-labelledby="snapshot-title">
+    <div class="results-hero">
+      <article class="card snapshot">
+        <span class="status-label">Your private snapshot</span>
+        <h1 id="snapshot-title" data-t="snap.headline"></h1>
+        <p class="lead" data-t="snap.body"></p>
+        <p class="compare-note" data-t="snap.compare"></p>
+        <p class="boundary" data-t="snap.boundary"></p>
+      </article>
+      <aside class="card employer-card">
+        <p class="eyebrow">The boundary</p>
+        <p data-t="snap.orgSees"></p>
+        <p style="margin-top:.9rem"><strong>Never a diagnosis, never a clearance decision.</strong> A snapshot varies with sleep, workload, weather and much more — it describes today, it doesn't define you.</p>
+      </aside>
+    </div>
+    <div class="welcome-actions" style="margin-top:1.4rem">
+      <button class="button-primary next" data-next="nextstep">See one helpful next step <span class="arrow">→</span></button>
+    </div>
+  </section>
+
+  <!-- ═══ 5 · Next step — one curated action ═══ -->
+  <section class="screen" id="nextstep" aria-labelledby="plan-title-h">
+    <div class="card plan">
+      <p class="eyebrow">One helpful next step</p>
+      <h1 id="plan-title-h" data-t="plan.h1"></h1>
+      <div class="featured-resource">
+        <div>
+          <span class="resource-type" data-t="plan.type"></span>
+          <h3 data-t="plan.title"></h3>
+          <p data-t="plan.body"></p>
+        </div>
+        <button class="button-primary" data-t="plan.cta"></button>
+      </div>
+      <div class="resource-grid" id="secondary-resources"></div>
+      <p class="curated-note">Suggestions come from resources curated by CIQ's clinical panel — never invented on the spot.</p>
+      <p class="caption" style="margin-top:.9rem">This result is private to you. <button class="link-button next" type="button" data-next="history">View my previous check-ins</button></p>
+    </div>
+  </section>
+
+  <!-- ═══ 6 · History — private, in human language ═══ -->
+  <section class="screen" id="history" aria-labelledby="history-title">
+    <div class="history-head">
+      <div>
+        <p class="eyebrow">Private history</p>
+        <h1 id="history-title">Your check-ins, visible only to you.</h1>
+        <p data-t="hist.sub"></p>
+      </div>
+      <button class="button-secondary next" type="button" data-next="welcome">Start a new check-in</button>
+    </div>
+    <div class="history-list" id="history-list"></div>
+    <div class="history-note"><span aria-hidden="true">🔒</span><p style="margin:0"><strong>What history holds:</strong> your snapshots and derived markers — never raw recordings, because none are ever stored.</p></div>
+  </section>
+
+  <!-- ═══ 7 · Ops view — a separate product, shown here for the demo ═══ -->
+  <section class="screen" id="ops" aria-labelledby="ops-title">
+    <div class="ops-banner"><b>CIQ for Operations — a separate product</b><span>Different front door, same design language. It reads combined trends only; the personal ritual never links to it. Shown beside the ritual here for the demo only.</span></div>
+    <h1 id="ops-title" data-t="ops.title"></h1>
+    <p class="ops-sub" data-t="ops.sub"></p>
+    <div class="tile-row" id="ops-tiles"></div>
+    <div class="card chart-card">
+      <div class="chart-wrap" id="chart-wrap">
+        <svg id="ops-chart" viewBox="0 0 760 320" role="img"></svg>
+        <div class="tip" id="chart-tip"></div>
+      </div>
+      <div class="chart-foot">
+        <span data-t="ops.cohortNote"></span>
+        <span>Each person is compared with their own baseline — the line is the team average of that comparison.</span>
+      </div>
+      <details class="chart-table">
+        <summary>View as table</summary>
+        <table id="chart-table"></table>
+      </details>
+    </div>
+    <div class="card nevers">
+      <h3>What this view can never show</h3>
+      <ul id="nevers-list"></ul>
+    </div>
+  </section>
+
+</main>
+
+<footer class="shell">One instrument, any workforce — the screens never change; the question set, vocabulary and resources are deployment data.</footer>
+
+<script>
+  // ═══ Context packs — pure content. No pack may add, remove, or move a screen. ═══
+  const CONTEXTS = {
+    petroleum: {
+      demoNote: "Energy shift work: check-in at handover, rotation-aware history.",
+      tenant: "Halvor Energy · Site 12",
+      invite: {
+        eyebrow: "Private check-in · before your shift",
+        h1: "How are you feeling today?",
+        lead: "Take a few quiet minutes before handover to check in with yourself — and pick one recovery step that feels useful.",
+        time: "About 3 minutes · before your shift starts"
+      },
+      chips: ["Private to you", "Raw audio & video never saved", "Your employer sees combined team trends only"],
+      consent: {
+        steps: [
+          ["A short spoken conversation", "CIQ asks a few questions aloud — you answer by speaking, or tap an answer."],
+          ["Session patterns, with your permission", "The camera notices things like blink rate and gaze — as numbers, never as footage."],
+          ["A private snapshot", "You see how today compares with your own usual range, and one suggested next step."]
+        ],
+        kept: ["Your answers and today's snapshot, in your private history", "Derived numbers only — e.g. a blink-rate figure"],
+        notKept: ["Raw video or audio — never stored, never sent anywhere", "Anything a supervisor could open — individual results never leave you"],
+        whoSees: "Only you can see your individual result. Halvor Energy sees anonymous, combined team trends only — never a person.",
+        checkLabel: "I understand what CIQ uses and keeps.",
+        checkSub: "This is a self-reflection tool — not a diagnosis, and never a work-clearance decision.",
+        permNote: "Next, your browser will ask to use the camera and microphone — that's this step, and nothing more.",
+        detail: "During the conversation CIQ derives a small set of session markers — response pacing, blink rate, gaze steadiness, head position — and a voice-tone snapshot. Frames and audio are processed in the moment and discarded; only the derived numbers are kept, privately, for you.",
+        frameNote: "You choose when the camera turns on — never before this screen."
+      },
+      q: {
+        index: "Question 2 of 4", count: "Question 2 of 4",
+        agent: "CIQ asks aloud — answer by speaking, or tap what fits.",
+        text: "After a working day, how hard is it to recover your energy?",
+        options: ["Not hard at all", "Slightly hard", "Noticeably hard", "Very hard", "I don't recover before the next shift"],
+        selected: 2, pct: 50
+      },
+      snap: {
+        headline: "Today sits a little below your usual range.",
+        body: "Your answers and session patterns suggest you're carrying more load than usual — a good day to make recovery a priority before your shift.",
+        compare: "Compared with your own usual range — never with anyone else's.",
+        boundary: "Only you can see this individual result.",
+        orgSees: "Halvor Energy sees one thing: an anonymous, combined team trend. It cannot see your answers, your numbers, or that you checked in today."
+      },
+      plan: {
+        h1: "Try a five-minute wind-down.",
+        type: "Guided reset · 5 min",
+        title: "Wind down before you head out",
+        body: "A short guided breathing exercise for the drive back — steady, simple, and over before the kettle boils.",
+        cta: "Start now",
+        secondary: [
+          ["Sleeping well on a two-week rotation", "A plain-language guide, ten minutes to read"],
+          ["Site wellbeing contact — confidential", "A person to talk to, not a report"]
+        ]
+      },
+      hist: {
+        sub: "Your own pattern over this rotation, in plain language.",
+        rows: [
+          ["Today", "Day 9 of rotation", "amber", "Heavier than usual", "Recovery suggested"],
+          ["Mon 17 Aug", "Day 6 of rotation", "green", "Within your usual range", "Steady"],
+          ["Thu 13 Aug", "Day 2 of rotation", "green", "Within your usual range", "Steady"]
+        ]
+      },
+      ops: {
+        title: "Team readiness — one rotation",
+        sub: "Average of the team against its own baseline · Halvor Energy, Site 12",
+        tiles: [["Participation", "87%", "42 of 48 checked in"], ["Cohort", "48", "trends render for groups of 12+ only"], ["Direction", "−16%", "vs. team baseline by day 14"]],
+        series: [101, 100, 98, 97, 96, 95, 93, 90, 88, 87, 86, 85, 84, 84],
+        xUnit: "Day", threshold: 75, thresholdLabel: "below 75 — act here",
+        flagIdx: 8, flagLabel: "flagged here — output still looks normal",
+        endLabel: "Day 14 · 84%",
+        cohortNote: "48 people · anonymised at source · illustrative data, not pilot data",
+        nevers: ["An individual's result, ever", "A name, ID, shift or check-in to drill into", "Raw recordings — none exist to show", "Any small-group filter that could point at a person"]
+      }
+    },
+
+    caregiver: {
+      demoNote: "Care staff: check-in between rounds, week-by-week history.",
+      tenant: "Aster House Care · Team North",
+      invite: {
+        eyebrow: "Private check-in · between rounds",
+        h1: "How are you holding up today?",
+        lead: "A few quiet minutes between rounds to check in with yourself — and pick one recovery step that feels useful.",
+        time: "About 3 minutes · whenever fits between rounds"
+      },
+      chips: ["Private to you", "Raw audio & video never saved", "Aster House sees combined team trends only"],
+      consent: {
+        steps: [
+          ["A short spoken conversation", "CIQ asks a few questions aloud — you answer by speaking, or tap an answer."],
+          ["Session patterns, with your permission", "The camera notices things like blink rate and gaze — as numbers, never as footage."],
+          ["A private snapshot", "You see how today compares with your own usual range, and one suggested next step."]
+        ],
+        kept: ["Your answers and today's snapshot, in your private history", "Derived numbers only — e.g. a blink-rate figure"],
+        notKept: ["Raw video or audio — never stored, never sent anywhere", "Anything a manager could open — individual results never leave you"],
+        whoSees: "Only you can see your individual result. Aster House sees anonymous, combined team trends only — never a person.",
+        checkLabel: "I understand what CIQ uses and keeps.",
+        checkSub: "This is a self-reflection tool — not a diagnosis, and never part of your appraisal.",
+        permNote: "Next, your browser will ask to use the camera and microphone — that's this step, and nothing more.",
+        detail: "During the conversation CIQ derives a small set of session markers — response pacing, blink rate, gaze steadiness, head position — and a voice-tone snapshot. Frames and audio are processed in the moment and discarded; only the derived numbers are kept, privately, for you.",
+        frameNote: "You choose when the camera turns on — never before this screen."
+      },
+      q: {
+        index: "Question 2 of 4", count: "Question 2 of 4",
+        agent: "CIQ asks aloud — answer by speaking, or tap what fits.",
+        text: "How often do you feel emotionally drained after caring for others?",
+        options: ["Rarely", "Sometimes", "Often", "Most days", "Every day"],
+        selected: 2, pct: 50
+      },
+      snap: {
+        headline: "You've been giving a lot of yourself lately.",
+        body: "Your answers and session patterns suggest more strain than usual. This is a prompt to put something back — not a judgement.",
+        compare: "Compared with your own usual range — never with anyone else's.",
+        boundary: "Only you can see this individual result.",
+        orgSees: "Aster House sees one thing: an anonymous, combined team trend. It cannot see your answers, your numbers, or that you checked in today."
+      },
+      plan: {
+        h1: "Take three minutes to put the shift down.",
+        type: "Pause · 3 min",
+        title: "Put the shift down",
+        body: "A short decompression exercise for the walk between wings — a way to close one round before the next begins.",
+        cta: "Start now",
+        secondary: [
+          ["Caring without running empty", "A short guide to compassion fatigue"],
+          ["Peer-support line — confidential", "Talk with someone who does the same work"]
+        ]
+      },
+      hist: {
+        sub: "Your own pattern across recent weeks, in plain language.",
+        rows: [
+          ["Today", "After night round", "amber", "More strain than usual", "A pause suggested"],
+          ["Sat 15 Aug", "Day shift", "green", "Within your usual range", "Steady"],
+          ["Tue 11 Aug", "After night round", "green", "Within your usual range", "Steady"]
+        ]
+      },
+      ops: {
+        title: "Care-team readiness — eight weeks",
+        sub: "Team North against its own baseline · Aster House Care",
+        tiles: [["Participation", "74%", "17 of 23 checked in"], ["Cohort", "23", "trends render for groups of 12+ only"], ["Direction", "−7%", "vs. team baseline by week 8"]],
+        series: [100, 99, 98, 96, 95, 93, 92, 93],
+        xUnit: "Week", threshold: 75, thresholdLabel: "below 75 — act here",
+        flagIdx: 5, flagLabel: "night-rota block begins",
+        endLabel: "Week 8 · 93%",
+        cohortNote: "23 people · anonymised at source · illustrative data, not pilot data",
+        nevers: ["An individual's result, ever", "A name, ID, shift or check-in to drill into", "Raw recordings — none exist to show", "Any small-group filter that could point at a person"]
+      }
+    },
+
+    recipient: {
+      demoNote: "Care recipient: type scale +12%, gentler pacing — accessibility tokens, not new screens.",
+      tenant: "Aster House Care",
+      invite: {
+        eyebrow: "Your private check-in",
+        h1: "How are you feeling today?",
+        lead: "Take a few quiet minutes for yourself, whenever suits you today. There's no hurry.",
+        time: "A few minutes · no hurry at all"
+      },
+      chips: ["Private to you", "Nothing is filmed or recorded", "The home sees overall trends only — never your answers"],
+      consent: {
+        steps: [
+          ["A gentle chat", "CIQ asks a few easy questions aloud — answer by speaking, or tap an answer."],
+          ["Only with your OK", "The camera notices small things like blinking — as numbers, never as film."],
+          ["How today looks", "You'll see how today compares with your usual days, and one nice thing to try."]
+        ],
+        kept: ["Your answers and how today looked, kept privately for you", "Small derived numbers only — never pictures"],
+        notKept: ["Film or sound recordings — never stored, never sent anywhere", "Anything the care team could open — your answers stay yours"],
+        whoSees: "Only you can see your result. Aster House sees overall trends for everyone together — never your answers.",
+        checkLabel: "I understand what CIQ uses and keeps.",
+        checkSub: "This is a way to check in with yourself — not a medical test, and it changes nothing about your care.",
+        permNote: "Next, this device will ask to use the camera and microphone — that's this step, and nothing more.",
+        detail: "While you chat, CIQ notices a few small things — how quickly you answer, blinking, where you're looking — and keeps them only as numbers, privately, for you. Nothing is filmed and nothing is recorded.",
+        frameNote: "The camera only turns on when you say so — never before."
+      },
+      q: {
+        index: "Question 2 of 4", count: "Question 2 of 4",
+        agent: "CIQ asks aloud, slowly — answer by speaking, or tap what fits.",
+        text: "How rested do you feel today?",
+        options: ["Well rested", "Fairly rested", "A little tired", "Very tired"],
+        selected: 2, pct: 50
+      },
+      snap: {
+        headline: "Today feels a little heavier than usual.",
+        body: "That's alright — days differ. Here's one gentle thing that may help today feel a little lighter.",
+        compare: "Compared only with your own usual days.",
+        boundary: "Only you can see this.",
+        orgSees: "Aster House sees overall trends for everyone together. It cannot see your answers, or that you checked in today."
+      },
+      plan: {
+        h1: "A gentle moment, whenever you like.",
+        type: "Gentle moment · 3 min",
+        title: "A breathing moment with your tea",
+        body: "Slow, easy breathing along with a calm voice. You can stop at any time — there's no wrong way to do it.",
+        cta: "Begin",
+        secondary: [
+          ["A short walk, if today allows", "At your own pace, as far as feels right"],
+          ["Talk with someone you trust", "A nurse can arrange a quiet chat"]
+        ]
+      },
+      hist: {
+        sub: "How your days have looked, in plain words.",
+        rows: [
+          ["Today", "Morning", "amber", "A little heavier", "A gentle moment suggested"],
+          ["Sunday", "Afternoon", "green", "Like your usual days", "Steady"],
+          ["Last Wednesday", "Morning", "green", "Like your usual days", "Steady"]
+        ]
+      },
+      ops: {
+        title: "Residents' wellbeing — eight weeks",
+        sub: "All residents together, against their own baselines · Aster House Care",
+        tiles: [["Participation", "68%", "21 of 31 checked in"], ["Cohort", "31", "trends render for groups of 12+ only"], ["Direction", "−4%", "vs. combined baseline by week 8"]],
+        series: [100, 99, 99, 97, 96, 95, 94, 96],
+        xUnit: "Week", threshold: 75, thresholdLabel: "below 75 — act here",
+        flagIdx: null, flagLabel: "",
+        endLabel: "Week 8 · 96%",
+        cohortNote: "31 people · anonymised at source · illustrative data, not pilot data",
+        nevers: ["An individual resident's result, ever", "A name, room, or check-in to drill into", "Raw recordings — none exist to show", "Any small-group filter that could point at a person"]
+      }
+    }
+  };
+
+  // ═══ Wiring ═══
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  let currentCtx = "petroleum";
+
+  function get(obj, path) { return path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj); }
+
+  function applyContext(key) {
+    currentCtx = key;
+    const ctx = CONTEXTS[key];
+    document.documentElement.setAttribute("data-context", key);
+    $$(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ctx === key)));
+    $("#demo-note").textContent = ctx.demoNote;
+
+    $$("[data-t]").forEach(el => {
+      const v = get(ctx, el.dataset.t);
+      if (typeof v === "string") el.textContent = v;
+    });
+
+    // Trust chips
+    $("#trust-chips").innerHTML = ctx.chips.map(c => `<span>${c}</span>`).join("");
+
+    // Consent lists
+    $("#consent-steps").innerHTML = ctx.consent.steps.map((s, i) =>
+      `<div class="step"><span class="step-number">${i + 1}</span><div><strong>${s[0]}</strong><p>${s[1]}</p></div></div>`).join("");
+    $("#kept-list").innerHTML = ctx.consent.kept.map(k => `<li>${k}</li>`).join("");
+    $("#notkept-list").innerHTML = ctx.consent.notKept.map(k => `<li>${k}</li>`).join("");
+
+    // Question
+    $("#progress-fill").style.width = ctx.q.pct + "%";
+    $("#answers").innerHTML = ctx.q.options.map((o, i) =>
+      `<button type="button" class="answer${i === ctx.q.selected ? " selected" : ""}"><span class="radio" aria-hidden="true"></span>${o}</button>`).join("");
+    $$("#answers .answer").forEach(btn => btn.addEventListener("click", () => {
+      $$("#answers .answer").forEach(b => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    }));
+
+    // Next-step secondary resources
+    $("#secondary-resources").innerHTML = ctx.plan.secondary.map(r =>
+      `<button type="button" class="resource"><strong>${r[0]}</strong><span>${r[1]}</span></button>`).join("");
+
+    // History
+    $("#history-list").innerHTML = ctx.hist.rows.map(r =>
+      `<div class="card history-row"><div><strong>${r[0]}</strong><span class="meta">${r[1]}</span></div><span class="tag ${r[2]}">${r[3]}</span><span class="note">${r[4]}</span><button class="link-button" type="button">Open</button></div>`).join("");
+
+    // Ops tiles + never-list + chart
+    $("#ops-tiles").innerHTML = ctx.ops.tiles.map(t =>
+      `<div class="card tile"><span class="k">${t[0]}</span><p class="v">${t[1]}</p><span class="s">${t[2]}</span></div>`).join("");
+    $("#nevers-list").innerHTML = ctx.ops.nevers.map(n => `<li>${n}</li>`).join("");
+    renderChart(ctx.ops);
+  }
+
+  // ═══ Ops chart — single series vs. own baseline, threshold, hover, table ═══
+  function renderChart(ops) {
+    const svg = $("#ops-chart");
+    const W = 760, H = 320, L = 48, R = 92, T = 26, B = 42;
+    const iw = W - L - R, ih = H - T - B;
+    const yMin = 60, yMax = 105;
+    const n = ops.series.length;
+    const x = i => L + (n === 1 ? 0 : (i / (n - 1)) * iw);
+    const y = v => T + (1 - (v - yMin) / (yMax - yMin)) * ih;
+    let s = "";
+
+    // Recessive grid
+    [70, 80, 90].forEach(g => {
+      s += `<line x1="${L}" y1="${y(g)}" x2="${W - R}" y2="${y(g)}" stroke="#22313c" stroke-width="1"/>`;
+      s += `<text x="${L - 8}" y="${y(g) + 4}" text-anchor="end" font-size="11" fill="#75838e">${g}</text>`;
+    });
+    // Baseline 100
+    s += `<line x1="${L}" y1="${y(100)}" x2="${W - R}" y2="${y(100)}" stroke="#68d3a2" stroke-width="1" stroke-dasharray="1 4"/>`;
+    s += `<text x="${L}" y="${y(100) - 7}" font-size="10.5" font-weight="800" letter-spacing="1" fill="#68d3a2">TEAM BASELINE · 100</text>`;
+    // Threshold
+    s += `<line x1="${L}" y1="${y(ops.threshold)}" x2="${W - R}" y2="${y(ops.threshold)}" stroke="#f0b55a" stroke-width="1.5" stroke-dasharray="6 5"/>`;
+    s += `<text x="${W - R}" y="${y(ops.threshold) + 15}" text-anchor="end" font-size="10.5" font-weight="700" fill="#f0b55a">${ops.thresholdLabel}</text>`;
+    // Flag annotation
+    if (ops.flagIdx != null) {
+      const fx = x(ops.flagIdx);
+      s += `<line x1="${fx}" y1="${T}" x2="${fx}" y2="${H - B}" stroke="#4a6172" stroke-width="1" stroke-dasharray="3 4"/>`;
+      s += `<text x="${Math.min(fx + 6, W - R - 4)}" y="${T + 12}" font-size="10.5" fill="#a9b5bd">${ops.flagLabel}</text>`;
+    }
+    // Area + line
+    const pts = ops.series.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+    s += `<polygon points="${x(0)},${y(yMin)} ${pts} ${x(n - 1)},${y(yMin)}" fill="rgba(97,175,245,.08)"/>`;
+    s += `<polyline points="${pts}" fill="none" stroke="#61aff5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    // Points (surface-ring spacer) + emphasized endpoint + direct label
+    ops.series.forEach((v, i) => {
+      const last = i === n - 1;
+      s += `<circle cx="${x(i)}" cy="${y(v)}" r="${last ? 4.5 : 3.2}" fill="#61aff5" stroke="#101a20" stroke-width="2"/>`;
+    });
+    s += `<text x="${x(n - 1) + 10}" y="${y(ops.series[n - 1]) + 4}" font-size="11.5" font-weight="800" fill="#edf3f6">${ops.endLabel}</text>`;
+    // X axis labels
+    const step = n > 10 ? 2 : 1;
+    for (let i = 0; i < n; i += step) {
+      s += `<text x="${x(i)}" y="${H - B + 18}" text-anchor="middle" font-size="11" fill="#75838e">${i + 1}</text>`;
+    }
+    s += `<text x="${L + iw / 2}" y="${H - 6}" text-anchor="middle" font-size="10.5" letter-spacing="1.5" fill="#5b6b76">${ops.xUnit.toUpperCase()} — % OF THE TEAM'S OWN BASELINE</text>`;
+    // Hover hit targets (drawn last, on top)
+    ops.series.forEach((v, i) => {
+      s += `<circle cx="${x(i)}" cy="${y(v)}" r="14" fill="transparent" data-i="${i}" data-v="${v}" style="cursor:default"/>`;
+    });
+
+    svg.innerHTML = s;
+    svg.setAttribute("aria-label", `${ops.title}. Line chart of team average against its own baseline of 100. Ends at ${ops.endLabel}.`);
+
+    // Tooltip
+    const tip = $("#chart-tip"), wrap = $("#chart-wrap");
+    $$("circle[data-i]", svg).forEach(c => {
+      c.addEventListener("mouseenter", () => {
+        const i = +c.dataset.i, v = c.dataset.v;
+        tip.textContent = `${ops.xUnit} ${i + 1} · ${v}% of baseline`;
+        const cr = c.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+        tip.style.left = cr.x + cr.width / 2 - wr.x + "px";
+        tip.style.top = cr.y - wr.y + "px";
+        tip.style.display = "block";
+      });
+      c.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    });
+
+    // Table view
+    $("#chart-table").innerHTML =
+      `<tr><th scope="col">${ops.xUnit}</th>${ops.series.map((_, i) => `<td>${i + 1}</td>`).join("")}</tr>` +
+      `<tr><th scope="col">% of baseline</th>${ops.series.map(v => `<td>${v}</td>`).join("")}</tr>`;
+  }
+
+  // ═══ Screens ═══
+  function show(name) {
+    $$(".screen").forEach(sc => sc.classList.toggle("active", sc.id === name));
+    $$(".stepper button").forEach(b => b.setAttribute("aria-current", String(b.dataset.screen === name)));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  document.addEventListener("click", e => {
+    const nxt = e.target.closest(".next");
+    if (nxt && nxt.dataset.next) show(nxt.dataset.next);
+    const st = e.target.closest(".stepper button");
+    if (st) show(st.dataset.screen);
+    const seg = e.target.closest(".seg button");
+    if (seg) applyContext(seg.dataset.ctx);
+  });
+  $("#agree").addEventListener("change", e => { $("#continue-consent").disabled = !e.target.checked; });
+
+  applyContext("petroleum");
+</script>

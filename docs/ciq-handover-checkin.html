@@ -1,0 +1,771 @@
+<title>The Handover Check-in</title>
+<meta name="color-scheme" content="dark" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+<style>
+  :root {
+    /* Ground: slate-teal, biased toward the accent's complement — chosen, not defaulted */
+    --ink-950: #0E1A1C;
+    --ink-900: #14262A;
+    --ink-850: #182E33;
+    --ink-800: #1C333A;
+    --line:    #2A464E;
+    --line-soft: #223A41;
+
+    /* Ink: warm ivory, paper under lamplight */
+    --paper:   #F2EFE7;
+    --paper-2: #C9D3D2;
+    --paper-3: #93A5A7;
+    --quiet:   #6E8285;
+
+    /* One accent: ochre — dawn, lamplight. Never a warning colour. */
+    --ember:   #E0A055;
+    --ember-d: #3A2A17;
+
+    /* Reserved, privacy/trust only */
+    --sage:    #8FBFA6;
+    --sage-d:  #16332A;
+
+    --serif: "Newsreader", Georgia, "Times New Roman", serif;
+    --sans:  "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --step: 1rem;
+    font-size: 16px;
+  }
+  /* Resident deployment: type scale is a token, not a separate design */
+  :root[data-preset="resident"] { font-size: 18.5px; }
+
+  * { box-sizing: border-box; }
+  html { background: var(--ink-950); }
+  body {
+    margin: 0;
+    background: var(--ink-950);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-size: 1rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--ember); outline-offset: 3px; border-radius: 3px; }
+  h1, h2, h3, p { margin-top: 0; }
+  .serif { font-family: var(--serif); font-weight: 400; letter-spacing: -.01em; text-wrap: balance; }
+  .mono  { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ── Demo console — scaffolding, never product UI ───────────────── */
+  .console {
+    /* pinned in px: scaffolding must not scale when the product's type token does */
+    font-size: 16px;
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(10, 20, 22, .93);
+    border-bottom: 1px dashed #35555E;
+    backdrop-filter: blur(10px);
+  }
+  .console-in {
+    width: min(1120px, calc(100% - 2rem)); margin: 0 auto;
+    display: flex; flex-wrap: wrap; align-items: center; gap: .55rem 1.1rem;
+    padding: .6rem 0;
+  }
+  .console-lbl {
+    color: var(--quiet); font-size: .62rem; font-weight: 700;
+    letter-spacing: .16em; text-transform: uppercase; white-space: nowrap;
+  }
+  .presets { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .presets button {
+    border: 1px solid var(--line); border-radius: 999px; background: transparent;
+    color: var(--paper-3); padding: .34rem .8rem; font-size: .76rem; font-weight: 500;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .presets button:hover { color: var(--paper); border-color: #3D6069; }
+  .presets button[aria-pressed="true"] { background: var(--paper); color: var(--ink-950); border-color: var(--paper); font-weight: 600; }
+  .console-note { flex: 1 1 100%; color: var(--quiet); font-size: .72rem; margin: 0; padding-bottom: .5rem; }
+  .console-note b { color: var(--paper-3); font-weight: 600; }
+
+  /* ── Shell ───────────────────────────────────────────────────────── */
+  .stage { min-height: calc(100vh - 5.5rem); display: flex; flex-direction: column; }
+  .narrow { width: min(38rem, calc(100% - 2.5rem)); margin: 0 auto; }
+  .wide   { width: min(68rem, calc(100% - 2.5rem)); margin: 0 auto; }
+  .screen { display: none; }
+  .screen.active { display: block; animation: rise .38s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .backbar { padding: 1.4rem 0 0; }
+  .backlink {
+    border: 0; background: transparent; color: var(--quiet);
+    font-size: .82rem; padding: .3rem .1rem; display: inline-flex; gap: .4rem; align-items: center;
+  }
+  .backlink:hover { color: var(--paper-2); }
+  /* class display would otherwise beat the UA [hidden] rule */
+  [hidden] { display: none !important; }
+
+  /* ── Wizard: one question owns the screen ───────────────────────── */
+  .wiz { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 3rem 0 4rem; }
+  .eyebrow {
+    text-align: center; color: var(--ember); font-size: .68rem; font-weight: 700;
+    letter-spacing: .2em; text-transform: uppercase; margin: 0 0 1.9rem;
+  }
+  .choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem; }
+  .choices.one-col { grid-template-columns: 1fr; }
+  .choice {
+    border: 1px solid var(--line); border-radius: .55rem; background: transparent;
+    color: var(--paper); padding: 1.15rem 1.1rem; min-height: 4.3rem;
+    display: flex; flex-direction: column; justify-content: center; gap: .2rem;
+    text-align: center; font-size: .98rem; font-weight: 500;
+    transition: background .15s, border-color .15s, transform .15s;
+  }
+  .choice:hover { background: var(--ink-900); border-color: #3D6069; transform: translateY(-1px); }
+  .choice small { color: var(--paper-3); font-size: .78rem; font-weight: 400; }
+  .choice.wide-target { min-height: 9rem; gap: .5rem; }
+  .choice .badge-glyph { font-size: 1.9rem; color: var(--ember); line-height: 1; }
+  .wiz-foot { margin-top: 1.4rem; text-align: center; }
+  .textlink { border: 0; background: transparent; color: var(--quiet); font-size: .8rem; text-decoration: underline; text-underline-offset: 3px; }
+  .textlink:hover { color: var(--paper-2); }
+
+  /* ── Confirm ─────────────────────────────────────────────────────── */
+  .confirm { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 3rem 0 4rem; text-align: center; }
+  .recap { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; margin-bottom: 1.9rem; }
+  .recap span {
+    border: 1px solid var(--line); border-radius: 999px; background: var(--ink-900);
+    padding: .38rem .8rem; font-size: .78rem; color: var(--paper-2);
+  }
+  .confirm h1 { font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.15; margin-bottom: .8rem; }
+  .confirm .sub { color: var(--paper-3); font-size: .95rem; max-width: 30rem; margin: 0 auto 2rem; }
+  .consent-block {
+    text-align: left; border: 1px solid var(--line-soft); border-radius: .7rem;
+    background: var(--ink-900); padding: 1.3rem 1.4rem; margin-bottom: 1.6rem;
+  }
+  .consent-block h2 {
+    font-size: .68rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--sage); margin-bottom: .9rem;
+  }
+  .consent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .65rem; }
+  .consent-list li { display: grid; grid-template-columns: 1.1rem 1fr; gap: .6rem; font-size: .87rem; color: var(--paper-2); }
+  .consent-list .m { color: var(--sage); font-weight: 700; line-height: 1.4; }
+  .consent-list .x { color: var(--paper-3); font-weight: 700; line-height: 1.4; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .55rem;
+    min-height: 3.4rem; padding: 0 1.8rem; border-radius: .55rem;
+    background: var(--paper); color: var(--ink-950); border: 1px solid var(--paper);
+    font-weight: 600; font-size: 1rem; transition: transform .15s, background .15s;
+  }
+  .btn:hover { transform: translateY(-1px); background: #fff; }
+  .btn-ghost { background: transparent; color: var(--paper); border-color: var(--line); }
+  .btn-ghost:hover { background: var(--ink-900); }
+
+  /* ── Baseline ────────────────────────────────────────────────────── */
+  .baseline { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 2.5rem 0 3.5rem; }
+  .cam {
+    position: relative; border: 1px solid var(--line); border-radius: .8rem; overflow: hidden;
+    background: radial-gradient(circle at 50% 38%, #223D43, #101F23 65%);
+    aspect-ratio: 4 / 3; display: grid; place-items: center;
+  }
+  .cam::before {
+    content: ""; position: absolute; width: 42%; aspect-ratio: 1;
+    border: 1.5px dashed #557A82; border-radius: 50%;
+  }
+  .cam-hint { position: absolute; bottom: 1.1rem; color: var(--paper-3); font-size: .8rem; }
+  .cam-state {
+    position: absolute; top: .8rem; left: .8rem;
+    display: inline-flex; align-items: center; gap: .4rem;
+    background: rgba(10,20,22,.75); border: 1px solid var(--line);
+    border-radius: 999px; padding: .3rem .65rem; font-size: .72rem; color: var(--paper-2);
+  }
+  .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--sage); flex: none; }
+  .dot.idle { background: var(--quiet); }
+  .track { height: .3rem; border-radius: 99px; background: var(--ink-800); overflow: hidden; margin-top: 1.1rem; }
+  .track span { display: block; height: 100%; background: var(--ember); border-radius: inherit; transition: width .3s linear; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin-top: .9rem; }
+  .tile { border: 1px solid var(--line-soft); border-radius: .5rem; background: var(--ink-900); padding: .75rem .8rem; }
+  .tile .k { display: block; color: var(--quiet); font-size: .6rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .tile .v { display: block; font-family: var(--mono); font-size: 1.05rem; color: var(--paper); margin-top: .3rem; font-variant-numeric: tabular-nums; }
+  .tile .v.empty { color: var(--quiet); }
+
+  /* ── Session ─────────────────────────────────────────────────────── */
+  .sess-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 0 .9rem; }
+  .sess-id { display: flex; align-items: center; gap: .6rem; }
+  .sess-id .brand { font-size: .82rem; font-weight: 700; letter-spacing: .06em; }
+  .sess-id .ctx { border: 1px solid var(--line); border-radius: 999px; padding: .22rem .6rem; font-size: .7rem; color: var(--paper-3); }
+  .sess-meter { font-family: var(--mono); font-size: .76rem; color: var(--quiet); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+  .panel { border: 1px solid var(--line); border-radius: .8rem; overflow: hidden; background: var(--ink-900); aspect-ratio: 4 / 3; position: relative; display: grid; place-items: center; }
+  .panel.cam-panel { background: radial-gradient(circle at 50% 38%, #223D43, #101F23 65%); }
+  .orb { width: 5.5rem; height: 5.5rem; border-radius: 50%; background: var(--ember-d); border: 1px solid var(--ember); display: grid; place-items: center; }
+  .orb i { display: block; width: 1.9rem; height: 1.9rem; border-radius: 50%; background: var(--ember); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(.82); opacity: .75; } 50% { transform: scale(1); opacity: 1; } }
+  .status {
+    text-align: center; padding: 1rem 0 .3rem; color: var(--paper-2); font-size: .87rem;
+    display: flex; align-items: center; justify-content: center; gap: .5rem;
+  }
+  .qcard { border: 1px solid var(--line); border-radius: .8rem; background: var(--ink-900); padding: 1.6rem; margin-top: .8rem; }
+  .qcard .qn { color: var(--ember); font-size: .66rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; margin-bottom: .7rem; }
+  .qcard h2 { font-size: clamp(1.25rem, 2.4vw, 1.65rem); margin-bottom: 1.2rem; }
+  .opts { display: grid; gap: .45rem; }
+  .opt {
+    border: 1px solid var(--line); border-radius: .5rem; background: transparent; color: var(--paper);
+    text-align: left; padding: .8rem 1rem; font-size: .92rem; display: flex; align-items: center; gap: .7rem;
+  }
+  .opt:hover, .opt.on { border-color: var(--ember); background: var(--ink-850); }
+  .opt .r { width: .85rem; height: .85rem; border: 2px solid var(--paper-3); border-radius: 50%; flex: none; }
+  .opt.on .r { border: 4px solid var(--ember); }
+  .disclose { margin-top: .8rem; border-top: 1px solid var(--line-soft); }
+  .disclose summary { list-style: none; cursor: pointer; padding: .85rem .2rem; color: var(--paper-3); font-size: .8rem; display: flex; align-items: center; gap: .45rem; }
+  .disclose summary::-webkit-details-marker { display: none; }
+  .disclose summary::before { content: "▸"; color: var(--quiet); transition: transform .18s; }
+  .disclose[open] summary::before { transform: rotate(90deg); }
+  .disclose summary:hover { color: var(--paper); }
+  .disclose-body { padding: 0 .2rem 1rem; color: var(--paper-2); font-size: .85rem; }
+  .measure-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; margin-top: .5rem; }
+  .measure-grid div { border: 1px solid var(--line-soft); border-radius: .45rem; padding: .6rem .75rem; background: var(--ink-950); }
+  .measure-grid .k { color: var(--quiet); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; display: block; }
+  .measure-grid .v { font-family: var(--mono); font-size: .9rem; color: var(--paper); }
+  .privacy-strip {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    border: 1px solid var(--sage-d); border-left: 3px solid var(--sage); border-radius: .5rem;
+    background: rgba(22, 51, 42, .35); padding: .8rem 1rem; margin-top: .8rem;
+  }
+  .privacy-strip p { margin: 0; font-size: .8rem; color: var(--paper-2); }
+  .privacy-strip strong { color: var(--sage); display: block; font-size: .82rem; }
+  .stop { border: 0; background: transparent; color: var(--paper-3); font-size: .8rem; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+
+  /* ── Result ──────────────────────────────────────────────────────── */
+  .result { padding: 2.5rem 0 4rem; }
+  .result-tag {
+    display: inline-flex; align-items: center; gap: .45rem; margin-bottom: 1.1rem;
+    border: 1px solid var(--sage-d); background: rgba(22,51,42,.4); color: var(--sage);
+    border-radius: 999px; padding: .35rem .75rem; font-size: .72rem; font-weight: 600;
+  }
+  .result h1 { font-size: clamp(1.9rem, 4.6vw, 2.9rem); line-height: 1.14; margin-bottom: .9rem; }
+  .result .body { color: var(--paper-2); font-size: 1.05rem; margin-bottom: 1.3rem; }
+  .against {
+    /* block, not flex — flex would make the <b> its own item and gap the sentence apart */
+    border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
+    padding: 1rem 0; margin-bottom: 1.3rem; color: var(--paper-2); font-size: .9rem;
+  }
+  .against b { color: var(--ember); font-weight: 600; }
+  .boundary { color: var(--paper-3); font-size: .85rem; }
+  .next-card { border: 1px solid var(--line); border-radius: .8rem; background: var(--ink-900); padding: 1.5rem; margin: 1.6rem 0 1rem; }
+  .next-card .k { color: var(--ember); font-size: .66rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+  .next-card h2 { font-size: 1.4rem; margin: .6rem 0 .4rem; }
+  .next-card p { color: var(--paper-2); font-size: .9rem; margin-bottom: 1.2rem; }
+  .alt-row { display: grid; gap: .45rem; margin-top: 1rem; }
+  .alt {
+    border: 1px solid var(--line-soft); border-radius: .5rem; background: transparent; color: var(--paper);
+    text-align: left; padding: .8rem 1rem; font-size: .88rem;
+  }
+  .alt:hover { border-color: #3D6069; background: var(--ink-900); }
+  .alt small { display: block; color: var(--paper-3); font-size: .77rem; margin-top: .15rem; }
+  .curated { color: var(--quiet); font-size: .77rem; margin-top: 1rem; }
+
+  /* The instrument layer — one tap down */
+  .instrument { margin-top: 1.4rem; border: 1px solid var(--line-soft); border-radius: .7rem; background: var(--ink-900); }
+  .instrument > summary { padding: 1rem 1.2rem; }
+  .instrument .disclose-body { padding: 0 1.2rem 1.2rem; }
+  .idx-row { display: flex; align-items: baseline; gap: .8rem; padding-bottom: .9rem; border-bottom: 1px solid var(--line-soft); margin-bottom: .9rem; }
+  .idx-row .big { font-family: var(--mono); font-size: 2.4rem; color: var(--paper); line-height: 1; font-variant-numeric: tabular-nums; }
+  .idx-row .range { color: var(--paper-3); font-size: .84rem; }
+  .idx-row .range b { color: var(--paper); font-family: var(--mono); font-weight: 500; }
+  .delta-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+  .delta-table th { text-align: left; color: var(--quiet); font-weight: 600; font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; padding-bottom: .5rem; }
+  .delta-table td { padding: .45rem 0; border-top: 1px solid var(--line-soft); color: var(--paper-2); }
+  .delta-table td.num { font-family: var(--mono); text-align: right; color: var(--paper); font-variant-numeric: tabular-nums; }
+  .delta-table td.dir { text-align: right; width: 5.5rem; color: var(--ember); font-family: var(--mono); }
+  .why { color: var(--quiet); font-size: .77rem; margin-top: .9rem; }
+
+  /* ── History ─────────────────────────────────────────────────────── */
+  .hist { padding: 2.5rem 0 4rem; }
+  .hist h1 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); margin-bottom: .5rem; }
+  .hist .sub { color: var(--paper-3); margin-bottom: 1.6rem; }
+  .hrow { display: grid; grid-template-columns: 1fr auto; gap: .5rem 1rem; align-items: center; border: 1px solid var(--line-soft); border-radius: .6rem; background: var(--ink-900); padding: 1rem 1.2rem; margin-bottom: .5rem; }
+  .hrow strong { display: block; font-size: .95rem; }
+  .hrow small { color: var(--paper-3); font-size: .8rem; }
+  .hrow .word { font-family: var(--serif); font-size: 1.05rem; color: var(--paper); text-align: right; }
+  .hrow .word.dip { color: var(--ember); }
+  .hist-note { border-left: 3px solid var(--sage); background: rgba(22,51,42,.3); border-radius: .5rem; padding: .9rem 1.1rem; margin-top: 1.2rem; color: var(--paper-2); font-size: .85rem; }
+
+  .footer-nav { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: center; padding: 2rem 0 3rem; }
+
+  @media (max-width: 760px) {
+    .split { grid-template-columns: 1fr; }
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .choices { grid-template-columns: 1fr; }
+    .measure-grid { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  }
+</style>
+
+<div class="console">
+  <div class="console-in">
+    <span class="console-lbl">Demo · device</span>
+    <div class="presets" role="group" aria-label="Deployment device">
+      <button type="button" data-preset="rig" aria-pressed="true">Rig tablet</button>
+      <button type="button" data-preset="carehome" aria-pressed="false">Care-home tablet</button>
+      <button type="button" data-preset="resident" aria-pressed="false">Resident tablet</button>
+      <button type="button" data-preset="personal" aria-pressed="false">Personal device</button>
+    </div>
+    <p class="console-note" id="console-note"></p>
+  </div>
+</div>
+
+<div class="stage">
+
+  <!-- ══ Wizard ══ -->
+  <section class="screen active" id="wizard" aria-labelledby="wiz-eyebrow">
+    <div class="narrow backbar"><button class="backlink" type="button" id="wiz-back" hidden>← back</button></div>
+    <div class="narrow wiz">
+      <p class="eyebrow" id="wiz-eyebrow"></p>
+      <div class="choices" id="wiz-choices"></div>
+      <div class="wiz-foot"><button class="textlink" type="button" id="wiz-alt"></button></div>
+    </div>
+  </section>
+
+  <!-- ══ Confirm + consent ══ -->
+  <section class="screen" id="confirm" aria-labelledby="confirm-h">
+    <div class="narrow backbar"><button class="backlink" type="button" data-back="wizard">← back</button></div>
+    <div class="narrow confirm">
+      <div class="recap" id="recap"></div>
+      <h1 class="serif" id="confirm-h"></h1>
+      <p class="sub" id="confirm-sub"></p>
+
+      <div class="consent-block">
+        <h2>Before you start</h2>
+        <ul class="consent-list" id="consent-list"></ul>
+      </div>
+
+      <div><button class="btn" type="button" data-go="baseline" id="begin-btn"></button></div>
+      <div style="margin-top:.9rem"><button class="textlink" type="button" data-back="wizard">Tap to change your answers</button></div>
+      <p class="boundary" style="margin-top:1.4rem" id="perm-note"></p>
+    </div>
+  </section>
+
+  <!-- ══ Baseline ══ -->
+  <section class="screen" id="baseline" aria-labelledby="base-eyebrow">
+    <div class="narrow backbar"><button class="backlink" type="button" data-back="confirm">← back</button></div>
+    <div class="narrow baseline">
+      <p class="eyebrow" id="base-eyebrow">Settling in</p>
+      <div class="cam">
+        <span class="cam-state"><span class="dot idle" id="base-dot"></span><span id="base-state">Waiting for the camera</span></span>
+        <span class="cam-hint" id="base-hint"></span>
+      </div>
+      <div class="track"><span id="base-fill" style="width:0%"></span></div>
+      <div class="tiles">
+        <div class="tile"><span class="k">Blink</span><span class="v empty" id="t-blink">—</span></div>
+        <div class="tile"><span class="k">Eye openness</span><span class="v empty" id="t-eye">—</span></div>
+        <div class="tile"><span class="k">Pupil</span><span class="v empty" id="t-pupil">—</span></div>
+        <div class="tile"><span class="k">Samples</span><span class="v empty" id="t-samples">0</span></div>
+      </div>
+      <p class="boundary" style="margin-top:1.1rem" id="base-note"></p>
+      <div style="margin-top:1.4rem"><button class="btn" type="button" data-go="session" id="base-go">Start my check-in</button></div>
+    </div>
+  </section>
+
+  <!-- ══ Session ══ -->
+  <section class="screen" id="session" aria-labelledby="q-title">
+    <div class="wide">
+      <div class="sess-head">
+        <div class="sess-id">
+          <span class="brand">CIQ</span>
+          <span class="ctx" id="sess-ctx"></span>
+        </div>
+        <span class="sess-meter" id="sess-meter">Question 2 of 4 · 0:47</span>
+      </div>
+
+      <div class="split">
+        <div class="panel"><span class="orb" aria-hidden="true"><i></i></span></div>
+        <div class="panel cam-panel"><span class="cam-state"><span class="dot"></span>Camera on</span></div>
+      </div>
+
+      <p class="status"><span class="dot"></span><span id="sess-status">CIQ is listening…</span></p>
+
+      <div class="qcard">
+        <p class="qn" id="q-count">Question 2 of 4</p>
+        <h2 class="serif" id="q-title"></h2>
+        <div class="opts" id="q-opts"></div>
+      </div>
+
+      <div class="privacy-strip">
+        <p><strong>Nothing is being recorded.</strong>Video and audio are read in the moment and thrown away — only derived numbers are kept, privately, for you.</p>
+        <button class="stop" type="button">Stop check-in</button>
+      </div>
+
+      <details class="disclose">
+        <summary>Show what's being measured</summary>
+        <div class="disclose-body">
+          <p style="margin:0">These are read from the camera and your voice while you answer. They are compared with the baseline you just recorded — never with anyone else's.</p>
+          <div class="measure-grid">
+            <div><span class="k">Blink, vs baseline</span><span class="v">+14%</span></div>
+            <div><span class="k">Response pacing</span><span class="v">−0.4s</span></div>
+            <div><span class="k">Gaze steadiness</span><span class="v">steady</span></div>
+            <div><span class="k">Voice tone</span><span class="v">flat</span></div>
+          </div>
+        </div>
+      </details>
+
+      <div class="footer-nav"><button class="btn" type="button" data-go="result">Finish check-in</button></div>
+    </div>
+  </section>
+
+  <!-- ══ Result ══ -->
+  <section class="screen" id="result" aria-labelledby="res-h">
+    <div class="narrow result">
+      <span class="result-tag">Private to you</span>
+      <h1 class="serif" id="res-h"></h1>
+      <p class="body" id="res-body"></p>
+      <p class="against" id="res-against"></p>
+      <p class="boundary" id="res-boundary"></p>
+
+      <div class="next-card">
+        <span class="k">One thing that may help</span>
+        <h2 class="serif" id="next-h"></h2>
+        <p id="next-p"></p>
+        <button class="btn" type="button" id="next-cta"></button>
+        <div class="alt-row" id="alt-row"></div>
+        <p class="curated">Suggestions come from resources curated by CIQ's clinical panel — never invented on the spot.</p>
+      </div>
+
+      <details class="disclose instrument">
+        <summary>See the numbers behind this</summary>
+        <div class="disclose-body">
+          <div class="idx-row">
+            <span class="big" id="idx-val">84</span>
+            <span class="range">today's index<br />your usual range: <b id="idx-range">92–104</b></span>
+          </div>
+          <table class="delta-table">
+            <thead><tr><th>Marker</th><th style="text-align:right">Today</th><th style="text-align:right">vs. you</th></tr></thead>
+            <tbody id="delta-body"></tbody>
+          </table>
+          <p class="why">Shown as change against your own baseline, not as raw readings — a blink rate on its own says nothing without knowing yours. A snapshot moves with sleep, workload, heat and much else. It describes today; it does not describe you, and it is not a medical result.</p>
+        </div>
+      </details>
+
+      <div class="footer-nav">
+        <button class="btn btn-ghost" type="button" data-go="history">See my previous check-ins</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ History ══ -->
+  <section class="screen" id="history">
+    <div class="narrow hist">
+      <h1 class="serif">Your check-ins, visible only to you.</h1>
+      <p class="sub" id="hist-sub"></p>
+      <div id="hist-rows"></div>
+      <p class="hist-note"><strong>What this holds:</strong> your snapshots and derived markers. No recordings — none were ever kept.</p>
+      <div class="footer-nav"><button class="btn btn-ghost" type="button" data-go="wizard">Start again</button></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const $  = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+
+  /* ═══ Deployments. The wizard's LENGTH is the only structural difference.
+     Every screen after "Begin" is byte-for-byte the same component. ═══ */
+  const PRESETS = {
+    rig: {
+      note: "A fixed tablet at the handover hut already knows the site, the crew and the check-in type. <b>The wizard collapses to one screen</b> — badge, consent, go. Under 20 seconds to start.",
+      tenant: "Halvor Energy · Site 12",
+      ctxChip: "Site 12 · handover",
+      steps: ["who"],
+      preset: { where: "Halvor Energy · Site 12", kind: "Handover check-in · 3 min" },
+      who: {
+        eyebrow: "Tap your badge to begin",
+        alt: "Enter your crew number instead",
+        choices: [{ label: "Hold your badge to the reader", sub: "or tap here to use your crew number", glyph: "◎", wide: true, oneCol: true, value: "Crew 4471" }]
+      },
+      confirm: { h: "A private few minutes, before you go on.", sub: "Nobody at Halvor sees your answers — not your supervisor, not HSE, not anyone." },
+      permNote: "Next, this tablet will ask to use the camera and microphone. That is this step, and nothing more.",
+      beginLabel: "Begin my check-in",
+      baseHint: "Sit comfortably and look at the screen",
+      baseNote: "Twenty seconds of quiet so CIQ learns what your normal looks like today. Everything after this is compared with this, and with nothing else.",
+      q: { title: "After a working day, how hard is it to get your energy back?", opts: ["Not hard at all", "Slightly hard", "Noticeably hard", "Very hard", "I don't recover before the next one"], on: 2 },
+      result: {
+        h: "Today sits a little below your usual range.",
+        body: "Your answers and the way this session went suggest you're carrying more than usual. A good evening to make recovery the priority.",
+        against: "Compared with <b>your own</b> usual range — never with the crew's, never with anyone else's.",
+        boundary: "Only you can see this. Halvor sees an anonymous, combined team trend and nothing else.",
+        idx: "84", range: "92–104",
+        deltas: [["Blink rate", "+18%", "higher"], ["Pupil, mean", "+11%", "higher"], ["Response pacing", "+0.6s", "slower"], ["Voice steadiness", "−7%", "flatter"]],
+        next: { h: "Five minutes before the drive back.", p: "A short guided wind-down you can do in the cab before you set off. Steady, simple, over before the kettle boils.", cta: "Start now" },
+        alts: [["Sleeping on a two-week rotation", "A plain-language guide · 10 min read"], ["Site wellbeing contact", "Confidential — a person, not a report"]]
+      },
+      hist: {
+        sub: "Your own pattern across this rotation, in plain words.",
+        rows: [["Today", "Day 9 of rotation", "Heavier than usual", true], ["Mon 17 Aug", "Day 6 of rotation", "Your usual range", false], ["Thu 13 Aug", "Day 2 of rotation", "Your usual range", false]]
+      }
+    },
+
+    carehome: {
+      note: "A shared tablet on the ward knows the home, but not which team is on. <b>Two screens</b> — badge, team, consent. Same screens, one more of them.",
+      tenant: "Aster House Care",
+      ctxChip: "Aster House · Team North",
+      steps: ["who", "team"],
+      preset: { where: "Aster House Care", kind: "Between-rounds check-in · 3 min" },
+      who: {
+        eyebrow: "Tap your badge to begin",
+        alt: "Enter your staff number instead",
+        choices: [{ label: "Hold your badge to the reader", sub: "or tap here to use your staff number", glyph: "◎", wide: true, oneCol: true, value: "Staff 208" }]
+      },
+      team: {
+        eyebrow: "Which team are you on today?",
+        alt: "I'm bank staff, covering",
+        choices: [{ label: "Team North" }, { label: "Team South" }, { label: "Nights" }, { label: "Twilight" }]
+      },
+      confirm: { h: "A few quiet minutes between rounds.", sub: "Nobody at Aster House sees your answers — not your manager, not the clinical lead, not anyone." },
+      permNote: "Next, this tablet will ask to use the camera and microphone. That is this step, and nothing more.",
+      beginLabel: "Begin my check-in",
+      baseHint: "Sit comfortably and look at the screen",
+      baseNote: "Twenty seconds of quiet so CIQ learns what your normal looks like today. Everything after this is compared with this, and with nothing else.",
+      q: { title: "How often do you feel emptied out after caring for others?", opts: ["Rarely", "Sometimes", "Often", "Most days", "Every day"], on: 2 },
+      result: {
+        h: "You've been giving a lot of yourself lately.",
+        body: "Your answers and the way this session went suggest more strain than usual. This is a nudge to put something back — not a judgement, and not on your record.",
+        against: "Compared with <b>your own</b> usual range — never with your team's, never with anyone else's.",
+        boundary: "Only you can see this. Aster House sees an anonymous, combined team trend and nothing else.",
+        idx: "87", range: "94–106",
+        deltas: [["Blink rate", "+12%", "higher"], ["Pupil, mean", "+8%", "higher"], ["Response pacing", "+0.4s", "slower"], ["Voice steadiness", "−5%", "flatter"]],
+        next: { h: "Three minutes to put the round down.", p: "A short decompression you can do walking between wings — a way to close one round before the next one starts.", cta: "Start now" },
+        alts: [["Caring without running empty", "On compassion fatigue · 8 min read"], ["Peer-support line", "Confidential — someone who does this work too"]]
+      },
+      hist: {
+        sub: "Your own pattern across recent weeks, in plain words.",
+        rows: [["Today", "After night round", "More strain than usual", true], ["Sat 15 Aug", "Day shift", "Your usual range", false], ["Tue 11 Aug", "After night round", "Your usual range", false]]
+      }
+    },
+
+    resident: {
+      note: "The same screens at a larger type scale, with slower, gentler wording. <b>Not a separate design</b> — the scale is one token and the words are content.",
+      tenant: "Aster House Care",
+      ctxChip: "Aster House",
+      steps: ["who"],
+      preset: { where: "Aster House", kind: "A gentle check-in" },
+      who: {
+        eyebrow: "Who is checking in today?",
+        alt: "My name isn't here",
+        choices: [{ label: "Margaret" }, { label: "Joseph" }, { label: "Aileen" }, { label: "Ronald" }]
+      },
+      confirm: { h: "A few quiet minutes, just for you.", sub: "Nobody here sees your answers. Not the nurses, not your family — only you." },
+      permNote: "Next, this tablet will ask to use the camera and microphone. That is all this step does.",
+      beginLabel: "Begin",
+      baseHint: "Make yourself comfortable and look at the screen",
+      baseNote: "Twenty quiet seconds so CIQ learns what your normal looks like today. There is nothing to do — just sit.",
+      q: { title: "How rested do you feel today?", opts: ["Well rested", "Fairly rested", "A little tired", "Very tired"], on: 2 },
+      result: {
+        h: "Today feels a little heavier than usual.",
+        body: "That is alright — days differ. Here is one gentle thing that may make today feel a bit lighter.",
+        against: "Compared only with <b>your own</b> usual days.",
+        boundary: "Only you can see this. It changes nothing about your care.",
+        idx: "89", range: "95–107",
+        deltas: [["Blink rate", "+9%", "higher"], ["Pupil, mean", "+6%", "higher"], ["Response pacing", "+0.8s", "slower"], ["Voice steadiness", "−4%", "flatter"]],
+        next: { h: "A breathing moment with your tea.", p: "Slow, easy breathing along with a calm voice. You can stop whenever you like — there is no wrong way to do it.", cta: "Begin" },
+        alts: [["A short walk, if today allows", "At your own pace, as far as feels right"], ["A quiet chat with someone", "A nurse can arrange it"]]
+      },
+      hist: {
+        sub: "How your days have been, in plain words.",
+        rows: [["Today", "Morning", "A little heavier", true], ["Sunday", "Afternoon", "Like your usual days", false], ["Wednesday", "Morning", "Like your usual days", false]]
+      }
+    },
+
+    personal: {
+      note: "A personal device knows nothing yet, so <b>all three screens run</b>. Note the last one: internal profile codes never appear — the person picks a length, not a <span class='mono'>BATFULL</span>.",
+      tenant: "Personal device",
+      ctxChip: "Personal · full reflection",
+      steps: ["where", "team", "kind"],
+      preset: {},
+      where: {
+        eyebrow: "Where do you work?",
+        alt: "My employer isn't listed",
+        choices: [{ label: "Halvor Energy" }, { label: "Aster House Care" }, { label: "Northgate Rail" }, { label: "Just me", sub: "no employer attached" }]
+      },
+      team: {
+        eyebrow: "Which part of it?",
+        alt: "Skip — I'd rather not say",
+        choices: [{ label: "Drilling" }, { label: "Maintenance" }, { label: "Logistics" }, { label: "Control room" }]
+      },
+      kind: {
+        eyebrow: "How long have you got?",
+        alt: "What's the difference?",
+        choices: [
+          { label: "A quick check-in", sub: "about 3 minutes · 4 questions" },
+          { label: "A fuller reflection", sub: "about 8 minutes · 15 questions" }
+        ]
+      },
+      confirm: { h: "A private few minutes, whenever suits you.", sub: "Nobody at your employer sees your answers. Individual results never leave your account." },
+      permNote: "Next, your browser will ask to use the camera and microphone. That is this step, and nothing more.",
+      beginLabel: "Begin my check-in",
+      baseHint: "Sit comfortably and look at the screen",
+      baseNote: "Twenty seconds of quiet so CIQ learns what your normal looks like today. Everything after this is compared with this, and with nothing else.",
+      q: { title: "After a working day, how hard is it to get your energy back?", opts: ["Not hard at all", "Slightly hard", "Noticeably hard", "Very hard", "I don't recover before the next one"], on: 2 },
+      result: {
+        h: "Today sits a little below your usual range.",
+        body: "Your answers and the way this session went suggest you're carrying more than usual. A good evening to make recovery the priority.",
+        against: "Compared with <b>your own</b> usual range — never with a population average.",
+        boundary: "Only you can see this. Nothing here reaches an employer.",
+        idx: "84", range: "92–104",
+        deltas: [["Blink rate", "+18%", "higher"], ["Pupil, mean", "+11%", "higher"], ["Response pacing", "+0.6s", "slower"], ["Voice steadiness", "−7%", "flatter"]],
+        next: { h: "Five minutes to wind down.", p: "A short guided reset you can do anywhere. Steady, simple, over before the kettle boils.", cta: "Start now" },
+        alts: [["Recovering between long shifts", "A plain-language guide · 10 min read"], ["Talk to someone, confidentially", "A person, not a report"]]
+      },
+      hist: {
+        sub: "Your own pattern over recent weeks, in plain words.",
+        rows: [["Today", "Evening", "Heavier than usual", true], ["Mon 17 Aug", "Evening", "Your usual range", false], ["Thu 13 Aug", "Morning", "Your usual range", false]]
+      }
+    }
+  };
+
+  /* Consent is structural: identical five lines in every deployment, always
+     before the permission prompt. It is never a per-configuration toggle. */
+  const CONSENT = [
+    ["m", "A short spoken conversation — you answer out loud, or tap."],
+    ["m", "Kept for you: your answers, today's snapshot, and derived numbers."],
+    ["x", "Never kept: video or audio. Read in the moment, then discarded."],
+    ["x", "Never shared: your individual result. Your employer sees combined trends only."],
+    ["m", "Stop whenever you like. This is a reflection, not a test, and never a clearance decision."]
+  ];
+
+  let preset = "rig";
+  let stepIdx = 0;
+  const picks = {};
+
+  const P = () => PRESETS[preset];
+
+  function setPreset(key) {
+    preset = key; stepIdx = 0;
+    for (const k in picks) delete picks[k];
+    Object.assign(picks, P().preset || {});
+    document.documentElement.setAttribute("data-preset", key);
+    $$(".presets button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.preset === key)));
+    $("#console-note").innerHTML = P().note;
+    paintStatic();
+    renderStep();
+    show("wizard");
+  }
+
+  function renderStep() {
+    const p = P();
+    const id = p.steps[stepIdx];
+    const step = p[id];
+    $("#wiz-eyebrow").textContent = step.eyebrow;
+    $("#wiz-alt").textContent = step.alt;
+    $("#wiz-back").hidden = stepIdx === 0;
+
+    const oneCol = step.choices.some(c => c.oneCol);
+    const box = $("#wiz-choices");
+    box.className = "choices" + (oneCol ? " one-col" : "");
+    box.innerHTML = step.choices.map((c, i) =>
+      `<button type="button" class="choice${c.wide ? " wide-target" : ""}" data-i="${i}">
+         ${c.glyph ? `<span class="badge-glyph" aria-hidden="true">${c.glyph}</span>` : ""}
+         <span>${c.label}</span>${c.sub ? `<small>${c.sub}</small>` : ""}
+       </button>`).join("");
+
+    $$("#wiz-choices .choice").forEach(btn => btn.addEventListener("click", () => {
+      const c = step.choices[+btn.dataset.i];
+      picks[id] = c.value || c.label;
+      if (stepIdx < p.steps.length - 1) { stepIdx++; renderStep(); }
+      else { paintConfirm(); show("confirm"); }
+    }));
+  }
+
+  function paintConfirm() {
+    const p = P();
+    const chips = [];
+    if (picks.where) chips.push(picks.where);
+    if (picks.who) chips.push(picks.who);
+    if (picks.team) chips.push(picks.team);
+    if (picks.kind) chips.push(picks.kind);
+    $("#recap").innerHTML = chips.map(c => `<span>${c}</span>`).join("");
+    $("#confirm-h").textContent = p.confirm.h;
+    $("#confirm-sub").textContent = p.confirm.sub;
+    $("#begin-btn").textContent = p.beginLabel;
+    $("#perm-note").textContent = p.permNote;
+    $("#consent-list").innerHTML = CONSENT.map(([t, s]) =>
+      `<li><span class="${t}">${t === "m" ? "✓" : "✕"}</span><span>${s}</span></li>`).join("");
+  }
+
+  function paintStatic() {
+    const p = P();
+    $("#base-hint").textContent = p.baseHint;
+    $("#base-note").textContent = p.baseNote;
+    $("#sess-ctx").textContent = p.ctxChip;
+    $("#q-title").textContent = p.q.title;
+    $("#q-opts").innerHTML = p.q.opts.map((o, i) =>
+      `<button type="button" class="opt${i === p.q.on ? " on" : ""}"><span class="r" aria-hidden="true"></span>${o}</button>`).join("");
+    $$("#q-opts .opt").forEach(b => b.addEventListener("click", () => {
+      $$("#q-opts .opt").forEach(x => x.classList.remove("on")); b.classList.add("on");
+    }));
+
+    const r = p.result;
+    $("#res-h").textContent = r.h;
+    $("#res-body").textContent = r.body;
+    $("#res-against").innerHTML = r.against;
+    $("#res-boundary").textContent = r.boundary;
+    $("#idx-val").textContent = r.idx;
+    $("#idx-range").textContent = r.range;
+    $("#delta-body").innerHTML = r.deltas.map(d =>
+      `<tr><td>${d[0]}</td><td class="num">${d[1]}</td><td class="dir">${d[2]}</td></tr>`).join("");
+    $("#next-h").textContent = r.next.h;
+    $("#next-p").textContent = r.next.p;
+    $("#next-cta").textContent = r.next.cta;
+    $("#alt-row").innerHTML = r.alts.map(a =>
+      `<button type="button" class="alt">${a[0]}<small>${a[1]}</small></button>`).join("");
+
+    $("#hist-sub").textContent = p.hist.sub;
+    $("#hist-rows").innerHTML = p.hist.rows.map(h =>
+      `<div class="hrow"><div><strong>${h[0]}</strong><small>${h[1]}</small></div><span class="word${h[3] ? " dip" : ""}">${h[2]}</span></div>`).join("");
+  }
+
+  /* Baseline: a named step with visible progress, not a hidden warm-up. */
+  let baseTimer = null;
+  function runBaseline() {
+    clearInterval(baseTimer);
+    let t = 0;
+    $("#base-fill").style.width = "0%";
+    $("#base-dot").className = "dot idle";
+    $("#base-state").textContent = "Waiting for the camera";
+    ["t-blink", "t-eye", "t-pupil"].forEach(id => { $("#" + id).textContent = "—"; $("#" + id).className = "v empty"; });
+    $("#t-samples").textContent = "0"; $("#t-samples").className = "v empty";
+
+    baseTimer = setInterval(() => {
+      t += 0.25;
+      const pct = Math.min(100, (t / 20) * 100);
+      $("#base-fill").style.width = pct + "%";
+      if (t > 1.5) { $("#base-dot").className = "dot"; $("#base-state").textContent = "Reading your baseline"; }
+      if (t > 2) {
+        const s = Math.round((t - 2) * 12);
+        $("#t-samples").textContent = String(s); $("#t-samples").className = "v";
+        $("#t-blink").textContent = (12 + Math.min(3.4, t * 0.16)).toFixed(1); $("#t-blink").className = "v";
+        $("#t-eye").textContent = (0.78 + Math.min(0.06, t * 0.004)).toFixed(2); $("#t-eye").className = "v";
+        $("#t-pupil").textContent = (3.9 + Math.min(0.4, t * 0.02)).toFixed(1); $("#t-pupil").className = "v";
+      }
+      if (t >= 20) {
+        clearInterval(baseTimer);
+        $("#base-state").textContent = "Baseline recorded";
+        $("#base-go").textContent = "Start my check-in";
+      }
+    }, 250);
+  }
+
+  function show(id) {
+    $$(".screen").forEach(s => s.classList.toggle("active", s.id === id));
+    if (id === "baseline") runBaseline(); else clearInterval(baseTimer);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  document.addEventListener("click", e => {
+    const pb = e.target.closest(".presets button");
+    if (pb) return setPreset(pb.dataset.preset);
+    const go = e.target.closest("[data-go]");
+    if (go) return show(go.dataset.go);
+    const back = e.target.closest("[data-back]");
+    if (back) return show(back.dataset.back);
+  });
+  $("#wiz-back").addEventListener("click", () => { if (stepIdx > 0) { stepIdx--; renderStep(); } });
+
+  setPreset("rig");
+</script>
