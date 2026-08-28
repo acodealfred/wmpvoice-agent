@@ -334,3 +334,90 @@ export type SurveyRecord = {
         ssotReport?: { answer: string; citations: Array<{ paperId: string; paperTitle: string; paperPage: number }> } | { error: string };
     } | null;
 };
+
+// ── Recovery Window (see docs/recovery-window.md, ciq/recovery/) ───────────
+
+export type RecoveryTrackId =
+    | "cbt_reframe_reset"
+    | "mindfulness_downshift"
+    | "act_values_recalibration"
+    | "practical_recovery_plan";
+
+export type RecoverySessionStatus =
+    | "not_started"
+    | "intake_in_progress"
+    | "track_recommended"
+    | "session_in_progress"
+    | "completed"
+    | "urgent_support"
+    | "grounding_only";
+
+export type RecoveryWindowSession = {
+    recoverySessionId: string;
+    status: RecoverySessionStatus;
+    surveyRunId: string | null;
+    preliminaryTrack: RecoveryTrackId | null;
+    preliminaryRationale: string | null;
+    recommendedTrack: RecoveryTrackId | null;
+    recommendationRationale: string | null;
+    selectedTrack: RecoveryTrackId | null;
+    groundingOnlyMode: boolean;
+    createdAt: string;
+    updatedAt: string;
+};
+
+// Realtime WS messages pushed by the 6 recovery voice tools (see
+// ciq/realtime/tools/recovery_handlers.py's client_message payloads) — a
+// union rather than one loose type so each variant's fields are checked.
+export type RecoveryIntakeUpdate = {
+    type: "recovery.intake.update";
+    questionId: string;
+    completed: number;
+    total: number;
+};
+
+export type RecoverySafetyInterlockUpdate = {
+    type: "recovery.safety.interlock";
+    mode: "urgent_support" | "grounding_only";
+};
+
+export type RecoverySafetyClearedUpdate = {
+    type: "recovery.safety.cleared";
+};
+
+export type RecoveryTrackSelectedUpdate = {
+    type: "recovery.track.selected";
+    trackId: RecoveryTrackId;
+    isOverride: boolean;
+    totalSteps: number;
+};
+
+export type RecoveryTrackStepUpdate = {
+    type: "recovery.track.step.update";
+    stepIndex: number;
+    totalSteps: number;
+    isLast: boolean;
+};
+
+export type RecoveryCompletedUpdate = {
+    type: "recovery.completed";
+};
+
+export type RecoveryUpdate =
+    | RecoveryIntakeUpdate
+    | RecoverySafetyInterlockUpdate
+    | RecoverySafetyClearedUpdate
+    | RecoveryTrackSelectedUpdate
+    | RecoveryTrackStepUpdate
+    | RecoveryCompletedUpdate;
+
+// Admin-only row from GET /admin/recovery-window/flagged — never includes
+// individual intake answers or reflection content, only the fact of a flag.
+export type FlaggedRecoverySession = {
+    recoverySessionId: string;
+    userId: string;
+    userName: string;
+    status: RecoverySessionStatus;
+    createdAt: string;
+    reviewed: boolean;
+};

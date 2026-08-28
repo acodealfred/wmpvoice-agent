@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Activity, Maximize2, Minimize2, Bot, Video, Menu, X } from "lucide-react";
+import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Activity, Maximize2, Minimize2, Bot, Video, Menu, X, HeartHandshake, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +12,7 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 // Lazy-loaded so Recharts (heavy) is code-split out of the initial bundle and
 // only fetched when a completed survey opens the report.
 const DetailedReport = lazy(() => import("@/components/ui/detailed-report").then(m => ({ default: m.DetailedReport })));
+const RecoveryWindowScreen = lazy(() => import("@/components/ui/recovery-window-screen"));
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { UserHistory } from "@/components/ui/user-history";
@@ -27,7 +28,7 @@ import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 import { useBiometrics } from "@/hooks/useBiometrics";
 
-import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig, AuthUser, AuthState } from "./types";
+import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig, AuthUser, AuthState, RecoveryUpdate } from "./types";
 
 import logo from "./assets/logo.png";
 
@@ -75,6 +76,17 @@ function App() {
     // True once a survey has been fully answered. Gates the "start fresh" reset so a
     // new assessment only begins after completion — an in-progress survey resumes instead.
     const [assessmentComplete, setAssessmentComplete] = useState(false);
+    // Bumped on every recovery.* realtime message so RecoveryWindowCard (a read-only
+    // mirror of the voice-driven flow) knows to refetch its status.
+    const [recoveryUpdateTick, setRecoveryUpdateTick] = useState(0);
+    // Opens the dedicated full-screen Recovery Window (recovery-window-screen.tsx),
+    // separate from the report panel so the voice-guided check-in isn't buried among
+    // the report stats. Toggling this never touches the realtime WS/audio session.
+    const [recoveryWindowOpen, setRecoveryWindowOpen] = useState(false);
+    // Mirrors the live camera MediaStream from the main VideoPanel (see onStreamReady
+    // below) so the Recovery Window screen can show its own live camera panel — same
+    // feed, no second getUserMedia capture.
+    const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
     // Set when the report has been saved; consumed on the next response.done to force a
     // clean reconnect so the agent answers follow-ups strictly from the saved report
     // (wipes Azure's survey conversation memory) without cutting off its spoken result.
@@ -321,6 +333,9 @@ function App() {
                 setReportLoading(true);
                 setShowDetailedReport(true);
             }
+        },
+        onReceivedRecoveryUpdate: (_message: RecoveryUpdate) => {
+            setRecoveryUpdateTick(t => t + 1);
         }
     });
 
@@ -702,6 +717,24 @@ function App() {
 
     return (
         <div className="ciq-page flex h-screen flex-col overflow-hidden text-[color:var(--ciq-text-strong)]">
+            <ErrorBoundary label="recovery-window-screen">
+                <Suspense fallback={null}>
+                    <RecoveryWindowScreen
+                        open={recoveryWindowOpen}
+                        onClose={() => setRecoveryWindowOpen(false)}
+                        surveyRunId={surveyRunId}
+                        sessionId={sessionId}
+                        scoreReady={!reportLoading}
+                        updateSignal={recoveryUpdateTick}
+                        isRecording={isRecording}
+                        onResumeListening={() => runWithConsent(onStartListening)}
+                        cameraStream={cameraStream}
+                        refreshRealtimeSession={refreshSession}
+                        requestAgentTurn={requestGreeting}
+                    />
+                </Suspense>
+            </ErrorBoundary>
+
             {/* ── Floating pill header ── */}
             <div className="sticky top-0 z-40 px-3 pb-2 pt-4 sm:px-5">
                 <div className="flex items-center justify-between gap-3 rounded-[28px] border border-[color:var(--ciq-border)] bg-[color:var(--ciq-header-bg)] px-4 py-3 shadow-[0_30px_100px_rgba(0,0,0,0.42),inset_0_1px_1px_rgba(255,255,255,0.22)] saturate-150 backdrop-blur-[34px] sm:rounded-[40px] sm:px-6">
@@ -917,7 +950,12 @@ function App() {
                                     <div className="relative p-4">
                                         {/* The camera stays mounted underneath in avatar mode so MediaPipe
                                             biometric capture is never interrupted — the avatar just overlays it. */}
-                                        <VideoPanel isRecording={isRecording} expanded={videoExpanded} onVideoReady={setVideoElement} />
+                                        <VideoPanel
+                                            isRecording={isRecording}
+                                            expanded={videoExpanded}
+                                            onVideoReady={setVideoElement}
+                                            onStreamReady={setCameraStream}
+                                        />
                                         {cameraView === "avatar" && (
                                             <div className="absolute inset-0 p-4">
                                                 <div className={`mx-auto aspect-video w-full ${videoExpanded ? "max-w-none" : "max-w-xl"}`}>
@@ -1389,6 +1427,27 @@ function App() {
                                                                 />
                                                             </Suspense>
                                                         </ErrorBoundary>
+
+                                                        {!reportLoading && (
+                                                            <ErrorBoundary label="recovery-window-launcher">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setRecoveryWindowOpen(true)}
+                                                                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4 text-left transition-colors hover:bg-[color:var(--ciq-tile)]"
+                                                                >
+                                                                    <div className="flex items-center gap-3">
+                                                                        <HeartHandshake className="h-5 w-5 shrink-0 text-[color:var(--ciq-accent-purple)]" />
+                                                                        <div>
+                                                                            <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Recovery Window</p>
+                                                                            <p className="text-xs text-[color:var(--ciq-text-muted)]">
+                                                                                A short, voice-guided check-in tailored to how you're doing right now.
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--ciq-text-muted)]" />
+                                                                </button>
+                                                            </ErrorBoundary>
+                                                        )}
                                                     </div>
                                                 )}
 

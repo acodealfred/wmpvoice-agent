@@ -75,9 +75,9 @@
       "scoreRange": [1, 5],
       "thresholds": {"low_max": 2.0, "moderate_max": 3.0},
       "interpretation": {
-        "low": "Low burnout complaints on the BAT-4 core symptoms - Keep up the great work!",
-        "moderate": "Moderate burnout complaints on the BAT-4 core symptoms - Consider taking regular breaks and self-care.",
-        "high": "High burnout complaints on the BAT-4 core symptoms - Please consider reaching out to HR or a mental health professional."
+        "low": "This score suggests low burnout complaints on the BAT-4 core symptoms right now. You're showing steady balance — keep up what's working for you.",
+        "moderate": "This score suggests a moderate level of burnout complaints on the BAT-4 core symptoms. It's not a diagnosis, but it may be a good time to build in regular breaks and a bit more self-care.",
+        "high": "This score suggests elevated burnout complaints on the BAT-4 core symptoms. It is not a diagnosis, but it may indicate that current work demands are placing significant strain on your recovery, energy, and wellbeing. You may consider reaching out to HR or a mental health professional if this feels difficult to manage alone."
       }
     },
     {
@@ -94,9 +94,9 @@
       "scoreRange": [0, 100],
       "thresholds": {"low_max": 49, "moderate_max": 74},
       "interpretation": {
-        "low": "Low work-related burnout on the CBI-WRB3 measure - Keep up the great work!",
-        "moderate": "Moderate work-related burnout on the CBI-WRB3 measure - Consider taking regular breaks and self-care.",
-        "high": "High work-related burnout on the CBI-WRB3 measure - Please consider reaching out to HR or a mental health professional."
+        "low": "This score suggests low work-related burnout risk on the CBI-WRB3 measure right now. You're showing steady balance — keep up what's working for you.",
+        "moderate": "This score suggests a moderate level of work-related burnout risk on the CBI-WRB3 measure. It's not a diagnosis, but it may be a good time to build in regular breaks and a bit more self-care.",
+        "high": "This score suggests elevated work-related burnout risk on the CBI-WRB3 measure. It is not a diagnosis, but it may indicate that current work demands are placing significant strain on your recovery, energy, and wellbeing. You may consider reaching out to HR or a mental health professional if this feels difficult to manage alone."
       }
     }
   ]

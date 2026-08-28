@@ -24,6 +24,7 @@ echo "AZURE_OPENAI_REALTIME_VOICE_CHOICE=$(azd_get AZURE_OPENAI_REALTIME_VOICE_C
 echo "AZURE_TENANT_ID=$(azd_get AZURE_TENANT_ID '')"                                         >> "$ENV_FILE_PATH"
 echo "ENABLE_SENTIMENT_ANALYSIS=$(azd_get ENABLE_SENTIMENT_ANALYSIS 'true')"                 >> "$ENV_FILE_PATH"
 echo "ENABLE_SURVEY_MODE=$(azd_get ENABLE_SURVEY_MODE 'true')"                               >> "$ENV_FILE_PATH"
+echo "ENABLE_RECOVERY_WINDOW_VOICE=$(azd_get ENABLE_RECOVERY_WINDOW_VOICE 'true')"           >> "$ENV_FILE_PATH"
 echo "AWS_REGION=$(azd_get AWS_REGION 'us-east-1')"                                          >> "$ENV_FILE_PATH"
 echo "AWS_ACCESS_KEY_ID=$(azd_get AWS_ACCESS_KEY_ID '')"                                     >> "$ENV_FILE_PATH"
 echo "AWS_SECRET_ACCESS_KEY=$(azd_get AWS_SECRET_ACCESS_KEY '')"                             >> "$ENV_FILE_PATH"

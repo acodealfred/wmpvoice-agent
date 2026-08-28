@@ -54,6 +54,13 @@ def build_rtmt() -> RTMiddleTier:
         rtmt.enable_survey(load_survey(survey_type_env), survey_type=survey_type_env)
         logger.info("Survey mode is enabled (type=%s, overridden=%s)", survey_type_env, override)
 
+    # Default on (still overridable) — mirrors ENABLE_BIOMETRIC_GUARDRAIL below, so the
+    # feature works without every deployment path (write_env.sh, main.bicep) needing to
+    # set it explicitly.
+    if env_flag("ENABLE_RECOVERY_WINDOW_VOICE", "true"):
+        rtmt.enable_recovery_window()
+        logger.info("Recovery Window voice flow is enabled")
+
     # Meta intent is identical for both modes; persona differs.
     rtmt.meta_intent_config = META_INTENT
     rtmt.system_message = SURVEY_SYSTEM_MESSAGE if enable_survey else BASIC_SYSTEM_MESSAGE

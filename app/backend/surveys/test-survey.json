@@ -47,8 +47,8 @@
     "moderate_max": 22
   },
   "interpretation": {
-    "low": "Low burnout risk - Keep up the great work!",
-    "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.If you like me to assist you in giving suggestions to your recovery process please enter your queries to the below chat window, and our database full of verified research material will try our best to assit your recovery.",
-    "high": "High burnout risk - Please consider reaching out to HR or a mental health professional. If you would like to receive more in depth insight into your current state and how to augment your recovery process you can chat with our specialized database consisting of verified research material. "
+    "low": "This score suggests low work-related burnout risk right now. You're showing steady balance — keep up what's working for you.",
+    "moderate": "This score suggests a moderate level of work-related burnout risk. It's not a diagnosis, but it may be a good time to build in regular breaks and a bit more self-care. If you like me to assist you in giving suggestions to your recovery process please enter your queries to the below chat window, and our database full of verified research material will try our best to assit your recovery.",
+    "high": "This score suggests elevated work-related burnout risk. It is not a diagnosis, but it may indicate that current work demands are placing significant strain on your recovery, energy, and wellbeing. You may consider reaching out to HR or a mental health professional if this feels difficult to manage alone. If you would like to receive more in depth insight into your current state and how to augment your recovery process you can chat with our specialized database consisting of verified research material."
   }
 }

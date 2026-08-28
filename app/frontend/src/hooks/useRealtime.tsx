@@ -13,7 +13,8 @@ import {
     ResponseInputAudioTranscriptionCompleted,
     SentimentUpdate,
     SurveyUpdate,
-    SurveyBiometricUpdate
+    SurveyBiometricUpdate,
+    RecoveryUpdate
 } from "@/types";
 
 // Server VAD tuning shared by every session.update — the default threshold (~0.5)
@@ -63,6 +64,11 @@ type Parameters = {
     onReceivedSentimentUpdate?: (message: SentimentUpdate) => void;
     onReceivedSurveyUpdate?: (message: SurveyUpdate) => void;
     onReceivedSurveyBiometricUpdate?: (message: SurveyBiometricUpdate) => void;
+    // Fired for every recovery.* message (see ciq/realtime/tools/recovery_handlers.py's
+    // client_message payloads) — one callback for the whole union, same as
+    // onReceivedExtensionMiddleTierToolResponse, since RecoveryWindowCard only needs to
+    // know "something changed" to refetch its status rather than react per-field.
+    onReceivedRecoveryUpdate?: (message: RecoveryUpdate) => void;
     // Fired every time Azure signals session.created (initial connect AND each reconnect).
     // Lets the caller know the fresh session is live — e.g. to lift a reset audio guard.
     onReceivedSessionReady?: () => void;
@@ -91,6 +97,7 @@ export default function useRealTime({
     onReceivedSentimentUpdate,
     onReceivedSurveyUpdate,
     onReceivedSurveyBiometricUpdate,
+    onReceivedRecoveryUpdate,
     onReceivedSessionReady,
     onReceivedError
 }: Parameters) {
@@ -273,6 +280,14 @@ export default function useRealTime({
                 break;
             case "survey.biometric.update":
                 onReceivedSurveyBiometricUpdate?.(message as SurveyBiometricUpdate);
+                break;
+            case "recovery.intake.update":
+            case "recovery.safety.interlock":
+            case "recovery.safety.cleared":
+            case "recovery.track.selected":
+            case "recovery.track.step.update":
+            case "recovery.completed":
+                onReceivedRecoveryUpdate?.(message as RecoveryUpdate);
                 break;
             case "error":
                 onReceivedError?.(message);

@@ -115,10 +115,17 @@ def _domain_totals(config: dict, snapshots: list) -> dict:
 def _band(score: float, thresholds: dict, interp_map: dict) -> tuple[str, str]:
     """Shared Low/Moderate/High banding against a section's or survey's own thresholds."""
     if score <= thresholds.get("low_max", 12):
-        return "Low", interp_map.get("low", "Low burnout risk")
+        return "Low", interp_map.get("low", "This score suggests low work-related burnout risk right now.")
     if score <= thresholds.get("moderate_max", 22):
-        return "Moderate", interp_map.get("moderate", "Moderate burnout risk")
-    return "High", interp_map.get("high", "High burnout risk")
+        return "Moderate", interp_map.get(
+            "moderate", "This score suggests a moderate level of work-related burnout risk."
+        )
+    return "High", interp_map.get(
+        "high",
+        "This score suggests elevated work-related burnout risk. It is not a diagnosis, but it may "
+        "indicate that current work demands are placing significant strain on your recovery, energy, "
+        "and wellbeing.",
+    )
 
 
 def compute_section_scores(config: dict, snapshots: list) -> list[dict]:

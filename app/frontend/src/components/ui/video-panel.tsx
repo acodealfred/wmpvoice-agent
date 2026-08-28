@@ -7,10 +7,14 @@ interface VideoPanelProps {
     expanded?: boolean;
     onEmotionDetected?: (emotion: EmotionResult) => void;
     onVideoReady?: (video: HTMLVideoElement) => void;
+    /** Fires with the live MediaStream (or null once stopped) so a second, independent
+     * <video> elsewhere — e.g. the Recovery Window's own camera panel — can mirror the
+     * same feed without requesting a second getUserMedia capture. */
+    onStreamReady?: (stream: MediaStream | null) => void;
 }
 
-export function VideoPanel({ isRecording = false, expanded = false, onEmotionDetected, onVideoReady }: VideoPanelProps) {
-    const { videoRef, canvasRef, isStreaming, startVideo, stopVideo, startAnalysis, stopAnalysis } = useVideoCapture({ onEmotionDetected });
+export function VideoPanel({ isRecording = false, expanded = false, onEmotionDetected, onVideoReady, onStreamReady }: VideoPanelProps) {
+    const { videoRef, canvasRef, isStreaming, stream, startVideo, stopVideo, startAnalysis, stopAnalysis } = useVideoCapture({ onEmotionDetected });
 
     useEffect(() => {
         if (isRecording && !isStreaming) {
@@ -28,6 +32,10 @@ export function VideoPanel({ isRecording = false, expanded = false, onEmotionDet
             stopVideo();
         }
     }, [isRecording, isStreaming, startVideo, stopVideo, startAnalysis, stopAnalysis]);
+
+    useEffect(() => {
+        onStreamReady?.(stream);
+    }, [stream, onStreamReady]);
 
     return (
         <div className="flex flex-col">

@@ -334,6 +334,124 @@ async def init_db() -> None:
                 len(merged),
             )
 
+        # Recovery Window: one row per intake attempt (never overwritten — a retake
+        # creates a new row so a user's whole recovery history is preserved, same
+        # pattern as survey_records vs. user_sessions). status walks through
+        # not_started -> intake_in_progress -> track_recommended ->
+        # session_in_progress -> completed, or short-circuits to urgent_support /
+        # grounding_only if the safety question trips (see ciq/recovery/guardrails.py).
+        # aggregate_eligible is reserved for a future k-anonymity manager-facing
+        # aggregate view (docs/recovery-window.md) — unused/unset for now.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS recovery_window_sessions (
+                recovery_session_id              TEXT PRIMARY KEY,
+                user_id                          TEXT NOT NULL REFERENCES users(user_id),
+                survey_run_id                    TEXT REFERENCES survey_records(survey_run_id),
+                status                           TEXT NOT NULL DEFAULT 'not_started',
+                preliminary_track                TEXT,
+                preliminary_rationale             TEXT,
+                recommended_track                TEXT,
+                recommendation_rationale         TEXT,
+                session_length_minutes           INTEGER,
+                selected_track                   TEXT,
+                grounding_only_mode              INTEGER NOT NULL DEFAULT 0,
+                is_safety_flagged                INTEGER NOT NULL DEFAULT 0,
+                safety_flag_reviewed             INTEGER NOT NULL DEFAULT 0,
+                safety_flag_reviewed_by          TEXT REFERENCES users(user_id),
+                safety_flag_reviewed_at          TEXT,
+                reflection_feels_more_settled    INTEGER,
+                reflection_perceived_helpfulness INTEGER,
+                reflection_next_step_chosen      TEXT,
+                reflection_wants_follow_up       INTEGER,
+                aggregate_eligible                INTEGER NOT NULL DEFAULT 0,
+                created_at                       TEXT NOT NULL,
+                updated_at                       TEXT NOT NULL
+            )
+        """)
+
+        # Migrations for a recovery_window_sessions table created before a column
+        # existed (e.g. an earlier build of this feature) — CREATE TABLE IF NOT
+        # EXISTS above is a no-op against an already-existing table, so every
+        # column beyond the always-present core (id/user_id/survey_run_id/status/
+        # created_at/updated_at) is added explicitly here, same idempotent
+        # try/except pattern used for `users` above.
+        for stmt in (
+            "ALTER TABLE recovery_window_sessions ADD COLUMN preliminary_track TEXT",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN preliminary_rationale TEXT",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN recommended_track TEXT",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN recommendation_rationale TEXT",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN session_length_minutes INTEGER",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN selected_track TEXT",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN grounding_only_mode INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN is_safety_flagged INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN safety_flag_reviewed INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN safety_flag_reviewed_by TEXT REFERENCES users(user_id)",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN safety_flag_reviewed_at TEXT",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN reflection_feels_more_settled INTEGER",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN reflection_perceived_helpfulness INTEGER",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN reflection_next_step_chosen TEXT",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN reflection_wants_follow_up INTEGER",
+            "ALTER TABLE recovery_window_sessions ADD COLUMN aggregate_eligible INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                await db.execute(stmt)
+            except aiosqlite.OperationalError:
+                pass  # column already present
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recovery_window_sessions_user
+            ON recovery_window_sessions(user_id, created_at DESC)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recovery_window_sessions_run
+            ON recovery_window_sessions(survey_run_id, created_at DESC)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recovery_window_sessions_flagged
+            ON recovery_window_sessions(is_safety_flagged, safety_flag_reviewed, created_at DESC)
+        """)
+
+        # One row per answered intake question (spec's 9-question set — see
+        # ciq/recovery/intake_questions.py). theme is denormalised from the
+        # canonical question list at write time so this table stays readable on
+        # its own (e.g. for the admin flagged-session review) without a join.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS recovery_window_intake_responses (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                recovery_session_id  TEXT NOT NULL REFERENCES recovery_window_sessions(recovery_session_id),
+                user_id              TEXT NOT NULL REFERENCES users(user_id),
+                question_id          TEXT NOT NULL,
+                theme                TEXT,
+                answer_value         TEXT,
+                created_at           TEXT NOT NULL,
+                UNIQUE (recovery_session_id, question_id)
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recovery_window_intake_responses_session
+            ON recovery_window_intake_responses(recovery_session_id)
+        """)
+
+        # One row per delivered guided-track step (ciq/recovery/track_scripts.py),
+        # so a session's guided-track transcript can be reconstructed for review.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS recovery_window_track_progress (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                recovery_session_id  TEXT NOT NULL REFERENCES recovery_window_sessions(recovery_session_id),
+                user_id              TEXT NOT NULL REFERENCES users(user_id),
+                track_id             TEXT NOT NULL,
+                step_index           INTEGER NOT NULL,
+                step_id              TEXT NOT NULL,
+                step_text            TEXT,
+                acknowledged         INTEGER NOT NULL DEFAULT 0,
+                created_at           TEXT NOT NULL,
+                UNIQUE (recovery_session_id, step_index)
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recovery_window_track_progress_session
+            ON recovery_window_track_progress(recovery_session_id)
+        """)
+
         # Manager "Wellbeing Assistant" chat history. One chat_sessions row per
         # conversation; many chat_messages per chat. See docs/manager-chat.md.
         await db.execute("""

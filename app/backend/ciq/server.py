@@ -8,8 +8,6 @@ from dotenv import load_dotenv
 
 from auth import auth_middleware, login, logout, me, signup
 from biometric_interpreter import analyze_stress
-from db_init import init_db
-
 from ciq.api.baseline_routes import clear_baseline, get_baseline, save_baseline
 from ciq.api.consent_routes import get_consent, save_consent
 from ciq.api.history_routes import (
@@ -60,12 +58,23 @@ from ciq.realtime.routes import (
     update_biometrics,
     update_stress_state,
 )
+from ciq.recovery.routes import (
+    ack_flagged_session,
+    complete_recovery_route,
+    get_latest_recovery_session_route,
+    get_recovery_session_route,
+    list_flagged_sessions,
+    recommend_recovery_route,
+    select_track_route,
+    start_recovery_session,
+)
 from ciq.reports.routes import (
     analyze_report,
     generate_ssot_report,
     report_behavioral_analysis,
     report_consultative_summary,
 )
+from db_init import init_db
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
@@ -106,6 +115,22 @@ async def create_app():
     app.router.add_post("/update-stress", update_stress_state)
     app.router.add_post("/survey-phase", set_survey_phase)
     app.router.add_get("/session", get_session)
+
+    # ── Recovery Window (see ciq/recovery/, docs/recovery-window.md) — voice-
+    # agent-driven; these REST routes are the lifecycle control plane + a
+    # non-voice fallback (the 9-question intake itself is mostly collected via
+    # voice tools, see ciq/realtime/tools/recovery_handlers.py). "latest" is
+    # registered before the {recoverySessionId} routes since aiohttp matches
+    # resources in registration order and "latest" would otherwise be captured
+    # by the {recoverySessionId} pattern.
+    app.router.add_post("/api/recovery-window/start", start_recovery_session)
+    app.router.add_get("/api/recovery-window/sessions/latest", get_latest_recovery_session_route)
+    app.router.add_post("/api/recovery-window/sessions/{recoverySessionId}/recommend", recommend_recovery_route)
+    app.router.add_post("/api/recovery-window/sessions/{recoverySessionId}/select-track", select_track_route)
+    app.router.add_post("/api/recovery-window/sessions/{recoverySessionId}/complete", complete_recovery_route)
+    app.router.add_get("/api/recovery-window/sessions/{recoverySessionId}", get_recovery_session_route)
+    app.router.add_get("/admin/recovery-window/flagged", list_flagged_sessions)
+    app.router.add_post("/admin/recovery-window/flagged/{recoverySessionId}/ack", ack_flagged_session)
 
     # ── Reports ───────────────────────────────────────────────────────────
     app.router.add_post("/analyze-report", analyze_report)

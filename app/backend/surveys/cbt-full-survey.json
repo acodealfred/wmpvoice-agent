@@ -27,8 +27,8 @@
     "moderate_max": 70
   },
   "interpretation": {
-    "low": "Low burnout risk - Keep up the great work!",
-    "moderate": "Moderate burnout risk - Consider taking regular breaks and self-care.",
-    "high": "High burnout risk - Please consider reaching out to HR or a mental health professional."
+    "low": "This score suggests low work-related burnout risk right now. You're showing steady balance — keep up what's working for you.",
+    "moderate": "This score suggests a moderate level of work-related burnout risk. It's not a diagnosis, but it may be a good time to build in regular breaks and a bit more self-care.",
+    "high": "This score suggests elevated work-related burnout risk. It is not a diagnosis, but it may indicate that current work demands are placing significant strain on your recovery, energy, and wellbeing. You may consider reaching out to HR or a mental health professional if this feels difficult to manage alone."
   }
 }

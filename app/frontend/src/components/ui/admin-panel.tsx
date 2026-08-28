@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type, Download, X, Clock } from "lucide-react";
+import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type, Download, X, Clock, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { KBDocument, AdminUser, SurveyRunSummary } from "@/types";
+import { KBDocument, AdminUser, SurveyRunSummary, FlaggedRecoverySession } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
 import { PILL, BANNER } from "@/lib/badges";
@@ -194,6 +194,51 @@ export function AdminPanel() {
             setGuardrailSaving(false);
         }
     }, [guardrailEnabled]);
+
+    // ── Recovery Window: flagged (safety-interlock) sessions ─────────
+    const [flaggedSessions, setFlaggedSessions] = useState<FlaggedRecoverySession[]>([]);
+    const [flaggedLoading, setFlaggedLoading] = useState(false);
+    const [flaggedError, setFlaggedError] = useState<string | null>(null);
+    const [ackingId, setAckingId] = useState<string | null>(null);
+
+    const fetchFlaggedSessions = useCallback(async () => {
+        setFlaggedLoading(true);
+        setFlaggedError(null);
+        try {
+            const resp = await apiFetch("/admin/recovery-window/flagged", { credentials: "same-origin" });
+            if (resp.ok) {
+                const data = await resp.json();
+                setFlaggedSessions(data.sessions ?? []);
+            } else {
+                setFlaggedError("Failed to load flagged sessions.");
+            }
+        } catch {
+            setFlaggedError("Network error loading flagged sessions.");
+        } finally {
+            setFlaggedLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchFlaggedSessions();
+    }, [fetchFlaggedSessions]);
+
+    const ackFlaggedSession = useCallback(async (recoverySessionId: string) => {
+        setAckingId(recoverySessionId);
+        setFlaggedError(null);
+        try {
+            const resp = await apiFetch(`/admin/recovery-window/flagged/${recoverySessionId}/ack`, {
+                method: "POST",
+                credentials: "same-origin"
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            setFlaggedSessions(prev => prev.map(s => (s.recoverySessionId === recoverySessionId ? { ...s, reviewed: true } : s)));
+        } catch (err) {
+            setFlaggedError(err instanceof Error ? `Couldn't acknowledge (${err.message})` : "Couldn't acknowledge");
+        } finally {
+            setAckingId(null);
+        }
+    }, []);
 
     // ── Demo data (E2E) ───────────────────────────────────────────────
     const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
@@ -489,6 +534,87 @@ export function AdminPanel() {
                 <p className="mt-2 text-xs text-[color:var(--ciq-text-faint)]">
                     Takes effect on new conversations — toggle, then Stop and Start the conversation to apply.
                 </p>
+            </div>
+
+            {/* ── Section: Flagged Recovery Sessions ── */}
+            <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
+                <div className="mb-2 flex items-center gap-2">
+                    <ShieldAlert className="h-5 w-5 text-[color:var(--ciq-accent-purple)]" />
+                    <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Flagged Recovery Sessions</h2>
+                    {!flaggedLoading && (
+                        <span className="rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-text-body)]">
+                            {flaggedSessions.length}
+                        </span>
+                    )}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fetchFlaggedSessions}
+                        disabled={flaggedLoading}
+                        className="ml-auto border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
+                    >
+                        <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${flaggedLoading ? "animate-spin" : ""}`} />
+                        Refresh
+                    </Button>
+                </div>
+                <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
+                    Sessions where a Recovery Window user answered the safety question "yes" or "prefer not to say".
+                    Individual intake answers and reflections are never shown here — only that a session was flagged, for
+                    HR follow-up. Acknowledging marks it reviewed; it does not notify the user.
+                </p>
+                {flaggedError && (
+                    <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
+                        <XCircle className="h-4 w-4 shrink-0" />
+                        {flaggedError}
+                    </div>
+                )}
+                {flaggedLoading && flaggedSessions.length === 0 ? (
+                    <div className="flex items-center justify-center py-8 text-[color:var(--ciq-text-muted)]">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading flagged sessions…
+                    </div>
+                ) : flaggedSessions.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-[color:var(--ciq-text-muted)]">No flagged sessions.</p>
+                ) : (
+                    <div className="overflow-x-auto rounded-lg border border-[color:var(--ciq-line)]">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="bg-[color:var(--ciq-card-2)] text-xs font-medium uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
+                                    <th className="px-4 py-3 text-left">User</th>
+                                    <th className="px-4 py-3 text-left">Status</th>
+                                    <th className="px-4 py-3 text-left">Flagged At</th>
+                                    <th className="px-4 py-3 text-center">Reviewed</th>
+                                    <th className="px-4 py-3 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {flaggedSessions.map((s, i) => (
+                                    <tr key={s.recoverySessionId} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
+                                        <td className="px-4 py-3 font-medium text-[color:var(--ciq-text-strong)]">{s.userName}</td>
+                                        <td className="px-4 py-3 text-[color:var(--ciq-text-body)]">{s.status}</td>
+                                        <td className="px-4 py-3 text-[color:var(--ciq-text-muted)]">{new Date(s.createdAt).toLocaleString()}</td>
+                                        <td className="px-4 py-3 text-center">
+                                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${s.reviewed ? PILL.green : PILL.neutral}`}>
+                                                {s.reviewed ? "Reviewed" : "Pending"}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={s.reviewed || ackingId === s.recoverySessionId}
+                                                onClick={() => ackFlaggedSession(s.recoverySessionId)}
+                                                className="h-7 border-[color:var(--ciq-line)] bg-transparent px-2 text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
+                                            >
+                                                {ackingId === s.recoverySessionId ? <Loader2 className="h-3 w-3 animate-spin" /> : "Acknowledge"}
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
             {/* ── Demo Data (E2E) ── */}

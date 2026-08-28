@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ciq.recovery.intake_questions import INTAKE_QUESTIONS
+from ciq.recovery.track_scripts import get_track_script
 from survey_loader import compute_section_scores, get_score_bounds, options_for_question
 
 if TYPE_CHECKING:
@@ -583,6 +585,156 @@ STRICT RULES:
 {tool_rules}"""
 
 
+def recovery_meta_intent_instructions() -> str:
+    """The CIQ Ethos layer (spec §2), formatted like meta_intent_instructions() but
+    injected as its own APPLICATION META INTENT block (never replacing the main one),
+    only while a recovery-window flow is active."""
+    from ciq.prompts.personas import RECOVERY_META_INTENT
+
+    cfg = RECOVERY_META_INTENT
+    parts = [
+        f"APP OVERVIEW:\\n{cfg['app_overview']}\\n",
+        f"CAPABILITIES:\\n{cfg['capabilities']}\\n",
+        f"LIMITATIONS:\\n{cfg['limitations']}\\n",
+        f"PRIVACY:\\n{cfg['privacy']}\\n",
+        f"DISCLAIMER:\\n{cfg['disclaimer']}\\n",
+    ]
+    body = "\\n".join(parts)
+    return f"""RECOVERY WINDOW — APPLICATION META INTENT:
+{body}
+BEHAVIORAL GUIDELINES:
+- Speak as a supportive guide, not an evaluator — never sound like you are judging,
+  diagnosing, policing, or converting the person into a productivity metric.
+- Use "suggests", "may indicate", and "based on your pattern" instead of hard labels.
+- Never use the words "treatment" or "therapy" — always say "guided recovery track"
+  or "recovery support".
+"""
+
+
+def recovery_window_instructions(sess: "SessionState") -> str:
+    """The 9-question intake script + opening/recommendation narration (spec §7/§11).
+
+    Driven entirely by `sess.recovery_intake_answers` — the agent is told exactly
+    which question to ask next, so it can never re-ask an already-answered one, and
+    this function is safe to call fresh on every session.update (idempotent framing).
+    """
+    answered = sess.recovery_intake_answers
+    remaining = [q for q in INTAKE_QUESTIONS if q["id"] not in answered]
+
+    just_starting = len(answered) == 0
+    opening = ""
+    if just_starting:
+        opening = """Do NOT open by recapping the biometric/report results or asking whether they
+want to "dive in" or continue — the user already opted in by starting the Recovery Window, so
+that check-in question is redundant here and only delays the flow. Go straight into the OPENING
+below, then the first question.
+
+OPENING (say this before the first question, in your own natural words —
+keep the meaning, not necessarily the exact wording):
+"Before we begin, I want to make sure this feels respectful, useful, and safe for you.
+You are more than this score, and this session is here to support you — not judge you."
+Then briefly explain: "I'll ask a few quick questions because trust and context matter
+before meaningful insight can be gained. Your individual answers are for your own
+support — human data should never be used as a tool for fear, punishment, or
+exploitation."
+If you have NOT already called get_recovery_recommendation_tool with stage="preliminary"
+this session, call it now (silently — do not narrate the tool call itself) and briefly
+share its "rationale" in your own words, framed as preliminary: "Based on your recent
+pattern, [rationale] — but let's check in with a few quick questions first before
+confirming anything."
+"""
+
+    if not remaining:
+        # All 9 questions answered — hand off to the final recommendation + track choice.
+        return f"""{recovery_meta_intent_instructions()}
+
+CONVERSATION STATE: RECOVERY WINDOW — ALL INTAKE QUESTIONS ANSWERED
+Call get_recovery_recommendation_tool with stage="final" (silently). If its status is
+"urgent_support" or "grounding_only", speak its "message" to the user VERBATIM, word for
+word, and then STOP — do not continue, do not offer a track, do not ask further questions.
+Otherwise, narrate the "rationale" in your own words using the CIQ Ethos framing:
+"Based on your recent pattern and the closest evidence-informed options available, this
+guided [track] track may help you recalibrate. You can choose another path if this
+doesn't feel right." Briefly mention the alternatives by name. Then ask which track they'd
+like — once they answer, call select_recovery_track with their choice (is_override=true
+if it differs from the recommended track). Never call select_recovery_track before the
+user has stated a preference."""
+
+    next_question = remaining[0]
+    if next_question["id"] == "safety":
+        question_block = f"""NEXT QUESTION (the safety question — handle with care):
+Ask, gently and without alarm: "{next_question['prompt']}"
+Then WAIT for the answer, then call record_recovery_safety_answer (NEVER
+record_recovery_intake_answer) with the answer mapped to "no", "yes", or
+"prefer_not_to_say". If the tool's result contains a "message", you MUST speak that
+message to the user VERBATIM, word for word, and then STOP — do not continue the intake
+or ask further questions."""
+    else:
+        question_block = f"""NEXT QUESTION:
+Ask, in your own natural words (keep the meaning unchanged): "{next_question['prompt']}"
+(input format: {next_question['input']})
+Then WAIT for the user's answer. Once they answer, call record_recovery_intake_answer
+with question_id="{next_question['id']}" and the answer mapped to the format above.
+{"For high_stakes_task, if the answer is yes, also ask roughly when and pass it as high_stakes_task_window (within_1_hour / today / this_week / none)." if next_question["id"] == "high_stakes_task" else ""}"""
+
+    return f"""{recovery_meta_intent_instructions()}
+
+CONVERSATION STATE: RECOVERY WINDOW — INTAKE ({len(answered)}/9 answered)
+{opening}
+{question_block}
+
+STRICT RULES:
+- Ask ONE question at a time, in the order given — never skip ahead or combine questions.
+- Do NOT call any recording tool while ASKING — only AFTER the user has answered.
+- Do NOT call a recording tool for a question_id already recorded.
+- If the user goes off-topic, gently steer back and re-ask the current question."""
+
+
+def recovery_track_instructions(sess: "SessionState") -> str:
+    """Step-by-step guided-track delivery (spec §6/§11), once a track is selected."""
+    duration = sess.recovery_intake_answers.get("duration")
+    script = get_track_script(sess.recovery_selected_track or "", duration)
+    step_index = sess.recovery_track_step_index
+    total = len(script)
+
+    if step_index >= total or not script:
+        return f"""{recovery_meta_intent_instructions()}
+
+CONVERSATION STATE: RECOVERY WINDOW — GUIDED TRACK COMPLETE
+The guided track's steps are all delivered. Warmly close this part: "The goal here isn't
+to prove anything — it's to protect your recovery and support you well." Then move into
+the reflection questions (a separate instruction set will guide that next)."""
+
+    step = script[step_index]
+    return f"""{recovery_meta_intent_instructions()}
+
+CONVERSATION STATE: RECOVERY WINDOW — GUIDED TRACK "{sess.recovery_selected_track}", step
+{step_index + 1} of {total}. This is recovery support, not medical treatment.
+
+Speak this step's text now, naturally (keep the meaning unchanged): "{step['text']}"
+Then WAIT for the user's response/acknowledgment. Once they respond, call
+advance_recovery_track_step with step_index={step_index} and user_acknowledged=true.
+Do NOT call it before they've responded, and do NOT skip ahead to a later step."""
+
+
+def recovery_reflection_instructions() -> str:
+    """Post-session reflection (spec's step 8): 4 short questions, then record and close."""
+    return f"""{recovery_meta_intent_instructions()}
+
+CONVERSATION STATE: RECOVERY WINDOW — POST-SESSION REFLECTION
+Ask these, one at a time, in your own natural words:
+1. On a scale of 1-5, how much more settled do you feel right now than before we started?
+2. On a scale of 1-5, how helpful did this feel?
+3. In your own words, what's one next step you'll take?
+4. Would you like a future follow-up on this?
+
+Once you have all four answers, call record_recovery_reflection with
+feels_more_settled (1-5), perceived_helpfulness (1-5), next_step_chosen (their words),
+and wants_follow_up (true/false). Then close warmly: "Thank you for taking this time for
+yourself. You are more than a score, and this was here to support you." Do not continue
+the recovery flow after this — a new one only starts if the user asks for it."""
+
+
 def build_session_instructions(
     *,
     base_message: str | None,
@@ -593,6 +745,7 @@ def build_session_instructions(
     enable_sentiment: bool,
     enable_survey: bool,
     biometric_guardrail_enabled: bool,
+    enable_recovery_window: bool = False,
 ) -> str:
     """Assemble the full system-instruction string for a ``session.update``.
 
@@ -631,9 +784,28 @@ def build_session_instructions(
         else:
             extra += "\n\n" + survey_instructions(survey_config, sess.is_returning_user)
 
-    state_instructions = conversation_state_instructions(sess)
+    # Skip the report-only Q&A grounding while a recovery flow is actively running: it
+    # tells the agent to refuse anything not answerable from the saved report ("STRICT
+    # REPORT-ONLY GROUNDING... say plainly that you can only discuss the completed
+    # assessment report"), which directly contradicts the recovery instructions below
+    # and was silently preventing the agent from ever starting the intake/track/
+    # reflection conversation — the two blocks were being concatenated into one prompt
+    # with opposite directives.
+    recovery_flow_active = enable_recovery_window and sess.recovery_flow_state is not None
+    state_instructions = conversation_state_instructions(sess) if not recovery_flow_active else ""
     if state_instructions:
         extra += "\n\n" + state_instructions
+
+    # Recovery Window — a distinct post-survey flow, gated independent of
+    # conversation_state/survey_phase (a session can be report_delivered/qa_mode AND
+    # recovery_flow_state == "intake" at the same time, the natural real flow: report
+    # delivered, then recovery starts).
+    if enable_recovery_window and sess.recovery_flow_state == "intake":
+        extra += "\n\n" + recovery_window_instructions(sess)
+    elif enable_recovery_window and sess.recovery_flow_state == "track_running":
+        extra += "\n\n" + recovery_track_instructions(sess)
+    elif enable_recovery_window and sess.recovery_flow_state == "reflection":
+        extra += "\n\n" + recovery_reflection_instructions()
 
     reconnect = reconnect_instructions(sess, survey_config)
     if reconnect:

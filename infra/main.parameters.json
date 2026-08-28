@@ -41,6 +41,9 @@
     "enableSurveyMode": {
       "value": "${ENABLE_SURVEY_MODE=true}"
     },
+    "enableRecoveryWindowVoice": {
+      "value": "${ENABLE_RECOVERY_WINDOW_VOICE=true}"
+    },
     "awsRegion": {
       "value": "${AWS_REGION=us-east-1}"
     },

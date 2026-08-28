@@ -1117,4 +1117,225 @@ async def delete_chat_session(chat_id: str) -> None:
     async with _open_db() as db:
         await db.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
         await db.execute("DELETE FROM chat_sessions WHERE chat_id = ?", (chat_id,))
+
+
+# ── Recovery Window (see docs/recovery-window.md) ──────────────────────────
+
+async def get_survey_record(survey_run_id: str) -> dict | None:
+    """Single-record lookup by id — the other survey_records readers
+    (get_user_survey_records / get_user_survey_run_summaries) are list-based
+    and scoped by user_id, which the Recovery Window's own ownership checks
+    already handle at the caller (see ciq.recovery.service)."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM survey_records WHERE survey_run_id = ?", (survey_run_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def create_recovery_session(
+    recovery_session_id: str, user_id: str, survey_run_id: str | None, session_id: str | None,
+) -> None:
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO recovery_window_sessions
+               (recovery_session_id, user_id, survey_run_id, status, created_at, updated_at)
+               VALUES (?, ?, ?, 'not_started', ?, ?)""",
+            (recovery_session_id, user_id, survey_run_id, now, now),
+        )
+        await db.commit()
+
+
+async def get_recovery_session(recovery_session_id: str) -> dict | None:
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM recovery_window_sessions WHERE recovery_session_id = ?",
+            (recovery_session_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_latest_recovery_session_for_run(user_id: str, survey_run_id: str) -> dict | None:
+    """The report card's "do I already have a recovery session for this report"
+    check — most recent attempt wins if the user started more than one."""
+    async with _open_db() as db:
+        async with db.execute(
+            """SELECT * FROM recovery_window_sessions
+               WHERE user_id = ? AND survey_run_id = ?
+               ORDER BY created_at DESC LIMIT 1""",
+            (user_id, survey_run_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def save_recovery_intake_responses(
+    recovery_session_id: str, user_id: str, answers: list[tuple[str, str, str]],
+) -> None:
+    """Upsert one or more (question_id, theme, answer_value) rows. Each intake
+    question is answered at most once per session (UNIQUE(recovery_session_id,
+    question_id)) — an "upsert" here really means "the first and only write",
+    but ON CONFLICT keeps this safe against a duplicate tool call."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        for question_id, theme, answer_value in answers:
+            await db.execute(
+                """INSERT INTO recovery_window_intake_responses
+                   (recovery_session_id, user_id, question_id, theme, answer_value, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (recovery_session_id, question_id)
+                   DO UPDATE SET answer_value = excluded.answer_value""",
+                (recovery_session_id, user_id, question_id, theme, answer_value, now),
+            )
+        await db.execute(
+            "UPDATE recovery_window_sessions SET status = 'intake_in_progress', updated_at = ? "
+            "WHERE recovery_session_id = ? AND status = 'not_started'",
+            (now, recovery_session_id),
+        )
+        await db.commit()
+
+
+async def update_recovery_session_preliminary(
+    recovery_session_id: str, track: str, rationale: str,
+) -> None:
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_sessions
+               SET preliminary_track = ?, preliminary_rationale = ?, updated_at = ?
+               WHERE recovery_session_id = ?""",
+            (track, rationale, datetime.utcnow().isoformat(), recovery_session_id),
+        )
+        await db.commit()
+
+
+async def update_recovery_session_recommendation(
+    recovery_session_id: str, track: str, rationale: str, session_length_minutes: int,
+    risk_signal: dict, biometric_signal: dict,
+) -> None:
+    """risk_signal/biometric_signal are accepted for call-site symmetry with the
+    router (ciq.recovery.router.get_recovery_recommendation) but not persisted —
+    the intake_responses + report's own technical_report already capture the
+    inputs that produced this recommendation, so storing them again here would
+    just be a second, driftable copy."""
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_sessions
+               SET recommended_track = ?, recommendation_rationale = ?,
+                   session_length_minutes = ?, status = 'track_recommended', updated_at = ?
+               WHERE recovery_session_id = ?""",
+            (track, rationale, session_length_minutes, datetime.utcnow().isoformat(), recovery_session_id),
+        )
+        await db.commit()
+
+
+async def select_recovery_track(recovery_session_id: str, track_id: str) -> None:
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_sessions
+               SET selected_track = ?, status = 'session_in_progress', updated_at = ?
+               WHERE recovery_session_id = ?""",
+            (track_id, datetime.utcnow().isoformat(), recovery_session_id),
+        )
+        await db.commit()
+
+
+async def record_recovery_track_step(
+    recovery_session_id: str, user_id: str, track_id: str,
+    step_index: int, step_id: str, step_text: str,
+) -> None:
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO recovery_window_track_progress
+               (recovery_session_id, user_id, track_id, step_index, step_id, step_text, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (recovery_session_id, step_index)
+               DO UPDATE SET step_id = excluded.step_id, step_text = excluded.step_text""",
+            (recovery_session_id, user_id, track_id, step_index, step_id, step_text, now),
+        )
+        await db.commit()
+
+
+async def ack_recovery_track_step(recovery_session_id: str, step_index: int) -> None:
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_track_progress SET acknowledged = 1
+               WHERE recovery_session_id = ? AND step_index = ?""",
+            (recovery_session_id, step_index),
+        )
+        await db.commit()
+
+
+async def save_recovery_reflection(
+    recovery_session_id: str, feels_more_settled: int, perceived_helpfulness: int,
+    next_step_chosen: str, wants_follow_up: bool,
+) -> None:
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_sessions
+               SET reflection_feels_more_settled = ?, reflection_perceived_helpfulness = ?,
+                   reflection_next_step_chosen = ?, reflection_wants_follow_up = ?,
+                   status = 'completed', aggregate_eligible = 1, updated_at = ?
+               WHERE recovery_session_id = ?""",
+            (
+                feels_more_settled, perceived_helpfulness, next_step_chosen,
+                1 if wants_follow_up else 0, datetime.utcnow().isoformat(), recovery_session_id,
+            ),
+        )
+        await db.commit()
+
+
+async def mark_recovery_session_safety_halted(recovery_session_id: str) -> None:
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_sessions
+               SET status = 'urgent_support', is_safety_flagged = 1, updated_at = ?
+               WHERE recovery_session_id = ?""",
+            (datetime.utcnow().isoformat(), recovery_session_id),
+        )
+        await db.commit()
+
+
+async def mark_recovery_session_grounding_only(recovery_session_id: str) -> None:
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_sessions
+               SET status = 'grounding_only', grounding_only_mode = 1,
+                   is_safety_flagged = 1, updated_at = ?
+               WHERE recovery_session_id = ?""",
+            (datetime.utcnow().isoformat(), recovery_session_id),
+        )
+        await db.commit()
+
+
+async def list_flagged_recovery_sessions() -> list[dict]:
+    """Admin-only (see auth.py's _ADMIN_PREFIXES) — never manager-visible.
+    Joins the user's name for display; never returns individual intake
+    answers or reflection content, only the fact that a session was flagged."""
+    async with _open_db() as db:
+        async with db.execute("""
+            SELECT rws.recovery_session_id, rws.user_id, u.name AS user_name,
+                   rws.status, rws.created_at, rws.safety_flag_reviewed
+            FROM recovery_window_sessions rws
+            JOIN users u ON u.user_id = rws.user_id
+            WHERE rws.is_safety_flagged = 1
+            ORDER BY rws.safety_flag_reviewed ASC, rws.created_at DESC
+        """) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def ack_flagged_recovery_session(recovery_session_id: str, admin_user_id: str) -> None:
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE recovery_window_sessions
+               SET safety_flag_reviewed = 1, safety_flag_reviewed_by = ?,
+                   safety_flag_reviewed_at = ?, updated_at = ?
+               WHERE recovery_session_id = ?""",
+            (admin_user_id, datetime.utcnow().isoformat(), datetime.utcnow().isoformat(), recovery_session_id),
+        )
+        await db.commit()
         await db.commit()

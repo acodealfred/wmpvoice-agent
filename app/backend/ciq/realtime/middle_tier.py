@@ -35,6 +35,22 @@ from ciq.realtime.timeline_capture import (
 )
 from ciq.realtime.tools.base import RTToolCall, Tool, ToolResultDirection
 from ciq.realtime.tools.handlers import query_survey_tool, sentiment_tool, survey_tool
+from ciq.realtime.tools.recovery_handlers import (
+    advance_recovery_track_step_tool,
+    recovery_intake_answer_tool,
+    recovery_recommendation_tool,
+    recovery_reflection_tool,
+    recovery_safety_answer_tool,
+    select_recovery_track_tool,
+)
+from ciq.realtime.tools.recovery_schemas import (
+    RECOVERY_ADVANCE_STEP_SCHEMA,
+    RECOVERY_INTAKE_ANSWER_SCHEMA,
+    RECOVERY_RECOMMENDATION_SCHEMA,
+    RECOVERY_REFLECTION_SCHEMA,
+    RECOVERY_SAFETY_ANSWER_SCHEMA,
+    RECOVERY_SELECT_TRACK_SCHEMA,
+)
 from ciq.realtime.tools.schemas import (
     QUERY_SURVEY_SCHEMA,
     SENTIMENT_SCHEMA,
@@ -44,6 +60,19 @@ from ciq.survey import get_question_domain
 from survey_loader import options_for_question
 
 logger = logging.getLogger("voicerag")
+
+# Every recovery-tool name — used by _process_message_to_client to generically
+# forward each handler's embedded "client_message" payload (see
+# ciq.realtime.tools.recovery_handlers' module docstring) without needing a
+# hand-written special case per tool, unlike report_sentiment/record_survey_response.
+RECOVERY_TOOL_NAMES = frozenset({
+    "record_recovery_intake_answer",
+    "record_recovery_safety_answer",
+    "get_recovery_recommendation_tool",
+    "select_recovery_track",
+    "advance_recovery_track_step",
+    "record_recovery_reflection",
+})
 
 
 class RTMiddleTier:
@@ -63,6 +92,7 @@ class RTMiddleTier:
     voice_choice: str | None = None
     enable_sentiment_analysis: bool = False
     enable_survey_mode: bool = False
+    enable_recovery_window_voice: bool = False
     # Meta intent layer — provides LLM with app context, users, and limitations
     enable_meta_intent: bool = True
     meta_intent_config: dict | None = None
@@ -138,6 +168,13 @@ class RTMiddleTier:
         if sess.survey_config.get("type") == "PILOT":
             start_behaviour_capture(sess, "pre")
 
+    def start_recovery_flow_for_session(
+        self, session_id: str, recovery_session_id: str, user_id: str
+    ) -> None:
+        """Called from POST /api/recovery-window/start right after the session row is
+        created, so the agent picks up the intake script on the next session.update."""
+        self._store.get_or_create(session_id).start_recovery_flow(recovery_session_id, user_id)
+
     # ------------------------------------------------------------------
     # Feature wiring
     # ------------------------------------------------------------------
@@ -169,6 +206,37 @@ class RTMiddleTier:
         self.default_survey_config = survey_config or {}
         self.default_survey_type = survey_type
         logger.info("Survey mode enabled with record_survey_response and query_survey_results tools")
+
+    def enable_recovery_window(self) -> None:
+        """Enable the Recovery Window's 6 voice tools (see ciq/recovery/,
+        ciq/realtime/tools/recovery_handlers.py). Every tool closure reads
+        current_session() at call time, same pattern as enable_survey()."""
+        self.enable_recovery_window_voice = True
+        self.tools["record_recovery_intake_answer"] = Tool(
+            schema=RECOVERY_INTAKE_ANSWER_SCHEMA,
+            target=lambda args: recovery_intake_answer_tool(current_session(), args),
+        )
+        self.tools["record_recovery_safety_answer"] = Tool(
+            schema=RECOVERY_SAFETY_ANSWER_SCHEMA,
+            target=lambda args: recovery_safety_answer_tool(current_session(), args),
+        )
+        self.tools["get_recovery_recommendation_tool"] = Tool(
+            schema=RECOVERY_RECOMMENDATION_SCHEMA,
+            target=lambda args: recovery_recommendation_tool(current_session(), args),
+        )
+        self.tools["select_recovery_track"] = Tool(
+            schema=RECOVERY_SELECT_TRACK_SCHEMA,
+            target=lambda args: select_recovery_track_tool(current_session(), args),
+        )
+        self.tools["advance_recovery_track_step"] = Tool(
+            schema=RECOVERY_ADVANCE_STEP_SCHEMA,
+            target=lambda args: advance_recovery_track_step_tool(current_session(), args),
+        )
+        self.tools["record_recovery_reflection"] = Tool(
+            schema=RECOVERY_REFLECTION_SCHEMA,
+            target=lambda args: recovery_reflection_tool(current_session(), args),
+        )
+        logger.info("Recovery Window enabled with 6 voice tools")
 
     def _resolve_survey_config(self, survey_type: str | None) -> tuple[str, dict]:
         """Load a survey config by type, falling back to TEST for an unknown type."""
@@ -568,6 +636,19 @@ class RTMiddleTier:
                                         sess.clear_biometric_history()
                                 except json.JSONDecodeError as e:
                                     logger.error(f"Failed to parse survey result: {e}")
+
+                            # Recovery Window tools: forward whichever "client_message"
+                            # dict the handler embedded (see recovery_handlers.py's
+                            # module docstring) — one generic block instead of six
+                            # hand-written special cases like the ones above.
+                            if item["name"] in RECOVERY_TOOL_NAMES:
+                                try:
+                                    tool_payload = json.loads(result.to_text())
+                                    client_message = tool_payload.get("client_message")
+                                    if client_message:
+                                        await client_ws.send_json(client_message)
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Failed to parse recovery tool result: {e}")
                         updated_message = None
 
                 case "response.done":
@@ -735,6 +816,7 @@ class RTMiddleTier:
                             enable_sentiment=self.enable_sentiment_analysis,
                             enable_survey=self.enable_survey_mode,
                             biometric_guardrail_enabled=self.biometric_guardrail_enabled,
+                            enable_recovery_window=self.enable_recovery_window_voice,
                         )
                         logger.info(f"[RTMT] ★ Stress={sess.stress_state} Conv={sess.conversation_state} Reconnect#={sess.connection_count}")
                         logger.info(f"[RTMT] ★ Instructions length: {len(session['instructions'])} chars")

@@ -107,6 +107,20 @@ class SessionState:
     pending_answer_question_index: int | None = None
     pending_answer_started_at_frame_index: int | None = None
 
+    # ── Recovery Window (see ciq/recovery/, docs/recovery-window.md) ────────────
+    # A distinct post-survey flow, not folded into conversation_state/
+    # _VALID_CONVERSATION_STATES — a session can be "report_delivered" AND
+    # mid-recovery-flow at once (the natural real sequence: report delivered,
+    # then the user starts a Recovery Window), so this is its own small state
+    # machine, gated independently in ciq.prompts.builder.build_session_instructions.
+    recovery_session_id: str | None = None
+    recovery_user_id: str | None = None
+    # recovery_flow_state: None (no active flow) | "intake" | "track_running" | "reflection".
+    recovery_flow_state: str | None = None
+    recovery_intake_answers: dict = field(default_factory=dict)
+    recovery_selected_track: str | None = None
+    recovery_track_step_index: int = 0
+
     # ── survey binding ────────────────────────────────────────────────────────
     def set_survey_type(self, survey_type: str, config: dict) -> None:
         """Bind this session to a specific survey type/config.
@@ -154,6 +168,31 @@ class SessionState:
         self.last_agent_response_type = None
         logger.info("[RTMT] ★ Conversation state cleared (reset to active)")
 
+    # ── Recovery Window ────────────────────────────────────────────────────
+    def start_recovery_flow(self, recovery_session_id: str, user_id: str) -> None:
+        """Called from RTMiddleTier.start_recovery_flow_for_session (itself called
+        right after POST /api/recovery-window/start) so the agent picks up the
+        intake script on the next session.update."""
+        self.recovery_session_id = recovery_session_id
+        self.recovery_user_id = user_id
+        self.recovery_flow_state = "intake"
+        self.recovery_intake_answers = {}
+        self.recovery_selected_track = None
+        self.recovery_track_step_index = 0
+        logger.info("[RTMT] ★ Recovery Window flow started (session=%s, recovery_session=%s)",
+                    self.session_id, recovery_session_id)
+
+    def reset_recovery_state(self) -> None:
+        """Clear all Recovery Window state — called when a flow ends (safety
+        interlock, reflection recorded) and from reset_for_new_survey() so
+        retaking a survey never leaves a stale recovery flow active."""
+        self.recovery_session_id = None
+        self.recovery_user_id = None
+        self.recovery_flow_state = None
+        self.recovery_intake_answers = {}
+        self.recovery_selected_track = None
+        self.recovery_track_step_index = 0
+
     def reset_for_new_survey(self) -> None:
         """Fully reset so a brand-new survey can run on the same session_id.
 
@@ -197,6 +236,7 @@ class SessionState:
         self.pending_answer_question_id = None
         self.pending_answer_question_index = None
         self.pending_answer_started_at_frame_index = None
+        self.reset_recovery_state()
         logger.info("[RTMT] ★ Session fully reset for new survey (session=%s)", self.session_id)
 
     # ── biometric history ────────────────────────────────────────────────────

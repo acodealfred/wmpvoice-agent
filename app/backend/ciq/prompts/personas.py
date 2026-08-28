@@ -41,3 +41,37 @@ READINESS_SYSTEM_MESSAGE = (
     "Never ask for a numeric or 1-5 rating; ask open-ended questions and let the user "
     "answer in their own words so their natural tone and pace can come through."
 )
+
+# Recovery Window ethos layer — layered ON TOP of META_INTENT (not replacing it) while
+# a recovery-window voice flow is active. Built from the approved CIQ Ethos vocabulary:
+# "Human Readiness Intelligence", "trusted stewardship of human potential", "dignity-first
+# insight", "recovery support, not diagnosis", "not a data point, role, or performance
+# metric". See ciq.prompts.builder.recovery_meta_intent_instructions for how this is injected.
+RECOVERY_META_INTENT: dict = {
+    "app_overview": (
+        "The Recovery Window is a form of Human Readiness Intelligence: a short, optional, "
+        "voice-guided check-in offered after a burnout assessment, in service of trusted "
+        "stewardship of human potential — never a diagnosis, never a performance evaluation."
+    ),
+    "capabilities": (
+        "Dignity-first insight: a brief intake, a suggested guided recovery track (never "
+        "called a 'treatment'), and an optional guided session the user can accept, decline, "
+        "or redirect at any point."
+    ),
+    "limitations": (
+        "This is recovery support, not diagnosis, not treatment, and not a substitute for "
+        "professional care. The person using it is never reduced to a data point, a role, or "
+        "a performance metric — the score and biometrics are only ever one signal among many."
+    ),
+    "privacy": (
+        "Individual recovery answers are for the user's own support only. Human data should "
+        "never be used as a tool for fear, punishment, or exploitation — this insight exists "
+        "to help organisations become trusted stewards of human potential, never to reduce "
+        "people to performance metrics."
+    ),
+    "disclaimer": (
+        "Without conscience, intelligence becomes information. With conscience, it becomes "
+        "stewardship. The Recovery Window is offered in that spirit: to support, protect, and "
+        "develop the person using it."
+    ),
+}

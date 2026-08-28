@@ -58,6 +58,7 @@ param openAiChatDeployment string = 'gpt-4o'
 
 param enableSentimentAnalysis bool = true
 param enableSurveyMode bool = true
+param enableRecoveryWindowVoice bool = true
 
 @description('AWS Region for Rekognition API')
 param awsRegion string = 'us-east-1'
@@ -213,6 +214,8 @@ module acaBackend 'core/host/container-app-upsert.bicep' = {
       ENABLE_SENTIMENT_ANALYSIS: enableSentimentAnalysis ? 'true' : 'false'
       // Survey mode feature
       ENABLE_SURVEY_MODE: enableSurveyMode ? 'true' : 'false'
+      // Recovery Window voice flow (post-survey intake + guided-recovery-track session)
+      ENABLE_RECOVERY_WINDOW_VOICE: enableRecoveryWindowVoice ? 'true' : 'false'
       // AWS Rekognition for face emotion analysis
       AWS_REGION: awsRegion
       AWS_ACCESS_KEY_ID: !empty(awsAccessKeyId) ? awsAccessKeyId : ''

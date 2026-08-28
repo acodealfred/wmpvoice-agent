@@ -18,6 +18,10 @@ export function useVideoCapture({ onEmotionDetected, analyzeInterval = 3000 }: U
     const [isStreaming, setIsStreaming] = useState(false);
     const [currentEmotion, setCurrentEmotion] = useState<EmotionResult | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    // Exposed (unlike streamRef) so a second, independent <video> element elsewhere —
+    // e.g. the Recovery Window's own camera panel — can bind srcObject to the SAME
+    // stream and show a live feed without requesting a second getUserMedia capture.
+    const [stream, setStream] = useState<MediaStream | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const intervalRef = useRef<number | null>(null);
 
@@ -27,6 +31,7 @@ export function useVideoCapture({ onEmotionDetected, analyzeInterval = 3000 }: U
                 video: { width: 640, height: 480, facingMode: "user" }
             });
             streamRef.current = stream;
+            setStream(stream);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
                 await videoRef.current.play();
@@ -42,6 +47,7 @@ export function useVideoCapture({ onEmotionDetected, analyzeInterval = 3000 }: U
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
         }
+        setStream(null);
         if (videoRef.current) {
             videoRef.current.srcObject = null;
         }
@@ -122,6 +128,7 @@ export function useVideoCapture({ onEmotionDetected, analyzeInterval = 3000 }: U
         videoRef,
         canvasRef,
         isStreaming,
+        stream,
         currentEmotion,
         isAnalyzing,
         startVideo,
