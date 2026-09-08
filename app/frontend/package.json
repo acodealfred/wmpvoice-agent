@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "format": "prettier --write ./src",
+    "example:session": "node scripts/make-example-session.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
