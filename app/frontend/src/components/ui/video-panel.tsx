@@ -42,7 +42,7 @@ export function VideoPanel({ isRecording = false, expanded = false, onEmotionDet
             <div
                 className={`relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-[color:var(--ciq-card)] transition-[max-width] duration-300 ${expanded ? "max-w-none" : "max-w-xl"}`}
             >
-                <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
+                <video ref={videoRef} className="h-full w-full origin-center scale-x-[-1] object-cover" muted playsInline />
                 <canvas ref={canvasRef} className="hidden" />
 
                 {!isStreaming && (

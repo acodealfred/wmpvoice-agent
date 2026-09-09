@@ -10,6 +10,15 @@ export type HistoryItem = {
     groundingFiles: GroundingFile[];
 };
 
+/** One turn of the live voice conversation, surfaced as a text chat in the
+ * Recovery Window screen. `text` is streamed in for agent turns (empty at first)
+ * and filled in late for user turns (whisper lags the spoken response). */
+export type ChatTurn = {
+    id: string;
+    role: "user" | "agent";
+    text: string;
+};
+
 export type SessionUpdateCommand = {
     type: "session.update";
     session: {

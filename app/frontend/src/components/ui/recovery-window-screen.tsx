@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { HeartHandshake, Mic, MicOff, VideoOff, X } from "lucide-react";
+import { HeartHandshake, Mic, MicOff, MessageSquare, VideoOff, X } from "lucide-react";
 
 import RecoveryWindowCard from "@/components/ui/recovery-window-card";
+import { ChatTurn } from "@/types";
 
 type RecoveryWindowScreenProps = {
     open: boolean;
@@ -20,9 +21,49 @@ type RecoveryWindowScreenProps = {
      * camera panel shows here too, matching the survey, without a second getUserMedia
      * capture. */
     cameraStream?: MediaStream | null;
+    /** Live text transcript of the voice conversation, rendered as a chat panel. */
+    chatTranscript?: ChatTurn[];
     refreshRealtimeSession?: () => void;
     requestAgentTurn?: () => void;
 };
+
+/** Text mirror of the spoken conversation so the user can read along with the
+ * voice agent while the Recovery Window check-in runs. */
+function ChatTranscriptPanel({ turns }: { turns: ChatTurn[] }) {
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        // Keep the newest turn in view as the agent's reply streams in.
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }, [turns]);
+
+    return (
+        <div className="flex min-h-0 flex-col border-b border-[color:var(--ciq-divider)]">
+            <p className="flex items-center gap-1.5 px-6 pb-2 pt-4 text-xs font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">
+                <MessageSquare className="h-3.5 w-3.5" /> Conversation
+            </p>
+            <div ref={scrollRef} className="max-h-52 space-y-2 overflow-y-auto px-6 pb-4">
+                {turns.length === 0 ? (
+                    <p className="text-xs text-[color:var(--ciq-text-muted)]">The conversation will appear here as you and the agent speak.</p>
+                ) : (
+                    turns.map(turn => (
+                        <div key={turn.id} className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}>
+                            <div
+                                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                                    turn.role === "user"
+                                        ? "bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e]"
+                                        : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-body)]"
+                                }`}
+                            >
+                                {turn.text || <span className="opacity-60">…</span>}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+}
 
 /** Small camera panel matching the survey's "Camera Feed" card, bound to the shared
  * stream mirrored down from App.tsx's main VideoPanel. */
@@ -39,7 +80,7 @@ function MiniCameraPanel({ stream }: { stream?: MediaStream | null }) {
         <div className="border-b border-[color:var(--ciq-divider)] px-6 py-4">
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">Camera Feed</p>
             <div className="relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-[color:var(--ciq-card-2)]">
-                <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+                <video ref={videoRef} autoPlay muted playsInline className="h-full w-full origin-center scale-x-[-1] object-cover" />
                 {!stream && (
                     <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--ciq-card-2)]">
                         <VideoOff className="h-8 w-8 text-[color:var(--ciq-text-muted)]" />
@@ -55,8 +96,8 @@ function MiniCameraPanel({ stream }: { stream?: MediaStream | null }) {
  * (where a small inline card used to live) so the voice-guided check-in reads
  * as its own place rather than one more tile among the report stats.
  *
- * Docked to the bottom rather than a full-bleed modal, and carries its own
- * camera panel (mirroring the same stream as the main Camera Feed card) so the
+ * A centered modal dialog (not full-bleed), carrying its own camera panel
+ * (mirroring the same stream as the main Camera Feed card) so the
  * experience matches the survey's always-visible camera instead of relying on
  * whatever happens to still be on screen behind it. The underlying realtime
  * WebSocket/audio session is unaffected by this screen opening or closing
@@ -73,6 +114,7 @@ export default function RecoveryWindowScreen({
     isRecording,
     onResumeListening,
     cameraStream,
+    chatTranscript = [],
     refreshRealtimeSession,
     requestAgentTurn
 }: RecoveryWindowScreenProps) {
@@ -90,16 +132,19 @@ export default function RecoveryWindowScreen({
                         className="fixed inset-0 z-[99] bg-black/60 backdrop-blur-sm"
                         onClick={onClose}
                     />
+                    {/* Centered dialog — the container fills the viewport and centers the
+                        panel; clicking its padding (outside the panel) still closes. */}
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
                     <motion.div
-                        initial={{ opacity: 0, y: 24 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 24 }}
+                        initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 24, scale: 0.98 }}
                         transition={{ duration: 0.18, ease: "easeOut" }}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="recovery-window-title"
                         tabIndex={-1}
-                        className="fixed inset-x-0 bottom-0 z-[100] flex max-h-[80vh] w-full flex-col overflow-hidden rounded-t-2xl border-t border-[color:var(--ciq-border)] bg-[color:var(--ciq-card)] shadow-2xl outline-none sm:inset-x-auto sm:right-3 sm:bottom-3 sm:max-h-[85vh] sm:w-full sm:max-w-md sm:rounded-2xl sm:border"
+                        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-card)] shadow-2xl outline-none"
                         onClick={e => e.stopPropagation()}
                     >
                         <div className="flex items-center justify-between gap-4 border-b border-[color:var(--ciq-divider)] px-6 py-5">
@@ -150,7 +195,9 @@ export default function RecoveryWindowScreen({
                             )}
                         </div>
 
-                        <div className="overflow-y-auto px-6 py-5">
+                        <ChatTranscriptPanel turns={chatTranscript} />
+
+                        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                             <RecoveryWindowCard
                                 variant="bare"
                                 surveyRunId={surveyRunId}
@@ -162,6 +209,7 @@ export default function RecoveryWindowScreen({
                             />
                         </div>
                     </motion.div>
+                    </div>
                 </>
             )}
         </AnimatePresence>

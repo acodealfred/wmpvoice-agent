@@ -28,7 +28,7 @@ import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 import { useBiometrics } from "@/hooks/useBiometrics";
 
-import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig, AuthUser, AuthState, RecoveryUpdate } from "./types";
+import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig, AuthUser, AuthState, RecoveryUpdate, ChatTurn } from "./types";
 
 import logo from "./assets/logo.png";
 
@@ -87,6 +87,13 @@ function App() {
     // below) so the Recovery Window screen can show its own live camera panel — same
     // feed, no second getUserMedia capture.
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+    // Live text transcript of the voice conversation, shown as a chat inside the
+    // Recovery Window screen. Agent turns stream in via response.audio_transcript.delta;
+    // user turns get a slot reserved on speech_started and the text filled in once
+    // whisper transcription completes (it lags the agent's spoken reply).
+    const [chatTranscript, setChatTranscript] = useState<ChatTurn[]>([]);
+    const agentTurnIdRef = useRef<string | null>(null);
+    const pendingUserTurnIdRef = useRef<string | null>(null);
     // Set when the report has been saved; consumed on the next response.done to force a
     // clean reconnect so the agent answers follow-ups strictly from the saved report
     // (wipes Azure's survey conversation memory) without cutting off its spoken result.
@@ -279,6 +286,8 @@ function App() {
         onWebSocketError: event => console.error("WebSocket error:", event),
         onReceivedError: message => console.error("error", message),
         onReceivedResponseDone: () => {
+            // Agent's turn is over — the next transcript delta starts a fresh bubble.
+            agentTurnIdRef.current = null;
             // The report was just saved — perform the strict report-only hard reset now
             // that the agent has finished its current turn (so we don't cut off speech).
             if (pendingGuardrailResetRef.current) {
@@ -299,6 +308,37 @@ function App() {
         },
         onReceivedInputAudioBufferSpeechStarted: () => {
             stopAudioPlayer();
+            // Reserve the user's turn in the transcript now, in spoken order — whisper
+            // transcription lands later (often after the agent has already replied).
+            const id = crypto.randomUUID();
+            pendingUserTurnIdRef.current = id;
+            agentTurnIdRef.current = null;
+            setChatTranscript(prev => [...prev, { id, role: "user", text: "" }]);
+        },
+        onReceivedResponseAudioTranscriptDelta: message => {
+            const delta = message.delta ?? "";
+            if (!delta) return;
+            setChatTranscript(prev => {
+                const last = prev[prev.length - 1];
+                if (agentTurnIdRef.current && last && last.id === agentTurnIdRef.current) {
+                    return prev.map(t => (t.id === last.id ? { ...t, text: t.text + delta } : t));
+                }
+                const id = crypto.randomUUID();
+                agentTurnIdRef.current = id;
+                return [...prev, { id, role: "agent", text: delta }];
+            });
+        },
+        onReceivedInputAudioTranscriptionCompleted: message => {
+            const text = (message.transcript ?? "").trim();
+            const id = pendingUserTurnIdRef.current;
+            pendingUserTurnIdRef.current = null;
+            setChatTranscript(prev => {
+                if (id && prev.some(t => t.id === id)) {
+                    // Drop the reserved slot entirely if whisper came back empty.
+                    return text ? prev.map(t => (t.id === id ? { ...t, text } : t)) : prev.filter(t => t.id !== id);
+                }
+                return text ? [...prev, { id: crypto.randomUUID(), role: "user", text }] : prev;
+            });
         },
         onReceivedSentimentUpdate: message => {
             setSentiment(message);
@@ -438,6 +478,9 @@ function App() {
     // Clear all per-assessment UI state so a new run starts from a clean slate.
     // Crucially re-enables biometrics, which is switched off when a survey completes.
     const resetAssessmentState = useCallback(() => {
+        setChatTranscript([]);
+        agentTurnIdRef.current = null;
+        pendingUserTurnIdRef.current = null;
         setBiometricSnapshots([]);
         setSurveyQuestions([]);
         setSurveyCompleted(0);
@@ -729,6 +772,7 @@ function App() {
                         isRecording={isRecording}
                         onResumeListening={() => runWithConsent(onStartListening)}
                         cameraStream={cameraStream}
+                        chatTranscript={chatTranscript}
                         refreshRealtimeSession={refreshSession}
                         requestAgentTurn={requestGreeting}
                     />
@@ -1408,26 +1452,6 @@ function App() {
                                                                 </p>
                                                             </div>
                                                         )}
-                                                        <ErrorBoundary label="report">
-                                                            <Suspense
-                                                                fallback={
-                                                                    <div className="flex items-center justify-center gap-2 py-10 text-sm text-[color:var(--ciq-text-60)]">
-                                                                        <Loader2 className="h-4 w-4 animate-spin" /> Building your report…
-                                                                    </div>
-                                                                }
-                                                            >
-                                                                <DetailedReport
-                                                                    snapshots={biometricSnapshots}
-                                                                    sessionId={sessionId}
-                                                                    surveyRunId={surveyRunId}
-                                                                    surveyType={surveyTypeConfig?.activeSurveyType}
-                                                                    onClose={() => setShowDetailedReport(false)}
-                                                                    onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
-                                                                    onReportDelivered={handleReportReady}
-                                                                />
-                                                            </Suspense>
-                                                        </ErrorBoundary>
-
                                                         {!reportLoading && (
                                                             <ErrorBoundary label="recovery-window-launcher">
                                                                 <button
@@ -1448,6 +1472,25 @@ function App() {
                                                                 </button>
                                                             </ErrorBoundary>
                                                         )}
+                                                        <ErrorBoundary label="report">
+                                                            <Suspense
+                                                                fallback={
+                                                                    <div className="flex items-center justify-center gap-2 py-10 text-sm text-[color:var(--ciq-text-60)]">
+                                                                        <Loader2 className="h-4 w-4 animate-spin" /> Building your report…
+                                                                    </div>
+                                                                }
+                                                            >
+                                                                <DetailedReport
+                                                                    snapshots={biometricSnapshots}
+                                                                    sessionId={sessionId}
+                                                                    surveyRunId={surveyRunId}
+                                                                    surveyType={surveyTypeConfig?.activeSurveyType}
+                                                                    onClose={() => setShowDetailedReport(false)}
+                                                                    onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
+                                                                    onReportDelivered={handleReportReady}
+                                                                />
+                                                            </Suspense>
+                                                        </ErrorBoundary>
                                                     </div>
                                                 )}
 
