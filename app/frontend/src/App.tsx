@@ -15,6 +15,7 @@ const DetailedReport = lazy(() => import("@/components/ui/detailed-report").then
 const RecoveryWindowScreen = lazy(() => import("@/components/ui/recovery-window-screen"));
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
+import { MusePanel } from "@/components/ui/muse-panel";
 import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
 import { GuestLanding } from "@/components/ui/guest-landing";
@@ -42,6 +43,7 @@ const NAV_TABS = [
     { id: "assessment", label: "Assessment",      adminOnly: false, managerOnly: false, guestOnly: false },
     { id: "admin",      label: "Admin",           adminOnly: true,  managerOnly: false, guestOnly: false },
     { id: "test",       label: "Test Generator",  adminOnly: true,  managerOnly: false, guestOnly: false },
+    { id: "eeg",        label: "Muse EEG",        adminOnly: true,  managerOnly: false, guestOnly: false },
     { id: "history",    label: "History",         adminOnly: false, managerOnly: false, guestOnly: false },
 ] as const;
 
@@ -54,7 +56,7 @@ function App() {
     // Identifies a single survey run. A fresh id is minted for every new assessment so
     // each survey is persisted as its own history record instead of overwriting the last.
     const [surveyRunId, setSurveyRunId] = useState<string>(() => crypto.randomUUID());
-    const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "assessment" | "admin" | "test" | "history">("assessment");
+    const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "assessment" | "admin" | "test" | "eeg" | "history">("assessment");
     // Nav collapses into this drawer below the `lg` breakpoint (see the header markup) —
     // desktop keeps the always-visible pill row untouched.
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -897,6 +899,17 @@ function App() {
                     <div className="grid w-full grid-cols-12 gap-4">
                         <div className="col-span-12 lg:col-span-8 lg:col-start-3">
                             <TestGenerator />
+                        </div>
+                    </div>
+                </main>
+            )}
+
+            {/* ── Muse EEG ── (admin-only, like the Admin panel) */}
+            {activeTab === "eeg" && isAdmin && (
+                <main className="flex-1 overflow-y-auto p-4">
+                    <div className="grid w-full grid-cols-12 gap-4">
+                        <div className="col-span-12 lg:col-span-8 lg:col-start-3">
+                            <MusePanel />
                         </div>
                     </div>
                 </main>
