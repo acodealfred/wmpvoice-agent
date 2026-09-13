@@ -13,6 +13,10 @@ code; the measurements behind each claim are in
 > Paths deliberately mirror `muse-web-bridge` exactly, so no import was edited
 > and a future re-sync is a plain copy. Run the tests with
 > `cd app/frontend && npm test`.
+>
+> The recording wiring followed on 2026-09-11:
+> `app/frontend/src/session/wiring.example.ts` and `app/frontend/src/ui/download.ts`
+> (each with its test), shown and explained in `app/frontend/docs/muse-wiring.md`.
 
 Read section 1 before you write anything. It is short, and every item in it cost
 real time to discover. The code is the cheap half of this handoff.
@@ -145,13 +149,17 @@ or you will rewrite them:
 
 `session/recorder.ts` (the `muse-web-bridge/3` file format), `session/example.ts`
 plus `scripts/make-example-session.mjs` (generates fixtures with no hardware),
-and `session/protocol.ts` (the guided bench protocol).
+and `session/protocol.ts` (the guided bench protocol). Also take `ui/download.ts`
+(the session filename and the browser download) and `session/wiring.example.ts`
+(the wiring that runs all of the above together — shown in full in
+`app/frontend/docs/muse-wiring.md`).
 
 ### Leave behind
 
 `main.ts`, `ui/traces.ts`, `ui/status.ts`, `index.html`, `style.css` — prototype
 page wiring. `main.ts` is still worth *reading* once as a worked example of how
-the pieces connect; it is just not code to take.
+the pieces connect; it is just not code to take. For the wiring to write
+in your app, follow `app/frontend/docs/muse-wiring.md` instead.
 
 ---
 
@@ -182,8 +190,8 @@ come back:
   type is inferred now, which gives each TypeScript version the type its own lib
   defines. Do not re-add the annotation unless both repos are past 5.7.
 
-Verified on this branch against your pinned toolchain: `npm test` → **142 tests
-passing across 16 files**, `npm run build` → clean, and `npm run
+Verified on this branch against your pinned toolchain: `npm test` → **153 tests
+passing across 19 files**, `npm run build` → clean, and `npm run
 example:session` reproduces the committed fixture byte for byte.
 
 You also already have `hooks/useBiometrics.ts` for mediapipe face/gaze. A
@@ -316,7 +324,9 @@ which version of this code wrote it.
   still does that.
 - `temperature` is the raw 16-bit telemetry field. The headband sends it; its
   units are unverified against any InterAxon documentation.
-- `markers` appears only when a guided protocol was run.
+- `markers` appears only when a guided protocol was run, and only if the wiring
+  calls `setMarkers` on every packet while it is active — see
+  `app/frontend/docs/muse-wiring.md`.
 
 ---
 
