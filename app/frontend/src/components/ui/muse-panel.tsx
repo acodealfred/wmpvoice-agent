@@ -1,101 +1,29 @@
-import { useEffect, useRef } from "react";
+import { useRef, useState } from "react";
 import { AlertTriangle, Bluetooth, BluetoothConnected, Download, Loader2, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMuse } from "@/hooks/useMuse";
-import type { EegChannel } from "@/muse";
+import { EegWaveform } from "@/components/ui/eeg-waveform";
 
-const CHANNEL_COLOR: Record<EegChannel, string> = {
-    TP9: "#38bdf8",
-    AF7: "#a855f7",
-    AF8: "#f59e0b",
-    TP10: "#22c55e",
-    AUX: "#f43f5e"
-};
-
-// Full lane half-height, in microvolts. Fixed rather than auto-scaled so the
-// trace can't silently shrink to hide a wildly noisy or railed channel.
+// Full lane half-height caption shown below the chart — see EegWaveform for the SCALE_UV it charts against.
 const SCALE_UV = 150;
 
 /** Pairs a real Muse headband over Web Bluetooth and charts its live EEG. */
 export function MusePanel() {
     const { status, device, error, available, hasRecording, connect, disconnect, pause, resume, save, getChannelSamples, channels } = useMuse();
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const containerRef = useRef<HTMLDivElement | null>(null);
-
-    // Keep the canvas's backing resolution matched to its displayed size and DPR
-    // so the waveform stays sharp instead of blurring on resize.
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        const container = containerRef.current;
-        if (!canvas || !container) return;
-        const resize = () => {
-            const dpr = window.devicePixelRatio || 1;
-            const rect = container.getBoundingClientRect();
-            canvas.width = Math.max(1, Math.round(rect.width * dpr));
-            canvas.height = Math.max(1, Math.round(rect.height * dpr));
-        };
-        resize();
-        const ro = new ResizeObserver(resize);
-        ro.observe(container);
-        return () => ro.disconnect();
-    }, []);
-
-    // Redraws off the animation-frame clock, reading straight from the hook's
-    // rolling buffers — bypassing React state so a 256 Hz stream doesn't force
-    // 256 re-renders a second.
-    useEffect(() => {
-        if (status !== "streaming") return;
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext("2d");
-        if (!canvas || !ctx) return;
-        let raf = 0;
-
-        const draw = () => {
-            const { width, height } = canvas;
-            ctx.clearRect(0, 0, width, height);
-            const laneH = height / channels.length;
-
-            channels.forEach((ch, i) => {
-                const top = i * laneH;
-
-                ctx.strokeStyle = "rgba(255,255,255,0.12)";
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(0, top + laneH / 2);
-                ctx.lineTo(width, top + laneH / 2);
-                ctx.stroke();
-
-                const samples = getChannelSamples(ch);
-                if (samples.length > 1) {
-                    ctx.strokeStyle = CHANNEL_COLOR[ch];
-                    ctx.lineWidth = 1.5;
-                    ctx.beginPath();
-                    const denom = Math.max(1, samples.length - 1);
-                    for (let s = 0; s < samples.length; s++) {
-                        const x = (s / denom) * width;
-                        const v = Math.max(-SCALE_UV, Math.min(SCALE_UV, samples[s]));
-                        const y = top + laneH / 2 - (v / SCALE_UV) * (laneH / 2 - 6);
-                        if (s === 0) ctx.moveTo(x, y);
-                        else ctx.lineTo(x, y);
-                    }
-                    ctx.stroke();
-                }
-
-                ctx.fillStyle = "rgba(255,255,255,0.65)";
-                ctx.font = "11px ui-monospace, monospace";
-                ctx.fillText(ch, 8, top + 16);
-            });
-
-            raf = requestAnimationFrame(draw);
-        };
-        raf = requestAnimationFrame(draw);
-        return () => cancelAnimationFrame(raf);
-    }, [status, channels, getChannelSamples]);
+    // The operator confirms consent before pairing, not when connect() resolves —
+    // this is when accepted_at is stamped (docs/muse-wiring.md §2).
+    const [consented, setConsented] = useState(false);
+    const consentAcceptedAtRef = useRef<string | null>(null);
 
     const isBusy = status === "connecting";
     const isLive = status === "streaming";
     const isPaused = status === "paused";
     const isConnected = isLive || isPaused;
+
+    const handleConsentChange = (checked: boolean) => {
+        setConsented(checked);
+        consentAcceptedAtRef.current = checked ? new Date().toISOString() : null;
+    };
 
     return (
         <section className="ciq-glass-card">
@@ -119,6 +47,18 @@ export function MusePanel() {
                         </div>
                     )}
 
+                    {!isConnected && !isBusy && (
+                        <label className="flex cursor-pointer items-start gap-2 text-xs text-[color:var(--ciq-text-86)]">
+                            <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={consented}
+                                onChange={e => handleConsentChange(e.target.checked)}
+                            />
+                            I have the participant&apos;s consent to record this EEG session.
+                        </label>
+                    )}
+
                     <div className="flex flex-wrap items-center gap-3">
                         {isConnected || isBusy ? (
                             <Button onClick={() => disconnect()} variant="outline" disabled={isBusy}>
@@ -126,7 +66,7 @@ export function MusePanel() {
                                 {isBusy ? "Connecting…" : "Disconnect"}
                             </Button>
                         ) : (
-                            <Button onClick={() => connect()} disabled={!available}>
+                            <Button onClick={() => connect(consentAcceptedAtRef.current!)} disabled={!available || !consented}>
                                 <Bluetooth className="mr-2 h-4 w-4" />
                                 Pair headband
                             </Button>
@@ -159,9 +99,7 @@ export function MusePanel() {
                         )}
                     </div>
 
-                    <div ref={containerRef} className="h-72 w-full overflow-hidden rounded-xl bg-black">
-                        <canvas ref={canvasRef} className="block h-full w-full" />
-                    </div>
+                    <EegWaveform active={isLive} channels={channels} getChannelSamples={getChannelSamples} />
                     <p className="text-[11px] text-[color:var(--ciq-text-46)]">
                         Last 5 seconds, ±{SCALE_UV} µV per channel, clipped beyond that range. Pairing requires a real
                         click and Chrome/Edge/Opera — Web Bluetooth won&apos;t work otherwise. The µV scale is not

@@ -16,6 +16,7 @@ const RecoveryWindowScreen = lazy(() => import("@/components/ui/recovery-window-
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { MusePanel } from "@/components/ui/muse-panel";
+import { EegConnectPanel } from "@/components/ui/eeg-connect-panel";
 import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
 import { GuestLanding } from "@/components/ui/guest-landing";
@@ -28,6 +29,7 @@ import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 import { useBiometrics } from "@/hooks/useBiometrics";
+import { useMuse } from "@/hooks/useMuse";
 
 import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig, AuthUser, AuthState, RecoveryUpdate, ChatTurn } from "./types";
 
@@ -142,6 +144,27 @@ function App() {
     // the server — the recording is persisted to the DB once it completes.
     const baselineNeedsSaveRef = useRef(false);
 
+    // Optional Muse EEG headband, self-paired from the assessment screen (see
+    // EegConnectPanel below). Raw recording only — no derived stress/burnout
+    // metric is computed from it (docs/muse-2-findings.md defers that). Owned
+    // here, rather than inside the panel, so the survey lifecycle below can
+    // mark question boundaries and upload the finished recording.
+    const {
+        status: eegStatus,
+        device: eegDevice,
+        error: eegError,
+        available: eegAvailable,
+        hasRecording: eegHasRecording,
+        connect: connectEeg,
+        disconnect: disconnectEeg,
+        markQuestionAsked: markEegQuestionAsked,
+        markQuestionAnswered: markEegQuestionAnswered,
+        beginNewRecording: beginNewEegRecording,
+        finishForUpload: finishEegForUpload,
+        save: saveEeg,
+        getChannelSamples: getEegChannelSamples,
+        channels: eegChannels
+    } = useMuse();
 
     // Apply the persisted text-size preference (set from the Admin tab) on load.
     useEffect(() => {
@@ -352,6 +375,7 @@ function App() {
             if (message.options) {
                 setSurveyOptions(message.options);
             }
+            if (eegHasRecording) markEegQuestionAsked(message.question_id);
         },
         onReceivedSurveyBiometricUpdate: message => {
             setBiometricSnapshots(prev => {
@@ -364,6 +388,7 @@ function App() {
                 }
                 return [...prev, message.snapshot];
             });
+            if (eegHasRecording) markEegQuestionAnswered(message.snapshot.questionId, `${message.snapshot.domain} — ${message.snapshot.questionId}`);
             setSurveyCompleted(message.completed);
             setSurveyTotal(message.total);
             if (message.completed === message.total) {
@@ -374,6 +399,17 @@ function App() {
                 // and the full report revealed once that resolves (handleReportReady).
                 setReportLoading(true);
                 setShowDetailedReport(true);
+                if (eegHasRecording) {
+                    const file = finishEegForUpload();
+                    if (file) {
+                        apiFetch("/eeg-sessions", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ session_id: sessionId, survey_run_id: surveyRunId, file })
+                        }).catch(err => console.error("Failed to upload EEG session:", err));
+                    }
+                    void disconnectEeg();
+                }
             }
         },
         onReceivedRecoveryUpdate: (_message: RecoveryUpdate) => {
@@ -385,8 +421,8 @@ function App() {
         async (biometrics: BiometricResult) => {
             if (!enableBiometrics) return;
 
-            const blinkChange = biometrics.metrics.blinkRateChangePercent;
-            const blinkToSend = blinkChange !== undefined && blinkChange !== 0 ? blinkChange : 0;
+            // (blinkChange is never actually undefined here, but this survives that anyway.)
+            const blinkToSend = biometrics.metrics.blinkRateChangePercent ?? 0;
 
             // Pupil dilation as mm change vs the calibrated baseline (CIQ thresholds use mm).
             const pupilMm = biometrics.metrics.pupilSizeMm;
@@ -432,6 +468,7 @@ function App() {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
+                        session_id: sessionId,
                         blink_rate: blinkRate,
                         baseline_blink_rate: baselineBlinkRate
                     })
@@ -449,7 +486,7 @@ function App() {
         const intervalId = setInterval(fetchStressAnalysis, 5000);
 
         return () => clearInterval(intervalId);
-    }, [isRecording, currentBiometrics, enableBiometrics, baselineData]);
+    }, [isRecording, currentBiometrics, enableBiometrics, baselineData, sessionId]);
 
     // Forward real biometrics to backend whenever the hook produces a new result
     useEffect(() => {
@@ -629,6 +666,9 @@ function App() {
         }
         resetAssessmentState();
         setAssessmentComplete(false);
+        // Keep the headband connected across a retake — a fresh Recorder tied to the
+        // new surveyRunId, not a full reconnect (the participant already consented).
+        if (eegHasRecording) beginNewEegRecording(new Date().toISOString());
 
         // Settle the baseline decision BEFORE we start recording. resolveBaseline either
         // injects a stored baseline (status → "completed", the 30s recording is skipped) or
@@ -1203,6 +1243,19 @@ function App() {
                                                 </p>
                                             )}
                                         </div>
+
+                                        <EegConnectPanel
+                                            status={eegStatus}
+                                            device={eegDevice}
+                                            error={eegError}
+                                            available={eegAvailable}
+                                            hasRecording={eegHasRecording}
+                                            channels={eegChannels}
+                                            getChannelSamples={getEegChannelSamples}
+                                            onConnect={connectEeg}
+                                            onDisconnect={disconnectEeg}
+                                            onSave={saveEeg}
+                                        />
 
                                         {/* Idle state — keeps the panel feeling alive before signals arrive */}
                                         {!isRecording && (

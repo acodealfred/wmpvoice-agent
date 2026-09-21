@@ -577,6 +577,65 @@ async def save_behaviour_snapshot_after(
         await db.commit()
 
 
+async def save_eeg_session(
+    survey_run_id: str,
+    user_id: str,
+    session_id: str | None,
+    file: dict,
+) -> None:
+    """Persist one uploaded raw Muse EEG session file, tied to a survey run.
+
+    `file` is the whole muse-web-bridge/3 session file as produced by the
+    frontend's Recorder.finish() — stored verbatim as JSON. Upsert rather than
+    insert-only, since a retake (App.tsx's onStartNewSurvey) can upload a
+    second recording tied to the same survey_run_id it just re-minted, but a
+    stray double-submit for the same run should still just replace the row
+    rather than fail.
+    """
+    now = datetime.utcnow().isoformat()
+    device = file.get("device") or {}
+    markers = file.get("markers") or []
+    dropped = (file.get("eeg") or {}).get("dropped_packets") or {}
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO eeg_sessions
+               (survey_run_id, user_id, session_id, device_name, preset, recorded_at,
+                t0_epoch_ms, marker_count, dropped_packets_json, file_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(survey_run_id) DO UPDATE SET
+                   user_id = excluded.user_id,
+                   session_id = excluded.session_id,
+                   device_name = excluded.device_name,
+                   preset = excluded.preset,
+                   recorded_at = excluded.recorded_at,
+                   t0_epoch_ms = excluded.t0_epoch_ms,
+                   marker_count = excluded.marker_count,
+                   dropped_packets_json = excluded.dropped_packets_json,
+                   file_json = excluded.file_json,
+                   created_at = excluded.created_at""",
+            (
+                survey_run_id, user_id, session_id, device.get("name"), file.get("preset"),
+                file.get("recorded_at"), file.get("t0_epoch_ms"), len(markers),
+                json.dumps(dropped), json.dumps(file), now,
+            ),
+        )
+        await db.commit()
+
+
+async def get_eeg_session(survey_run_id: str) -> dict | None:
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM eeg_sessions WHERE survey_run_id = ?", (survey_run_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            result["file_json"] = json.loads(result["file_json"])
+            result["dropped_packets_json"] = json.loads(result["dropped_packets_json"]) if result["dropped_packets_json"] else {}
+            return result
+
+
 async def get_pilot_survey_export_rows() -> list[dict]:
     """One row per PILOT survey run that has at least some subscale data, joining
     its BAT-4 / CBI-WRB3 / behaviour data.
