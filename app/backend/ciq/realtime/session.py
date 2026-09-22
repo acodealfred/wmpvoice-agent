@@ -56,6 +56,10 @@ class SessionState:
     conversation_state: str = "active"  # "active" | "report_delivered" | "qa_mode"
     report_context: str | None = None
     last_agent_response_type: str | None = None
+    # PILOT-only: the flattened text of the spoken report the agent was handed by
+    # query_survey_results("burnout_score") (see ciq.realtime.spoken_report). Kept so the
+    # agent still knows what it said after the post-report reconnect wipes Azure's memory.
+    spoken_report_text: str | None = None
 
     # Pre-survey gate. "warmup" → the agent makes neutral small talk while the 30s
     # biometric baseline records and the survey questions are NOT available to it;
@@ -165,6 +169,7 @@ class SessionState:
     def clear_conversation_state(self) -> None:
         self.conversation_state = "active"
         self.report_context = None
+        self.spoken_report_text = None
         self.last_agent_response_type = None
         logger.info("[RTMT] ★ Conversation state cleared (reset to active)")
 
@@ -204,6 +209,7 @@ class SessionState:
         """
         self.conversation_state = "active"
         self.report_context = None
+        self.spoken_report_text = None
         self.last_agent_response_type = None
         self.survey_results.clear()
         self.blink_rate_history.clear()
