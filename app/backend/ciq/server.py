@@ -36,6 +36,7 @@ from ciq.chat.routes import (
     me_chat_list,
 )
 from ciq.config import APP_VERSION
+from ciq.eeg.routes import upload_eeg_session
 from ciq.kb.routes import (
     admin_kb_debug,
     admin_kb_delete,
@@ -115,6 +116,9 @@ async def create_app():
     app.router.add_post("/update-stress", update_stress_state)
     app.router.add_post("/survey-phase", set_survey_phase)
     app.router.add_get("/session", get_session)
+
+    # ── EEG / Muse — raw recording only, uploaded once an assessment completes ──
+    app.router.add_post("/eeg-sessions", upload_eeg_session)
 
     # ── Recovery Window (see ciq/recovery/, docs/recovery-window.md) — voice-
     # agent-driven; these REST routes are the lifecycle control plane + a

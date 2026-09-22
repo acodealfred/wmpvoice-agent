@@ -10,6 +10,7 @@ from typing import Any
 
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import SessionState
+from ciq.realtime.spoken_report import build_pilot_spoken_report
 from ciq.realtime.timeline_capture import (
     retag_pending_frames,
     schedule_stop_timeline_capture,
@@ -88,6 +89,13 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
             response_data["max_score"] = num_questions * 5
             response_data["risk_level"] = level
             response_data["interpretation"] = interpretation
+
+        # PILOT only: a dynamic, biometric-aware brief for the agent to voice (the written
+        # report is unaffected). Held on the session so post-report Q&A knows what was said.
+        spoken = build_pilot_spoken_report(cfg, results)
+        if spoken:
+            response_data["spoken_report"] = {"framing": spoken["framing"], "parts": spoken["parts"]}
+            sess.spoken_report_text = spoken["plain_text"]
 
     elif query_type == "contributing_domains":
         domain_scores = {}

@@ -7,6 +7,15 @@ import type { Marker } from "./protocol";
 
 export const SESSION_SCHEMA = "muse-web-bridge/3";
 
+// Safety valve against unbounded memory growth: nothing in normal use (a bench
+// run or a BAT assessment) runs anywhere near this long, but a tab left
+// streaming by accident would otherwise grow these arrays forever. ~40,000
+// packets is roughly 30 minutes of EEG at 256 Hz / 12 samples-per-packet —
+// comfortably past any real session, and in the same ballpark for IMU/PPG's
+// lower packet rates. Once hit, further packets for that stream are dropped
+// rather than accumulated, and the file records that it happened.
+const MAX_PACKETS_PER_STREAM = 40_000;
+
 export interface EegPacketRecord {
     ch: EegChannel;
     seq: number;
@@ -83,6 +92,8 @@ export interface SessionFile {
     telemetry: { t_ms: number; battery_percent: number; fuel_gauge_mv: number; temperature: number }[];
     /** Present only when a guided bench protocol was run. */
     markers?: Marker[];
+    /** Present only when a stream hit MAX_PACKETS_PER_STREAM and further packets were dropped. */
+    truncated?: boolean;
 }
 
 export interface RecorderOptions {
@@ -108,6 +119,7 @@ export class Recorder {
     private channels: EegChannel[];
     private markers: Marker[] | null = null;
     private t0EpochMs: number | null = null;
+    private truncated = false;
 
     constructor(private opts: RecorderOptions) {
         this.channels = channelsForPreset(opts.preset);
@@ -122,19 +134,31 @@ export class Recorder {
         switch (r.kind) {
             case "eeg":
                 this.drops.observe(r.ch, r.seq);
+                if (this.eeg.length >= MAX_PACKETS_PER_STREAM) {
+                    this.truncated = true;
+                    break;
+                }
                 this.eeg.push({ ch: r.ch, seq: r.seq, t_ms, v: r.uV.map(x => round(x, 2)) });
                 break;
             case "imu": {
-                const rec: ImuPacketRecord = {
+                const arr = r.sensor === "accelerometer" ? this.accel : this.gyro;
+                if (arr.length >= MAX_PACKETS_PER_STREAM) {
+                    this.truncated = true;
+                    break;
+                }
+                arr.push({
                     seq: r.seq,
                     t_ms,
                     v: r.samples.map(s => [round(s.x, 4), round(s.y, 4), round(s.z, 4)])
-                };
-                (r.sensor === "accelerometer" ? this.accel : this.gyro).push(rec);
+                });
                 break;
             }
             case "ppg":
                 this.ppgDrops.observe(r.ch, r.seq);
+                if (this.ppg.length >= MAX_PACKETS_PER_STREAM) {
+                    this.truncated = true;
+                    break;
+                }
                 this.ppg.push({ ch: r.ch, seq: r.seq, t_ms, v: r.counts });
                 break;
             case "telemetry":
@@ -193,6 +217,7 @@ export class Recorder {
             telemetry: this.telemetry
         };
         if (this.markers && this.markers.length > 0) file.markers = this.markers;
+        if (this.truncated) file.truncated = true;
         if (presetHasPpg(this.opts.preset)) {
             file.ppg = {
                 rate_hz: PPG_RATE_HZ,

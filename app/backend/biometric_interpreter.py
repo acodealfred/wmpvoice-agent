@@ -121,30 +121,41 @@ class BiometricInterpreter:
         )
 
 
-_biometric_interpreter_instance: BiometricInterpreter | None = None
+# Keyed by session_id — was a single shared instance before, which meant one
+# person's calibrated baseline (and blink-rate history used for "trend") could
+# silently overwrite another concurrent session's, or leak stale state into a
+# later session on the same server process. Each session now gets its own.
+# Not evicted on session end — each instance is a few floats plus a 12-entry
+# history list, small enough that this hasn't needed the same TTL/cleanup
+# machinery RTMiddleTier's sessions have.
+_biometric_interpreters: dict[str, BiometricInterpreter] = {}
 
 
-def get_biometric_interpreter() -> BiometricInterpreter:
-    global _biometric_interpreter_instance
-    if _biometric_interpreter_instance is None:
-        _biometric_interpreter_instance = BiometricInterpreter()
-    return _biometric_interpreter_instance
+def get_biometric_interpreter(session_id: str) -> BiometricInterpreter:
+    interpreter = _biometric_interpreters.get(session_id)
+    if interpreter is None:
+        interpreter = BiometricInterpreter()
+        _biometric_interpreters[session_id] = interpreter
+    return interpreter
 
 
 async def analyze_stress(request):
     try:
         data = await request.json()
+        session_id = data.get("session_id")
         blink_rate = data.get("blink_rate")
         baseline_blink_rate = data.get("baseline_blink_rate")
 
         logger.info(
-            f"[STRESS] ★★★ Request received: blink_rate={blink_rate}, baseline_blink_rate={baseline_blink_rate}"
+            f"[STRESS] ★★★ Request received: session={session_id}, blink_rate={blink_rate}, baseline_blink_rate={baseline_blink_rate}"
         )
 
         if blink_rate is None:
             return web.json_response({"error": "No blink_rate provided"}, status=400)
+        if not session_id:
+            return web.json_response({"error": "No session_id provided"}, status=400)
 
-        interpreter = get_biometric_interpreter()
+        interpreter = get_biometric_interpreter(session_id)
 
         if baseline_blink_rate is not None and baseline_blink_rate > 0:
             logger.info(

@@ -155,6 +155,22 @@ describe("Recorder", () => {
         expect(file.eeg.dropped_packets).toEqual({ TP9: 0, AF7: 0, AF8: 0, TP10: 0 });
     });
 
+    it("stops accumulating EEG packets past the safety cap and marks the file truncated", () => {
+        const r = new Recorder(opts);
+        for (let seq = 0; seq < 40_001; seq++) r.push(eeg("TP9", seq, seq * 47));
+        const file = r.finish();
+        expect(file.eeg.packets).toHaveLength(40_000);
+        expect(file.truncated).toBe(true);
+    });
+
+    it("omits the truncated flag for a normal-length recording", () => {
+        const r = new Recorder(opts);
+        r.push(eeg("TP9", 1, 0.04));
+        const file = r.finish();
+        expect(file.truncated).toBeUndefined();
+        expect("truncated" in file).toBe(false);
+    });
+
     it("lists AUX when the preset is p20", () => {
         const file = new Recorder({ ...opts, preset: "p20" }).finish();
         expect(file.eeg.channels).toEqual(["TP9", "AF7", "AF8", "TP10", "AUX"]);

@@ -104,6 +104,21 @@ def stress_instructions(stress_state: str) -> str:
 - Maintain a helpful, friendly tone """
 
 
+def spoken_report_context(sess: SessionState) -> str:
+    """PILOT follow-up grounding: the spoken report the agent delivered (pre-approved
+    wording), so it still knows what it said after the post-report reconnect."""
+    text = getattr(sess, "spoken_report_text", None)
+    if not text:
+        return ""
+    return f"""
+SPOKEN REPORT YOU DELIVERED (pre-approved wording):
+{text}
+- The user may ask about it. You may restate these lines, or paraphrase them closely.
+- Do NOT add interpretation, causes, mechanisms or predictions beyond them. Anything more
+  about the biometrics is still governed by the BIOMETRIC GUARDRAIL (if present).
+"""
+
+
 def conversation_state_instructions(sess: "SessionState") -> str:
     """Generate instructions based on current conversation state to maintain continuity."""
     _MAX_CTX = 2500  # chars; keeps combined instructions well inside Azure limits
@@ -174,6 +189,7 @@ STRICT REPORT-ONLY GROUNDING (follow exactly):
             if len(sess.report_context) > _MAX_CTX:
                 ctx += "\n[...truncated for brevity...]"
             instructions += f"\nREPORT CONTEXT (for Q&A):\n{ctx}\n"
+        instructions += spoken_report_context(sess)
         return instructions
     elif sess.conversation_state == "qa_mode":
         if is_qualitative:
@@ -215,6 +231,7 @@ STRICT REPORT-ONLY GROUNDING (follow exactly):
             if len(sess.report_context) > _MAX_CTX:
                 ctx += "\n[...truncated for brevity...]"
             instructions += f"\nCURRENT REPORT CONTEXT:\n{ctx}\n"
+        instructions += spoken_report_context(sess)
         return instructions
     return ""
 
@@ -529,7 +546,31 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
         prev_style = style
     questions_script = "\n\n".join(question_blocks)
 
-    after_all_answers = f"""AFTER ALL {len(questions)} ANSWERS:
+    if config.get("type") == "PILOT":
+        after_all_answers = f"""AFTER ALL {len(questions)} ANSWERS:
+- Do NOT calculate anything yourself. Call query_survey_results with query_type="burnout_score".
+- The result has "sections" (one "interpretation" per subscale) and a "spoken_report".
+- STEP 1 — YOUR RESULTS: tell the user EVERY interpretation in "sections", word for word, one
+  at a time. They are independent results — never blend or average them. Do not say numbers.
+- STEP 2 — THE SPOKEN REPORT: then deliver "spoken_report" as ONE continuous, natural spoken
+  piece, in order, part by part:
+  * Begin each part with its "title" as a short spoken lead-in (e.g. "Where your capacity is
+    going." / "The opportunity." / "What this unlocks."), then say that part's "say" lines
+    in order. Each signal line is its own short sentence — speak them one after another.
+  * Speak it warmly and naturally, like a person talking — never as a list. No bullets, no
+    markdown, no asterisks, no "bullet point", no numbers.
+  * You may smooth the wording so it flows, but keep every line's meaning. Do NOT add, drop
+    or reorder signals, and do NOT add any claim, cause, advice, diagnosis or reassurance
+    that is not in "spoken_report". If a line says something is not a warning sign, that is
+    the only reassurance you give.
+  * These lines are pre-approved. The BIOMETRIC GUARDRAIL applies to questions the user asks
+    afterwards — it does not stop you from speaking these lines.
+  * You may end with one short sentence inviting questions about their results.
+- If "spoken_report" is missing, just tell the user the interpretations from STEP 1.
+- The result is authoritative — it applies reverse-scoring and the correct thresholds, so
+  never override it with your own estimate."""
+    else:
+        after_all_answers = f"""AFTER ALL {len(questions)} ANSWERS:
 - Do NOT calculate the score yourself. Call query_survey_results with query_type="burnout_score".
 - The result contains either one "interpretation", or a "sections" list with one
   "interpretation" per section (e.g. two independent measures). Tell the user EVERY

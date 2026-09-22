@@ -58,11 +58,49 @@ const getIrisPosition = (landmarks: { x: number; y: number }[]): { x: number; y:
 // The `flip` param below exists for exactly this kind of correction, in case a real
 // session ever shows the two eyes disagreeing on direction.
 const GAZE_V_SENSITIVITY = 6.0;
+// How slowly each eye's "normal open" half-height reference adapts — fast enough
+// to follow the participant settling into the camera over a few seconds, slow
+// enough that a single blink (a handful of frames) can't drag it down.
+const EYE_OPEN_BASELINE_ALPHA = 0.02;
+// Below this fraction of an eye's own normal open half-height, treat the frame
+// as "too closed to trust" rather than computing a ratio against it.
+const EYE_NEAR_CLOSED_RATIO = 0.35;
 
-const computeGazeAxis = (irisCoord: number, cornerA: number, cornerB: number, sensitivity: number, flip = false): number => {
+/**
+ * `openBaselineRef` tracks this eye's own typical (non-blinking) vertical
+ * half-height, scale-invariant across face sizes/distances from the camera —
+ * unlike a fixed threshold, which would need retuning per user. `halfWidth`
+ * recomputes fresh every frame from whatever the eyelids are doing *right now*,
+ * with no temporal smoothing; as an eye blinks or squints it shrinks toward
+ * zero, and dividing by a near-zero denominator (amplified further by
+ * `sensitivity`) turns ordinary landmark jitter into a saturated Up/Down
+ * reading. Because the two eyes' eyelid landmarks are measured independently
+ * frame-to-frame, this alone was enough to make them frequently disagree
+ * during totally normal blinking — not a real gaze direction difference, just
+ * noise amplified by a shrinking denominator on each eye separately. Holding
+ * the neutral center while an eye is mostly closed removes that noise source.
+ */
+const computeGazeAxis = (
+    irisCoord: number,
+    cornerA: number,
+    cornerB: number,
+    sensitivity: number,
+    openBaselineRef: { current: number | null },
+    flip = false
+): number => {
     const center = (cornerA + cornerB) / 2;
     const halfWidth = Math.abs(cornerB - cornerA) / 2;
-    if (halfWidth === 0) return 0.5;
+
+    if (openBaselineRef.current === null) {
+        openBaselineRef.current = halfWidth; // instant calibration on first frame
+    } else if (halfWidth > openBaselineRef.current * 0.5) {
+        // Only adapt on frames that look genuinely open, so blink frames (small
+        // halfWidth) can't drag the "normal open" reference down toward zero.
+        openBaselineRef.current = openBaselineRef.current * (1 - EYE_OPEN_BASELINE_ALPHA) + halfWidth * EYE_OPEN_BASELINE_ALPHA;
+    }
+
+    if (halfWidth === 0 || halfWidth < openBaselineRef.current * EYE_NEAR_CLOSED_RATIO) return 0.5;
+
     const deviation = ((irisCoord - center) / halfWidth) * sensitivity;
     const v = 0.5 + (flip ? -deviation : deviation) * 0.5;
     return Math.max(0, Math.min(1, v));
@@ -80,14 +118,26 @@ const RIGHT_EYE_LANDMARKS = { iris: 473, upperLid: 159, lowerLid: 145 };
 const GAZE_H_AMPLIFICATION = 35; // a 0.01 (1%) deviation from baseline -> ±0.35 output swing
 const GAZE_BASELINE_ALPHA = 0.001; // α≈0.001 → ~30s to adapt 25%; stable for held gaze
 
-/** Horizontal gaze for one eye: raw iris x vs that eye's OWN slow-adapting baseline
- * (not corner-normalized — see the rationale comment above GAZE_V_SENSITIVITY). */
+/**
+ * Horizontal gaze for one eye: raw iris x vs that eye's OWN slow-adapting baseline
+ * (not corner-normalized — see the rationale comment above GAZE_V_SENSITIVITY).
+ *
+ * The sign is flipped from the raw MediaPipe coordinate on purpose. `irisRawX`
+ * comes from the camera's actual (unmirrored) frame, where — exactly like an
+ * ordinary photograph, not a mirror — the subject looking to their own right
+ * moves the iris toward a SMALLER x. But `video-panel.tsx` displays that same
+ * feed CSS-mirrored (`scale-x-[-1]`, the standard selfie view), and that's the
+ * only view of themselves the participant ever sees. Without this flip, a real
+ * rightward glance was reported (and rendered in GazeIndicator) as "Left" —
+ * backwards from both the mirrored video on screen and how anyone would
+ * describe their own gaze direction.
+ */
 const computeHorizontalGaze = (irisRawX: number, baselineRef: { current: number | null }): number => {
     if (baselineRef.current === null) {
         baselineRef.current = irisRawX; // instant calibration on first frame
     }
     baselineRef.current = baselineRef.current * (1 - GAZE_BASELINE_ALPHA) + irisRawX * GAZE_BASELINE_ALPHA;
-    return Math.max(0, Math.min(1, 0.5 + (irisRawX - baselineRef.current) * GAZE_H_AMPLIFICATION));
+    return Math.max(0, Math.min(1, 0.5 - (irisRawX - baselineRef.current) * GAZE_H_AMPLIFICATION));
 };
 
 const calculateIrisSize = (landmarks: { x: number; y: number }[]): number => {
@@ -140,14 +190,14 @@ const calculatePupilSize = (normalizedIrisSize: number, interocularDistance: num
     return pupilDiameterMm;
 };
 
+// Averages both eyes, so which set is labeled "left" vs "right" doesn't change
+// the result — but it was backwards here (159/145 are RIGHT_EYE_LANDMARKS,
+// 386/374 are LEFT_EYE_LANDMARKS, per the canonical indices defined above).
+// Fixed to use those constants directly: same value, no more misleading names
+// for the next person who touches this expecting per-eye correctness.
 const calculateNormalizedEyeOpenness = (landmarks: { x: number; y: number }[]): number => {
-    const leftUpper = landmarks[159];
-    const leftLower = landmarks[145];
-    const rightUpper = landmarks[386];
-    const rightLower = landmarks[374];
-
-    const leftOpen = Math.abs(leftUpper.y - leftLower.y);
-    const rightOpen = Math.abs(rightUpper.y - rightLower.y);
+    const leftOpen = Math.abs(landmarks[LEFT_EYE_LANDMARKS.upperLid].y - landmarks[LEFT_EYE_LANDMARKS.lowerLid].y);
+    const rightOpen = Math.abs(landmarks[RIGHT_EYE_LANDMARKS.upperLid].y - landmarks[RIGHT_EYE_LANDMARKS.lowerLid].y);
     const avgOpen = (leftOpen + rightOpen) / 2;
 
     const eyeWidth = Math.abs(landmarks[33].x - landmarks[133].x);
@@ -210,6 +260,10 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
     // avoiding a cold-start bias toward 0.5.
     const leftGazeBaselineXRef = useRef<number | null>(null);
     const rightGazeBaselineXRef = useRef<number | null>(null);
+    // Per-eye "normal open" vertical half-height reference for computeGazeAxis —
+    // see its doc comment for why this exists (blink-frame noise rejection).
+    const leftGazeOpenYRef = useRef<number | null>(null);
+    const rightGazeOpenYRef = useRef<number | null>(null);
 
     const initializeModel = useCallback(async () => {
         try {
@@ -459,6 +513,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 faceLandmarks[LEFT_EYE_LANDMARKS.upperLid].y,
                 faceLandmarks[LEFT_EYE_LANDMARKS.lowerLid].y,
                 GAZE_V_SENSITIVITY,
+                leftGazeOpenYRef,
                 false
             );
             const rightGazeY = computeGazeAxis(
@@ -466,6 +521,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 faceLandmarks[RIGHT_EYE_LANDMARKS.upperLid].y,
                 faceLandmarks[RIGHT_EYE_LANDMARKS.lowerLid].y,
                 GAZE_V_SENSITIVITY,
+                rightGazeOpenYRef,
                 false
             );
 
@@ -585,6 +641,8 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         setIsAnalyzing(false);
         leftGazeBaselineXRef.current = null; // reset so next session recalibrates
         rightGazeBaselineXRef.current = null;
+        leftGazeOpenYRef.current = null;
+        rightGazeOpenYRef.current = null;
         if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;

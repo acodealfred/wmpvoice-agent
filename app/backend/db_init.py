@@ -493,6 +493,28 @@ async def init_db() -> None:
             ON chat_sessions(user_id, updated_at DESC)
         """)
 
+        # One row per uploaded Muse EEG recording, tied to the assessment run it
+        # was captured during. file_json is the whole raw muse-web-bridge/3
+        # session file (EEG/IMU/PPG/telemetry + per-question markers) as a JSON
+        # blob — kept inside SQLite, not a loose file on disk, so Litestream's
+        # WAL streaming covers it (see docs/persistence.md). Raw recording only;
+        # no derived stress/burnout metric is stored or computed from it.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS eeg_sessions (
+                survey_run_id      TEXT PRIMARY KEY REFERENCES survey_records(survey_run_id),
+                user_id            TEXT NOT NULL REFERENCES users(user_id),
+                session_id         TEXT,
+                device_name        TEXT,
+                preset             TEXT,
+                recorded_at        TEXT,
+                t0_epoch_ms        INTEGER,
+                marker_count       INTEGER,
+                dropped_packets_json TEXT,
+                file_json          TEXT NOT NULL,
+                created_at         TEXT NOT NULL
+            )
+        """)
+
         now = datetime.utcnow().isoformat()
         for name, password, role, department, shift, job_title in SEED_USERS:
             user_id = str(uuid.uuid4())
