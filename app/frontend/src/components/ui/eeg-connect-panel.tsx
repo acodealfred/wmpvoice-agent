@@ -11,6 +11,10 @@ interface EegConnectPanelProps {
     error: string | null;
     available: boolean;
     hasRecording: boolean;
+    // True once the assessment itself has actually started (markSurveyStarted fired),
+    // not just "the headband is paired" — gates the waveform below so pairing/settling
+    // time before Start doesn't read as if the assessment were already recording.
+    assessmentStarted: boolean;
     channels: EegChannel[];
     getChannelSamples: (ch: EegChannel) => Float32Array;
     onConnect: (consentAcceptedAt: string) => void;
@@ -44,6 +48,7 @@ export function EegConnectPanel({
     error,
     available,
     hasRecording,
+    assessmentStarted,
     channels,
     getChannelSamples,
     onConnect,
@@ -109,13 +114,18 @@ export function EegConnectPanel({
                             </Button>
                         </div>
                     </div>
-                    {isConnected && (
+                    {isConnected && assessmentStarted && (
                         <EegWaveform
                             active={isLive}
                             channels={channels}
                             getChannelSamples={getChannelSamples}
                             className="h-24 w-full overflow-hidden rounded-lg bg-black"
                         />
+                    )}
+                    {isConnected && !assessmentStarted && (
+                        <p className="rounded-lg bg-black/20 px-3 py-4 text-center text-[11px] text-[color:var(--ciq-text-60)]">
+                            Headband paired — waveform appears once the assessment starts.
+                        </p>
                     )}
                 </div>
             ) : hasRecording ? (

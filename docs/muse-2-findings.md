@@ -168,7 +168,7 @@ it as **pulse rate variability from forehead PPG, not ECG-grade HRV**.
 | ~~No PPG drop counting~~ | fixed 2026-09-04 | `ppg.dropped_packets` now counts per channel, as `eeg.dropped_packets` does |
 | IMU recorded but never displayed | `src/main.ts` | Motion artefacts invisible to the operator live |
 | PPG recorded but never displayed | `src/main.ts` | No live pulse or BPM |
-| No band powers | — | Deliberately deferred pending the science team's windowing choice |
+| ~~No band powers~~ | implemented 2026-09-24 | Computed only at export time, never stored: `ciq/eeg/combine.py` builds relative theta/alpha/beta (Welch, trailing 4 s), `eeg_quality`, pulse/PRV and head motion for the unified survey-timeline CSV. The raw recording stays the source of truth |
 
 ---
 

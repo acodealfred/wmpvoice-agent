@@ -1,4 +1,5 @@
 """User/admin history endpoints (thin wrappers over the db module)."""
+import asyncio
 import csv
 import io
 import json
@@ -7,8 +8,10 @@ from aiohttp import web
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
+from ciq.eeg.combine import EEG_COLUMNS, compute_unified_columns
 from db import (
     get_all_users_with_session_info,
+    get_eeg_session,
     get_manager_analytics,
     get_manager_overview,
     get_manager_score_trend,
@@ -185,6 +188,49 @@ async def admin_export_survey_timeline(request: web.Request) -> web.Response:
         headers={"Content-Disposition": f'attachment; filename="survey_timeline_{survey_run_id[:8]}.csv"'},
         content_type="text/csv",
     )
+
+
+async def admin_export_survey_timeline_combined(request: web.Request) -> web.Response:
+    """GET /admin/survey-timeline/export-combined?survey_run_id=... — the same
+    per-second timeline as admin_export_survey_timeline above, with per-second
+    EEG band power, signal quality, pulse and head-motion columns appended,
+    computed on the fly from that run's stored Muse recording (nothing derived is
+    persisted). Rows are joined on their own UTC timestamps — see ciq.eeg.combine."""
+    survey_run_id = request.query.get("survey_run_id", "")
+    if not survey_run_id:
+        return web.json_response({"error": "survey_run_id is required"}, status=400)
+
+    eeg_session = await get_eeg_session(survey_run_id)
+    if not eeg_session:
+        return web.json_response({"error": "No EEG session recorded for this survey run"}, status=404)
+
+    frames = await get_survey_timeline_frames(survey_run_id)
+    file_json = eeg_session["file_json"]
+
+    # numpy/scipy work — off the event loop so live voice sessions don't stall.
+    try:
+        eeg_rows, warnings = await asyncio.to_thread(compute_unified_columns, file_json, frames)
+    except (KeyError, TypeError, ValueError, IndexError) as e:
+        return web.json_response({"error": f"The stored EEG recording is malformed: {e!r}"}, status=422)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([*_TIMELINE_EXPORT_HEADERS, *EEG_COLUMNS])
+    for f, eeg in zip(frames, eeg_rows):
+        writer.writerow([
+            f["frame_index"], f["frame_index"], f["timestamp"], f["turn_state"],
+            f["turn_state"] == "agent_question", f["turn_state"] == "user_answer",
+            f["question_id"], f["question_index"],
+            f["blink_rate_bpm"], f["blink_rate_change_percent"], f["pupil_mm_change"],
+            f["left_gaze_position"], f["right_gaze_position"], f["face_emotion"],
+            f["voice_sentiment"], f["stress_state"],
+            *(eeg[c] for c in EEG_COLUMNS),
+        ])
+
+    headers = {"Content-Disposition": f'attachment; filename="survey_timeline_combined_{survey_run_id[:8]}.csv"'}
+    if warnings:
+        headers["X-Unified-Warning"] = " | ".join(warnings)
+    return web.Response(body=buf.getvalue(), headers=headers, content_type="text/csv")
 
 
 async def user_sessions_history(request: web.Request) -> web.Response:

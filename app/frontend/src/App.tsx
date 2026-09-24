@@ -155,10 +155,11 @@ function App() {
         error: eegError,
         available: eegAvailable,
         hasRecording: eegHasRecording,
+        surveyStarted: eegSurveyStarted,
         connect: connectEeg,
         disconnect: disconnectEeg,
-        markQuestionAsked: markEegQuestionAsked,
-        markQuestionAnswered: markEegQuestionAnswered,
+        markQuestionResolved: markEegQuestionResolved,
+        markSurveyStarted: markEegSurveyStarted,
         beginNewRecording: beginNewEegRecording,
         finishForUpload: finishEegForUpload,
         save: saveEeg,
@@ -375,7 +376,10 @@ function App() {
             if (message.options) {
                 setSurveyOptions(message.options);
             }
-            if (eegHasRecording) markEegQuestionAsked(message.question_id);
+            // No separate EEG mark here: survey.update and survey.biometric.update
+            // both fire together, after record_survey_response resolves this
+            // question (see markQuestionResolved in useMuse.ts) — there's no
+            // earlier "question asked" instant to anchor on.
         },
         onReceivedSurveyBiometricUpdate: message => {
             setBiometricSnapshots(prev => {
@@ -388,7 +392,7 @@ function App() {
                 }
                 return [...prev, message.snapshot];
             });
-            if (eegHasRecording) markEegQuestionAnswered(message.snapshot.questionId, `${message.snapshot.domain} — ${message.snapshot.questionId}`);
+            if (eegHasRecording) markEegQuestionResolved(`${message.snapshot.domain} — ${message.snapshot.questionId}`);
             setSurveyCompleted(message.completed);
             setSurveyTotal(message.total);
             if (message.completed === message.total) {
@@ -605,6 +609,16 @@ function App() {
     // is the dedicated "Start New Survey" button's job (onStartNewSurvey).
     const onStartListening = async () => {
         if (isRecording) return;
+        // Only nag about this on a genuinely fresh start (nothing answered yet) — once
+        // there's real progress, it's too late for the headband to matter and repeatedly
+        // asking on every pause/resume would just be noise. EEG stays fully optional:
+        // this is a reminder, not a gate — Continue proceeds with no EEG either way.
+        if (!eegHasRecording && !hasAssessment) {
+            const proceed = window.confirm(
+                "EEG headband isn't connected. If you plan to use it for this assessment, cancel and pair it first — otherwise no EEG data will be recorded for this session. Continue without it?"
+            );
+            if (!proceed) return;
+        }
         setIsRecording(true);
         // Make sure any survey-type selection has actually landed server-side before
         // we send session.update — otherwise the agent's question script can be built
@@ -619,6 +633,11 @@ function App() {
         startSession();
         resetAudioPlayer();
         requestGreeting();
+        // Anchors the EEG recording's "the assessment actually started here" instant —
+        // distinct from whenever the headband happened to pair (see markSurveyStarted
+        // in useMuse.ts). No-ops if EEG isn't connected, or on a later resume (idempotent
+        // on the Recorder itself, so only this genuinely-first call takes effect).
+        markEegSurveyStarted();
         // Now finish arming input: load the baseline (decides if the 30s recording runs)
         // and start the mic so the user can answer.
         await resolveBaseline();
@@ -645,6 +664,15 @@ function App() {
         stopAudioPlayer();
         if (!window.confirm("This discards the current assessment and starts a fresh survey. Continue?")) {
             return;
+        }
+        // A retake always starts a genuinely fresh recording below (beginNewEegRecording),
+        // so — unlike onStartListening — there's no "already made progress" case to skip
+        // this for. Only asked if the headband isn't connected at all.
+        if (!eegHasRecording) {
+            const proceed = window.confirm(
+                "EEG headband isn't connected. If you plan to use it for this new assessment, cancel and pair it first — otherwise no EEG data will be recorded for this session. Continue without it?"
+            );
+            if (!proceed) return;
         }
         // Guard against the old turn's audio bleeding into the new session during the
         // reconnect below; lifted on the fresh session.created (onReceivedSessionReady).
@@ -689,6 +717,9 @@ function App() {
         // socket is mid-reopen here) so the agent opens the fresh conversation the instant
         // the session is ready.
         requestGreeting();
+        // Anchors this retake's own "assessment actually started here" instant on the
+        // fresh Recorder created by beginNewEegRecording above — see markSurveyStarted.
+        markEegSurveyStarted();
         await startAudioRecording();
     };
 
@@ -1250,6 +1281,7 @@ function App() {
                                             error={eegError}
                                             available={eegAvailable}
                                             hasRecording={eegHasRecording}
+                                            assessmentStarted={eegSurveyStarted}
                                             channels={eegChannels}
                                             getChannelSamples={getEegChannelSamples}
                                             onConnect={connectEeg}

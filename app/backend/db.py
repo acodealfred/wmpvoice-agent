@@ -246,18 +246,22 @@ async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
     """Lightweight per-run list (id/type/date, no JSON blobs) for admin run-pickers
     like the survey-timeline export UI. Same "has recorded data" filter as
     get_user_survey_records, so only runs that actually produced a report (and
-    therefore may have timeline frames) show up as pickable.
+    therefore may have timeline frames) show up as pickable. `has_eeg_session`
+    tells the run-picker whether an EEG/combined export is even possible for
+    that run, without fetching the (potentially large) eeg_sessions.file_json.
     """
     async with _open_db() as db:
         async with db.execute("""
-            SELECT survey_run_id, survey_type, created_at
-            FROM survey_records
-            WHERE user_id = ?
-              AND (survey_results IS NOT NULL OR prompt_info IS NOT NULL)
-            ORDER BY created_at DESC
+            SELECT sr.survey_run_id, sr.survey_type, sr.created_at,
+                   CASE WHEN es.survey_run_id IS NOT NULL THEN 1 ELSE 0 END AS has_eeg_session
+            FROM survey_records sr
+            LEFT JOIN eeg_sessions es ON es.survey_run_id = sr.survey_run_id
+            WHERE sr.user_id = ?
+              AND (sr.survey_results IS NOT NULL OR sr.prompt_info IS NOT NULL)
+            ORDER BY sr.created_at DESC
         """, (user_id,)) as cursor:
             rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+            return [{**dict(r), "has_eeg_session": bool(r["has_eeg_session"])} for r in rows]
 
 
 async def get_user_baseline(user_id: str) -> dict | None:

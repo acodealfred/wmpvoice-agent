@@ -1,9 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 -c ' *)",
-      "Bash(npx tsc *)",
-      "Bash(npm run *:*)"
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(cd:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Edit",
+      "Write"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push:*)"
     ]
   }
 }

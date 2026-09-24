@@ -43,12 +43,13 @@ export interface SessionFile {
      * timeline starts from, read at the same moment as the page clock every `t_ms`
      * counts from. Absent when streaming never started — never 0.
      *
-     * It exists so a recording can be lined up with one made elsewhere (an iPhone
-     * writing its own ISO-8601 start, say) without going near `t_ms`. Timing stays
-     * on `seq`; the anchor only says where the seq timeline begins:
+     * It exists so a recording can be lined up with one made elsewhere (the server's
+     * survey timeline, an iPhone's ISO-8601 start) on the UTC clock.
      *
-     *     epoch_ms = t0_epoch_ms + 1000 * seconds_from_seq
-     *     EEG (seq * 12 + k) / 256   PPG (seq * 6 + k) / 64   IMU (seq * 3 + k) / 52
+     * Do NOT compute `t0_epoch_ms + 1000 * (seq * 12 + k) / 256`: `seq` is a raw
+     * uint16 that does not start at zero (a retake begins mid-stream) and wraps at
+     * 65536. Unwrap it, take `rel` from the first packet, and anchor with the
+     * minimum arrival lag — see app/backend/ciq/eeg/combine.py.
      *
      * Treat it as an offset to refine, not a reference. It is stamped on the host
      * when streaming is asked for, so it carries the host's BLE arrival jitter —
@@ -56,6 +57,15 @@ export interface SessionFile {
      * headband took to act on the command. Nothing corrects for that here.
      */
     t0_epoch_ms?: number;
+    /**
+     * Session-clock instant (same clock as every packet's own `t_ms`) that the
+     * assessment itself actually began — not when the headband paired, which can
+     * happen earlier during consent. Set once, by `markSurveyStarted`, the first
+     * time both "headband connected" and "participant pressed Start" are true.
+     * Absent if the assessment never actually started on this recording (headband
+     * connected but abandoned before Start, say).
+     */
+    survey_started_t_ms?: number;
     device: DeviceInfo;
     preset: Preset;
     consent: { accepted_at: string };
@@ -119,6 +129,7 @@ export class Recorder {
     private channels: EegChannel[];
     private markers: Marker[] | null = null;
     private t0EpochMs: number | null = null;
+    private surveyStartedTMs: number | null = null;
     private truncated = false;
 
     constructor(private opts: RecorderOptions) {
@@ -180,6 +191,16 @@ export class Recorder {
         this.t0EpochMs = t0EpochMs;
     }
 
+    /**
+     * Anchor the packet timeline to the moment the assessment itself began — see
+     * SessionFile.survey_started_t_ms. Idempotent: only the first call takes effect,
+     * since pairing can happen well before Start is pressed and this should capture
+     * that later instant exactly once, not whatever call happens to come last.
+     */
+    markSurveyStarted(tMs: number): void {
+        if (this.surveyStartedTMs === null) this.surveyStartedTMs = round(tMs, 1);
+    }
+
     /** Label the recording with the steps of a guided run; a later run replaces an earlier one. */
     setMarkers(markers: Marker[]): void {
         this.markers = [...markers];
@@ -200,6 +221,7 @@ export class Recorder {
             // Spread so an unstarted recording has no key at all, rather than a 0
             // that would read as 1 January 1970.
             ...(this.t0EpochMs !== null ? { t0_epoch_ms: this.t0EpochMs } : {}),
+            ...(this.surveyStartedTMs !== null ? { survey_started_t_ms: this.surveyStartedTMs } : {}),
             device: this.opts.device,
             preset: this.opts.preset,
             consent: { accepted_at: this.opts.consentAcceptedAt },

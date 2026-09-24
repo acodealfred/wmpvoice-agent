@@ -30,6 +30,11 @@ export function useMuse() {
     const [device, setDevice] = useState<DeviceInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [hasRecording, setHasRecording] = useState(false);
+    // True once markSurveyStarted has actually fired for the CURRENT recorder — i.e.
+    // the assessment itself has begun, not just "the headband is paired". Exists so a
+    // consumer (EegConnectPanel) can tell those two apart and only show the live
+    // waveform once real assessment recording is underway, per docs/muse-wiring.md.
+    const [surveyStarted, setSurveyStarted] = useState(false);
 
     const sourceRef = useRef<WebBluetoothMuse | null>(null);
     const buffersRef = useRef<Map<EegChannel, RollingWindow>>(new Map());
@@ -44,11 +49,19 @@ export function useMuse() {
     // Session time as the EEG packets carry it, so markers share a clock with
     // the samples (docs/muse-wiring.md §4) rather than wall time.
     const sessionTMsRef = useRef(0);
-    // Per-question markers accumulated as the assessment progresses (asked →
-    // answered), rather than recomputed from a state machine. `setMarkers`
-    // replaces the whole list each time, so this ref holds the running total.
+    // Per-question markers accumulated as the assessment progresses, rather
+    // than recomputed from a state machine. `setMarkers` replaces the whole
+    // list each time, so this ref holds the running total.
     const questionMarkersRef = useRef<Marker[]>([]);
-    const questionStartRef = useRef<Map<string, number>>(new Map());
+    // Session time of the most recent record_survey_response resolution (or of
+    // connect()/beginNewRecording() if no question has resolved yet) — the lower
+    // bound for the NEXT marker. There's no separate "question asked" signal
+    // from the backend: survey.update and survey.biometric.update both fire
+    // together, after record_survey_response scores the question (see
+    // markQuestionResolved below), so the only real boundary available is
+    // "between two consecutive resolutions" — which is what a question's own
+    // asking + answering actually happened during.
+    const prevResolutionTMsRef = useRef(0);
     // While true, incoming packets are dropped instead of buffered/recorded — the
     // headband keeps streaming and the Bluetooth link stays up, only the session
     // capture is paused. Read inside listeners registered once at connect() time,
@@ -69,8 +82,9 @@ export function useMuse() {
         pausedRef.current = false;
         sessionTMsRef.current = 0;
         questionMarkersRef.current = [];
-        questionStartRef.current.clear();
+        prevResolutionTMsRef.current = 0;
         setHasRecording(false);
+        setSurveyStarted(false);
     }, []);
 
     /** `consentAcceptedAt` is when the operator confirmed consent — take it before pairing, not here (docs/muse-wiring.md §2). */
@@ -155,9 +169,9 @@ export function useMuse() {
         buffersRef.current = new Map();
         pausedRef.current = false;
         questionMarkersRef.current = [];
-        questionStartRef.current.clear();
         setDevice(null);
         setStatus("idle");
+        setSurveyStarted(false);
     }, [teardownListeners]);
 
     // Pauses/resumes capture without touching the Bluetooth link: the headband
@@ -176,21 +190,37 @@ export function useMuse() {
         setStatus("streaming");
     }, []);
 
-    /** Marks the session-time instant a survey question was posed — paired later by `markQuestionAnswered`. */
-    const markQuestionAsked = useCallback((questionId: string) => {
-        questionStartRef.current.set(questionId, sessionTMsRef.current);
-    }, []);
-
-    /** Closes out a question's marker from when it was asked to now, and re-labels the recorder's full marker list. */
-    const markQuestionAnswered = useCallback((questionId: string, label: string) => {
+    /**
+     * Call once per question, when record_survey_response resolves it (the only
+     * moment the backend tells the frontend about a question at all — there is
+     * no earlier "question asked" event to anchor a start time on). Marks the
+     * just-elapsed window — from the previous resolution to now — as `label`,
+     * since that's the interval during which this question was actually asked
+     * and answered.
+     */
+    const markQuestionResolved = useCallback((label: string) => {
         const recorder = recorderRef.current;
         if (!recorder) return;
-        const start = questionStartRef.current.get(questionId) ?? sessionTMsRef.current;
-        questionStartRef.current.delete(questionId);
+        const start = prevResolutionTMsRef.current;
         const end = sessionTMsRef.current;
-        if (end <= start) return;
-        questionMarkersRef.current = [...questionMarkersRef.current, { label, t_ms_start: start, t_ms_end: end }];
-        recorder.setMarkers(questionMarkersRef.current);
+        if (end > start) {
+            questionMarkersRef.current = [...questionMarkersRef.current, { label, t_ms_start: start, t_ms_end: end }];
+            recorder.setMarkers(questionMarkersRef.current);
+        }
+        prevResolutionTMsRef.current = end;
+    }, []);
+
+    /**
+     * Marks the session-clock instant the assessment itself began — distinct from
+     * when the headband paired, since pairing can happen earlier during consent.
+     * Safe to call on every Start/Resume press: idempotent on the Recorder itself
+     * (Recorder.markSurveyStarted only keeps the first call), so only the actual
+     * first press after a fresh connect() or beginNewRecording() takes effect.
+     */
+    const markSurveyStarted = useCallback(() => {
+        if (!recorderRef.current) return;
+        recorderRef.current.markSurveyStarted(sessionTMsRef.current);
+        setSurveyStarted(true);
     }, []);
 
     /**
@@ -202,13 +232,20 @@ export function useMuse() {
         (consentAcceptedAt: string) => {
             if (!sourceRef.current || !device) return false;
             questionMarkersRef.current = [];
-            questionStartRef.current.clear();
+            // Not reset to 0 — the Bluetooth link (and its seq/session clock) stays
+            // live across a retake, so the new recording's first marker should start
+            // from "now", not from the previous recording's session start.
+            prevResolutionTMsRef.current = sessionTMsRef.current;
             const recordedAt = new Date();
             recordedAtRef.current = recordedAt;
             const recorder = new Recorder({ device, preset: PRESET, consentAcceptedAt, recordedAt: recordedAt.toISOString() });
             if (t0EpochMsRef.current !== null) recorder.markStarted(t0EpochMsRef.current);
             recorderRef.current = recorder;
             setHasRecording(true);
+            // This new recorder hasn't had markSurveyStarted called on it yet — drops the
+            // waveform back out until the retake's own Start actually fires, same as a
+            // fresh connect().
+            setSurveyStarted(false);
             return true;
         },
         [device]
@@ -257,12 +294,13 @@ export function useMuse() {
         error,
         available,
         hasRecording,
+        surveyStarted,
         connect,
         disconnect,
         pause,
         resume,
-        markQuestionAsked,
-        markQuestionAnswered,
+        markQuestionResolved,
+        markSurveyStarted,
         beginNewRecording,
         save,
         finishForUpload,

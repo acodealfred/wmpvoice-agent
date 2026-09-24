@@ -8,6 +8,17 @@ import { PILL, BANNER } from "@/lib/badges";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
+function triggerBlobDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
 export function AdminPanel() {
     // ── KB Registration ──────────────────────────────────────────────
     const [regStatus, setRegStatus] = useState<RegistrationStatus>("unknown");
@@ -383,6 +394,59 @@ export function AdminPanel() {
         }
     }, [timelineRunId]);
 
+    // ── EEG raw session download (unprocessed muse-web-bridge/3 JSON, same
+    // run picker as the timeline export above) ─────────────────────────
+    const [eegExporting, setEegExporting] = useState(false);
+    const [eegError, setEegError] = useState<string | null>(null);
+
+    const handleDownloadEegRaw = useCallback(async () => {
+        if (!timelineRunId) return;
+        setEegExporting(true);
+        setEegError(null);
+        try {
+            const resp = await apiFetch(`/admin/eeg-sessions/export?survey_run_id=${encodeURIComponent(timelineRunId)}`, {
+                credentials: "same-origin"
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            triggerBlobDownload(await resp.blob(), `eeg_session_${timelineRunId.slice(0, 8)}.json`);
+        } catch (err) {
+            setEegError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");
+        } finally {
+            setEegExporting(false);
+        }
+    }, [timelineRunId]);
+
+    // ── Combined export: the same per-second timeline CSV, with per-second EEG
+    // band power, signal quality, pulse and head-motion columns appended.
+    // Built server-side by processing the stored raw EEG JSON on download —
+    // nothing derived is persisted (see ciq.eeg.combine). Only meaningful for
+    // a run that actually has an EEG session, same as the raw download above.
+    const [combinedExporting, setCombinedExporting] = useState(false);
+    const [combinedError, setCombinedError] = useState<string | null>(null);
+    // Not a failure: the file downloaded, but the server flagged that its EEG columns are empty.
+    const [combinedNotice, setCombinedNotice] = useState<string | null>(null);
+
+    const handleDownloadCombined = useCallback(async () => {
+        if (!timelineRunId) return;
+        setCombinedExporting(true);
+        setCombinedError(null);
+        setCombinedNotice(null);
+        try {
+            const resp = await apiFetch(`/admin/survey-timeline/export-combined?survey_run_id=${encodeURIComponent(timelineRunId)}`, {
+                credentials: "same-origin"
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            triggerBlobDownload(await resp.blob(), `survey_timeline_combined_${timelineRunId.slice(0, 8)}.csv`);
+            setCombinedNotice(resp.headers.get("X-Unified-Warning"));
+        } catch (err) {
+            setCombinedError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");
+        } finally {
+            setCombinedExporting(false);
+        }
+    }, [timelineRunId]);
+
+    const selectedRunHasEeg = timelineRuns.find(r => r.survey_run_id === timelineRunId)?.has_eeg_session ?? false;
+
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
     const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -748,6 +812,39 @@ export function AdminPanel() {
                     </button>
                 </div>
                 {timelineError && <p className="mt-2 text-xs text-petroleum-flare">{timelineError}</p>}
+
+                <div className="mt-4 border-t border-[color:var(--ciq-line)] pt-4">
+                    <p className="mb-3 text-xs text-[color:var(--ciq-text-muted)]">
+                        {selectedRunHasEeg
+                            ? "This run also has a recorded Muse EEG session — download it raw, or combined with the timeline above (per-second EEG band power, signal quality, pulse and head motion, joined on the timeline's own UTC timestamps)."
+                            : timelineRunId
+                              ? "No EEG session was recorded for this run."
+                              : "Select a run above to check for an EEG recording."}
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                        <button
+                            type="button"
+                            onClick={handleDownloadEegRaw}
+                            disabled={!timelineRunId || !selectedRunHasEeg || eegExporting}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm font-medium text-[color:var(--ciq-text-strong)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {eegExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                            {eegExporting ? "Downloading…" : "Download EEG (raw JSON)"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleDownloadCombined}
+                            disabled={!timelineRunId || !selectedRunHasEeg || combinedExporting}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[color:var(--ciq-accent-purple)] to-[color:var(--ciq-accent-blue)] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {combinedExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                            {combinedExporting ? "Downloading…" : "Download Combined (CSV)"}
+                        </button>
+                    </div>
+                    {eegError && <p className="mt-2 text-xs text-petroleum-flare">{eegError}</p>}
+                    {combinedError && <p className="mt-2 text-xs text-petroleum-flare">{combinedError}</p>}
+                    {combinedNotice && <p className="mt-2 text-xs text-[color:var(--ciq-accent-amber)]">{combinedNotice}</p>}
+                </div>
             </div>
 
             {/* ── Section A: KB Registration ── */}

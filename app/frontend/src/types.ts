@@ -309,6 +309,7 @@ export type SurveyRunSummary = {
     survey_run_id: string;
     survey_type: string | null;
     created_at: string;
+    has_eeg_session: boolean;
 };
 
 export type SurveyRecord = {
