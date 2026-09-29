@@ -18,7 +18,7 @@ from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 from ciq.llm.azure_chat import AzureChatClient
-from ciq.prompts.builder import build_session_instructions
+from ciq.prompts.builder import baseline_cue_instructions, build_session_instructions
 from ciq.prompts.personas import READINESS_SYSTEM_MESSAGE
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import (
@@ -104,7 +104,7 @@ class RTMiddleTier:
     # session's SessionState (survey_type/survey_config), never here — see
     # _websocket_handler / set_survey_type_for_session.
     default_survey_config: dict
-    default_survey_type: str = "READINESS"
+    default_survey_type: str = "PILOT"
     survey_type_overridden: bool = False
     # Descriptive-only biometric guardrail (toggled from the Admin tab).
     biometric_guardrail_enabled: bool = True
@@ -162,9 +162,15 @@ class RTMiddleTier:
         self._store.get_or_create(session_id).reset_for_new_survey()
 
     def unlock_survey_for_session(self, session_id: str) -> None:
-        """Open the warm-up → survey gate (called when the 30s baseline completes)."""
+        """Open the baseline → survey gate (called when the baseline protocol completes).
+
+        Also starts the per-second timeline here, so survey_timeline_frames covers the
+        survey itself and not the ~6 min of baseline calibration before it.
+        """
         sess = self._store.get_or_create(session_id)
         sess.unlock_survey()
+        if self.enable_survey_mode and sess.survey_config:
+            start_timeline_capture(sess)
         if sess.survey_config.get("type") == "PILOT":
             start_behaviour_capture(sess, "pre")
 
@@ -797,6 +803,25 @@ class RTMiddleTier:
         )
         if message is not None:
             match message["type"]:
+                case "input_audio_buffer.append":
+                    # Baseline calibration: the mic stays live in the browser but its audio
+                    # never reaches Azure, so server VAD can't trigger a reply and the agent
+                    # stays silent apart from the explicit baseline.cue turns below.
+                    if self.enable_survey_mode and self._sess.survey_phase == "baseline":
+                        return None
+                case "baseline.cue":
+                    # Custom client message (never forwarded as-is): one spoken cue at a
+                    # baseline-protocol phase boundary, turned into a single response.create
+                    # whose instructions come from the prompt builder.
+                    instructions = baseline_cue_instructions(message.get("cue", ""))
+                    if instructions is None:
+                        logger.warning("[RTMT] Unknown baseline cue: %s", message.get("cue"))
+                        return None
+                    logger.info("[RTMT] ★ Baseline cue: %s", message["cue"])
+                    return json.dumps({
+                        "type": "response.create",
+                        "response": {"instructions": instructions, "tool_choice": "none"},
+                    })
                 case "session.update":
                     logger.info("[RTMT] ★★★ Processing session.update!")
                     session = message["session"]
@@ -832,7 +857,13 @@ class RTMiddleTier:
                         session["disable_audio"] = self.disable_audio
                     if self.voice_choice is not None:
                         session["voice"] = self.voice_choice
-                    session["tool_choice"] = "auto" if len(self.tools) > 0 else "none"
+                    # No tool calls during the baseline calibration: the agent must only speak
+                    # its cues. A cue like "close your eyes and relax" otherwise reads as a
+                    # mindfulness step and triggers a Recovery Window tool, whose "unavailable"
+                    # result the agent then speaks aloud. The post-baseline session.update
+                    # (sent right after the phase unlocks) switches tools back on.
+                    in_baseline = self.enable_survey_mode and self._sess.survey_phase == "baseline"
+                    session["tool_choice"] = "auto" if len(self.tools) > 0 and not in_baseline else "none"
                     session["tools"] = [tool.schema for tool in self.tools.values()]
                     updated_message = json.dumps(message)
 
@@ -946,8 +977,8 @@ class RTMiddleTier:
 
         A valid (non-expired, TTL enforced in db.get_user_baseline) baseline means a
         returning user: skip the 30s recording and start unlocked in the "survey" phase
-        with a brief welcome-back warm-up. Otherwise start gated in "warmup" so the agent
-        makes small talk while a fresh baseline records. Only called on the first
+        with a brief welcome-back warm-up. Otherwise start gated in "baseline" so the agent
+        stays silent while the eyes-open / eyes-closed baseline records. Only called on the first
         connection of a session — reconnects must keep whatever phase was reached.
         """
         auth = request.get("auth_session")
@@ -963,7 +994,7 @@ class RTMiddleTier:
             sess.survey_phase = "survey"
             sess.is_returning_user = True
         else:
-            sess.survey_phase = "warmup"
+            sess.survey_phase = "baseline"
             sess.is_returning_user = False
         logger.info(
             "[RTMT] Survey phase resolved: %s (returning=%s, session=%s)",
@@ -999,7 +1030,14 @@ class RTMiddleTier:
         # Start the per-second timeline sampler (see ciq.realtime.timeline_capture).
         # Guarded by timeline_active so a reconnect never spawns a second sampler
         # for the same session — it just keeps appending to the same buffer.
-        if self.enable_survey_mode and sess.survey_config and not sess.timeline_active:
+        # Only once the survey phase is open: returning users start there at connect;
+        # everyone else starts it from unlock_survey_for_session when the baseline ends.
+        if (
+            self.enable_survey_mode
+            and sess.survey_config
+            and sess.survey_phase == "survey"
+            and not sess.timeline_active
+        ):
             start_timeline_capture(sess)
 
         # Returning users skip the 30s baseline recording and start straight in the

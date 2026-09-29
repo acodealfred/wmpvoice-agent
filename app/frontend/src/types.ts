@@ -431,3 +431,8 @@ export type FlaggedRecoverySession = {
     createdAt: string;
     reviewed: boolean;
 };
+
+// Spoken cues for the baseline calibration protocol (see useBaselineProtocol). Sent to
+// the middle tier as a custom `baseline.cue` message; the wording lives server-side in
+// ciq/prompts/builder.py (_BASELINE_CUES / _SURVEY_START_LEADS).
+export type BaselineCue = "eyes_open_start" | "eyes_closed_start" | "survey_start_after_closed" | "survey_start_after_open";

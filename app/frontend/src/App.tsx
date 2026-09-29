@@ -1,5 +1,23 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { Mic, MicOff, Smile, Meh, Frown, ClipboardList, Play, Loader2, RotateCcw, Activity, Maximize2, Minimize2, Bot, Video, Menu, X, HeartHandshake, ChevronRight } from "lucide-react";
+import {
+    Mic,
+    MicOff,
+    Smile,
+    Meh,
+    Frown,
+    ClipboardList,
+    Loader2,
+    RotateCcw,
+    Activity,
+    Maximize2,
+    Minimize2,
+    Bot,
+    Video,
+    Menu,
+    X,
+    HeartHandshake,
+    ChevronRight
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -30,8 +48,20 @@ import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 import { useBiometrics } from "@/hooks/useBiometrics";
 import { useMuse } from "@/hooks/useMuse";
+import { useBaselineProtocol } from "@/hooks/useBaselineProtocol";
 
-import { SentimentUpdate, SurveyQuestion, SurveyOption, BiometricSnapshot, BiometricResult, SurveyTypeConfig, AuthUser, AuthState, RecoveryUpdate, ChatTurn } from "./types";
+import {
+    SentimentUpdate,
+    SurveyQuestion,
+    SurveyOption,
+    BiometricSnapshot,
+    BiometricResult,
+    SurveyTypeConfig,
+    AuthUser,
+    AuthState,
+    RecoveryUpdate,
+    ChatTurn
+} from "./types";
 
 import logo from "./assets/logo.png";
 
@@ -40,14 +70,20 @@ import logo from "./assets/logo.png";
 // `guestOnly` is the inverse — the guest "Home" landing, shown only to plain
 // guests (managers/admins get their own dashboard instead).
 const NAV_TABS = [
-    { id: "home",       label: "Home",            adminOnly: false, managerOnly: false, guestOnly: true  },
-    { id: "dashboard",  label: "Dashboard",      adminOnly: false, managerOnly: true,  guestOnly: false },
-    { id: "assessment", label: "Assessment",      adminOnly: false, managerOnly: false, guestOnly: false },
-    { id: "admin",      label: "Admin",           adminOnly: true,  managerOnly: false, guestOnly: false },
-    { id: "test",       label: "Test Generator",  adminOnly: true,  managerOnly: false, guestOnly: false },
-    { id: "eeg",        label: "Muse EEG",        adminOnly: true,  managerOnly: false, guestOnly: false },
-    { id: "history",    label: "History",         adminOnly: false, managerOnly: false, guestOnly: false },
+    { id: "home", label: "Home", adminOnly: false, managerOnly: false, guestOnly: true },
+    { id: "dashboard", label: "Dashboard", adminOnly: false, managerOnly: true, guestOnly: false },
+    { id: "assessment", label: "Assessment", adminOnly: false, managerOnly: false, guestOnly: false },
+    { id: "admin", label: "Admin", adminOnly: true, managerOnly: false, guestOnly: false },
+    { id: "test", label: "Test Generator", adminOnly: true, managerOnly: false, guestOnly: false },
+    { id: "eeg", label: "Muse EEG", adminOnly: true, managerOnly: false, guestOnly: false },
+    { id: "history", label: "History", adminOnly: false, managerOnly: false, guestOnly: false }
 ] as const;
+
+// Baseline protocol phase lengths (see useBaselineProtocol / session/baseline-protocol.ts).
+const BASELINE_EYES_OPEN_SECONDS = 180;
+const BASELINE_EYES_CLOSED_SECONDS = 180;
+
+const formatCountdown = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
 function App() {
     const [authState, setAuthState] = useState<AuthState>("checking");
@@ -120,6 +156,7 @@ function App() {
     const requiresConsent = surveyTypeConfig?.activeSurveyType === "PILOT";
     const [enableBiometrics, setEnableBiometrics] = useState(true);
     const [isReasonExpanded, setIsReasonExpanded] = useState(false);
+    const [isBiometricsPanelExpanded, setIsBiometricsPanelExpanded] = useState(false);
     // Toggles the camera feed between compact (centered, max-width) and full card width.
     const [videoExpanded, setVideoExpanded] = useState(false);
     // Camera feed vs. the audio-reactive agent avatar. The camera keeps running
@@ -132,11 +169,11 @@ function App() {
         currentBiometrics,
         baselineSessionStatus,
         baselineData,
-        baselineProgress,
         setVideoElement,
         startAnalysis: startBiometricAnalysis,
         stopAnalysis: stopBiometricAnalysis,
         startBaselineSession,
+        completeBaselineSession,
         clearBaseline,
         setBaseline
     } = useBiometrics();
@@ -162,6 +199,9 @@ function App() {
         markSurveyStarted: markEegSurveyStarted,
         beginNewRecording: beginNewEegRecording,
         finishForUpload: finishEegForUpload,
+        splitRecording: splitEegRecording,
+        getSessionTMs: getEegSessionTMs,
+        addMarker: addEegMarker,
         save: saveEeg,
         getChannelSamples: getEegChannelSamples,
         channels: eegChannels
@@ -238,8 +278,8 @@ function App() {
                 setEnableSurvey(data.enableSurveyMode);
                 setSurveyTypeConfig({
                     surveyTypeOverridden: data.surveyTypeOverridden ?? false,
-                    activeSurveyType: data.activeSurveyType ?? "TEST",
-                    availableSurveyTypes: data.availableSurveyTypes ?? ["TEST", "BATFULL", "CBTFULL"]
+                    activeSurveyType: data.activeSurveyType ?? "PILOT",
+                    availableSurveyTypes: data.availableSurveyTypes ?? ["PILOT"]
                 });
             })
             .catch(err => console.error("Failed to fetch config:", err));
@@ -294,7 +334,7 @@ function App() {
 
     // Baseline is loaded from localStorage by useBiometrics hook itself
 
-    const { startSession, requestGreeting, reconnect, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
+    const { startSession, requestGreeting, sendBaselineCue, reconnect, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
         sessionId,
         // Belt-and-suspenders: also carried on the WS connect URL itself so the survey
         // type is known ATOMICALLY with connection setup, not dependent on the
@@ -314,6 +354,8 @@ function App() {
         onReceivedResponseDone: () => {
             // Agent's turn is over — the next transcript delta starts a fresh bubble.
             agentTurnIdRef.current = null;
+            // A baseline cue just finished generating → start its phase once it has played.
+            baselineProtocol.notifyResponseDone();
             // The report was just saved — perform the strict report-only hard reset now
             // that the agent has finished its current turn (so we don't cut off speech).
             if (pendingGuardrailResetRef.current) {
@@ -327,6 +369,7 @@ function App() {
             // Ignore audio from the old session while a reset reconnect is settling.
             if (suppressAgentAudioRef.current) return;
             isRecording && playAudio(message.delta);
+            baselineProtocol.notifyAudioDelta(message.delta);
         },
         onReceivedSessionReady: () => {
             // Fresh session is live — let the new agent be heard again.
@@ -508,13 +551,6 @@ function App() {
         }
     }, [isRecording, enableBiometrics, startBiometricAnalysis, stopBiometricAnalysis]);
 
-    // Auto-start baseline when recording begins
-    useEffect(() => {
-        if (isRecording && enableBiometrics && baselineSessionStatus === "idle") {
-            startBaselineSession();
-        }
-    }, [isRecording, enableBiometrics, baselineSessionStatus, startBaselineSession]);
-
     const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer, getAnalyser: getAudioAnalyser } = useAudioPlayer();
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
 
@@ -538,12 +574,16 @@ function App() {
         setSurveyRunId(crypto.randomUUID());
     }, []);
 
-    // Resolve the user's baseline before a conversation starts:
-    //  • DB has one  → inject it and skip the 30s recording.
-    //  • DB has none → wipe local state so the recording runs, and arm a save so the
+    // Resolve the user's baseline before a conversation starts. Returns true when a
+    // stored (non-expired) baseline was found, i.e. the baseline protocol is skipped:
+    //  • DB has one  → inject it and skip the baseline protocol.
+    //  • DB has none → wipe local state so the protocol runs, and arm a save so the
     //                  fresh baseline is persisted to the DB on completion.
-    //  • fetch fails → keep any local baseline, don't force a re-record.
-    const resolveBaseline = useCallback(async () => {
+    //  • fetch fails → run the protocol anyway (without saving): the backend resolves the
+    //                  phase from the DB itself, and a protocol that runs while the backend
+    //                  is already in "survey" is harmless, whereas skipping it while the
+    //                  backend is gated in "baseline" would leave the agent silent.
+    const resolveBaseline = useCallback(async (): Promise<boolean> => {
         try {
             const res = await apiFetch("/baseline");
             if (res.ok) {
@@ -551,40 +591,85 @@ function App() {
                 if (data.baseline) {
                     setBaseline({ pupilSize: data.baseline.pupilSize, blinkRate: data.baseline.blinkRate, timestamp: Date.now() });
                     baselineNeedsSaveRef.current = false;
-                } else {
-                    clearBaseline();
-                    baselineNeedsSaveRef.current = true;
+                    return true;
                 }
-                return;
+                clearBaseline();
+                baselineNeedsSaveRef.current = true;
+                return false;
             }
         } catch (err) {
-            console.warn("[App] Baseline fetch failed; using local baseline if present", err);
+            console.warn("[App] Baseline fetch failed; running the baseline protocol without saving", err);
         }
         baselineNeedsSaveRef.current = false;
+        return false;
     }, [setBaseline, clearBaseline]);
 
-    // Once a fresh 30s baseline finishes recording (DB-miss path only): persist it, then
-    // open the warm-up → survey gate on the backend and re-send session.update so the agent
-    // delivers its bridge line and begins the questions. Returning users (injected baseline)
-    // never enter this branch — they start unlocked server-side, so no transition is fired.
-    useEffect(() => {
-        if (baselineSessionStatus === "completed" && baselineData && baselineNeedsSaveRef.current) {
+    // ── Baseline protocol (new / expired baseline only) ─────────────────────────────
+    // 3 min eyes open (camera biometrics + EEG), then — only with an EEG headband —
+    // 3 min eyes closed (EEG only). The agent is silent apart from one spoken cue per
+    // phase (the backend drops mic audio while the session is in the "baseline" phase).
+    // On completion the baseline is persisted, the EEG recording is split so
+    // eeg_sessions only holds the survey, and the survey phase is unlocked.
+    const baselineCameraRef = useRef<{ pupilSize: number; blinkRate: number } | null>(null);
+    const baselinePhaseStartTMsRef = useRef(0);
+    // Set once this assessment's protocol has completed, so a stop/resume (or a failed
+    // camera capture that left nothing stored) never runs it a second time.
+    const baselineDoneRef = useRef(false);
+
+    const finishBaselineProtocol = async ({ eyesClosed }: { eyesClosed: boolean }) => {
+        baselineDoneRef.current = true;
+        // Everything recorded so far is the baseline; a fresh recorder captures the survey
+        // itself (uploaded to eeg_sessions when the last question is answered).
+        const eegBaseline = eegHasRecording ? splitEegRecording() : null;
+        markEegSurveyStarted();
+
+        const camera = baselineCameraRef.current;
+        if (baselineNeedsSaveRef.current && camera) {
             baselineNeedsSaveRef.current = false;
             apiFetch("/baseline", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ pupilSize: baselineData.pupilSize, blinkRate: baselineData.blinkRate })
+                body: JSON.stringify({ pupilSize: camera.pupilSize, blinkRate: camera.blinkRate, eeg: eegBaseline })
             }).catch(err => console.warn("[App] Failed to persist baseline:", err));
+        } else if (!camera) {
+            console.warn("[App] Baseline protocol finished without usable camera data — baseline not stored");
+        }
 
-            apiFetch("/survey-phase", {
+        try {
+            await apiFetch("/survey-phase", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ session_id: sessionId, phase: "survey" })
-            })
-                .then(() => refreshSession())
-                .catch(err => console.warn("[App] Failed to unlock survey phase:", err));
+            });
+        } catch (err) {
+            console.warn("[App] Failed to unlock survey phase:", err);
         }
-    }, [baselineSessionStatus, baselineData, sessionId, refreshSession]);
+        // session.update first (re-injects the now-unlocked survey script), then the cue
+        // that asks the agent to open the survey — same socket, so they arrive in order.
+        refreshSession();
+        sendBaselineCue(eyesClosed ? "survey_start_after_closed" : "survey_start_after_open");
+    };
+
+    const baselineProtocol = useBaselineProtocol({
+        eyesOpenSeconds: BASELINE_EYES_OPEN_SECONDS,
+        eyesClosedSeconds: BASELINE_EYES_CLOSED_SECONDS,
+        sendCue: sendBaselineCue,
+        onPhaseStart: phase => {
+            baselinePhaseStartTMsRef.current = getEegSessionTMs();
+            if (phase === "eyes_open" && enableBiometrics) startBaselineSession(BASELINE_EYES_OPEN_SECONDS);
+        },
+        onPhaseEnd: phase => {
+            // Camera biometrics come from the eyes-open phase only (no blinks/pupil with eyes shut).
+            if (phase === "eyes_open" && enableBiometrics) baselineCameraRef.current = completeBaselineSession();
+            addEegMarker(`baseline_${phase}`, baselinePhaseStartTMsRef.current, getEegSessionTMs());
+        },
+        onComplete: result => void finishBaselineProtocol(result)
+    });
+
+    const startBaselineProtocol = () => {
+        baselineCameraRef.current = null;
+        baselineProtocol.start(eegHasRecording);
+    };
 
     // Gates a start action (Start/Continue or Restart) behind informed consent for the
     // pilot survey. Consent is a one-time, durable acceptance recorded server-side
@@ -626,26 +711,35 @@ function App() {
         if (surveyTypeChangeRef.current) {
             await surveyTypeChangeRef.current;
         }
-        // Open the session, arm playback and ask the agent to greet IMMEDIATELY, so its
-        // opening line is already generating while the baseline fetch and mic init run in
-        // parallel below. The agent doesn't need the mic to talk, and the survey phase is
-        // resolved server-side at connect — so neither await needs to block the greeting.
         startSession();
         resetAudioPlayer();
+        // The stored baseline decides how the conversation opens: a fresh assessment
+        // with no valid baseline runs the baseline protocol (its first cue replaces the
+        // greeting); everyone else — returning users, resumes, post-report Q&A — gets the
+        // normal greeting. Matches the phase the backend resolves from the same DB row.
+        const hasStoredBaseline = await resolveBaseline();
+        if (enableSurvey && !hasAssessment && !hasStoredBaseline && !baselineDoneRef.current) {
+            await startAudioRecording();
+            startBaselineProtocol();
+            return;
+        }
         requestGreeting();
         // Anchors the EEG recording's "the assessment actually started here" instant —
         // distinct from whenever the headband happened to pair (see markSurveyStarted
         // in useMuse.ts). No-ops if EEG isn't connected, or on a later resume (idempotent
-        // on the Recorder itself, so only this genuinely-first call takes effect).
+        // on the Recorder itself, so only this genuinely-first call takes effect). With a
+        // baseline protocol it is set instead when the protocol completes.
         markEegSurveyStarted();
-        // Now finish arming input: load the baseline (decides if the 30s recording runs)
-        // and start the mic so the user can answer.
-        await resolveBaseline();
         await startAudioRecording();
     };
 
     const onStopListening = async () => {
         if (!isRecording) return;
+        // Stopping mid-baseline discards it; the next Start runs the protocol from the top.
+        if (baselineProtocol.isActive) {
+            baselineProtocol.cancel();
+            clearBaseline();
+        }
         await stopAudioRecording();
         stopAudioPlayer();
         inputAudioBufferClear();
@@ -683,6 +777,8 @@ function App() {
             inputAudioBufferClear();
         }
         pendingGuardrailResetRef.current = false;
+        baselineProtocol.cancel();
+        baselineDoneRef.current = false;
         try {
             await apiFetch("/clear-conversation", {
                 method: "POST",
@@ -699,12 +795,10 @@ function App() {
         if (eegHasRecording) beginNewEegRecording(new Date().toISOString());
 
         // Settle the baseline decision BEFORE we start recording. resolveBaseline either
-        // injects a stored baseline (status → "completed", the 30s recording is skipped) or
-        // clears it (status → "idle", recording runs). It must run first so the auto-start
-        // effect fires deterministically on the resolved status instead of racing it — and
-        // so it agrees with the phase the backend resolves from the same baseline on the
-        // fresh connection below (DB hit → returning-user "survey"; miss → "warmup").
-        await resolveBaseline();
+        // injects a stored baseline (the protocol is skipped) or clears it (the protocol
+        // runs) — agreeing with the phase the backend resolves from the same baseline on
+        // the fresh connection below (DB hit → returning-user "survey"; miss → "baseline").
+        const hasStoredBaseline = await resolveBaseline();
         if (surveyTypeChangeRef.current) {
             await surveyTypeChangeRef.current;
         }
@@ -713,13 +807,17 @@ function App() {
         reconnect();
         startSession();
         resetAudioPlayer();
-        // Arm the greeting now (deferred until the reconnect's session.created, since the
-        // socket is mid-reopen here) so the agent opens the fresh conversation the instant
-        // the session is ready.
-        requestGreeting();
-        // Anchors this retake's own "assessment actually started here" instant on the
-        // fresh Recorder created by beginNewEegRecording above — see markSurveyStarted.
-        markEegSurveyStarted();
+        // Arm the opening turn now (deferred until the reconnect's session.created, since
+        // the socket is mid-reopen here) so the agent opens the fresh conversation the
+        // instant the session is ready — the baseline protocol's first cue, or a greeting.
+        if (enableSurvey && !hasStoredBaseline) {
+            startBaselineProtocol();
+        } else {
+            requestGreeting();
+            // Anchors this retake's own "assessment actually started here" instant on the
+            // fresh Recorder created by beginNewEegRecording above — see markSurveyStarted.
+            markEegSurveyStarted();
+        }
         await startAudioRecording();
     };
 
@@ -731,20 +829,11 @@ function App() {
         pendingGuardrailResetRef.current = true;
     }, []);
 
-    const handleStartBaselineSession = useCallback(() => {
-        startBaselineSession();
-    }, [startBaselineSession]);
-
-    const handleProceedWithoutBaseline = useCallback(() => {
-        // Skip baseline — hook treats missing baseline as "completed with no reference"
-        startBaselineSession();
-    }, [startBaselineSession]);
-
     const handleRerecordBaseline = useCallback(async () => {
         // Drop the server copy too, and arm a save so the new recording replaces it. Awaited
         // so the delete is durable before any subsequent Start-New-Survey reads the baseline
         // (both the frontend resolveBaseline GET and the backend phase resolution) — otherwise
-        // a stale baseline would be read and the fresh 30s recording skipped.
+        // a stale baseline would be read and the fresh baseline protocol skipped.
         try {
             await apiFetch("/baseline", { method: "DELETE" });
         } catch (err) {
@@ -797,20 +886,27 @@ function App() {
     const hasAssessment = surveyCompleted > 0 || assessmentComplete;
 
     // Single source of truth for the always-visible baseline card's state:
-    //  • recording — the 30s capture is running
+    //  • recording — the baseline protocol is running (cue or eyes-open/closed phase)
     //  • recorded  — a valid baseline exists
-    //  • needed    — conversation is live but no baseline yet (prompt to record/skip)
-    //  • none      — idle, no baseline (recorded on the next conversation start)
+    //  • none      — no baseline (the protocol runs on the next assessment start)
     // Note: a "completed" status without baselineData means capture finished with no usable
     // samples (e.g. no face) — surface that as "none" so the user can record again.
-    const baselineState: "recording" | "recorded" | "needed" | "none" =
-        baselineSessionStatus === "collecting"
-            ? "recording"
-            : baselineSessionStatus === "completed" && baselineData
-              ? "recorded"
-              : isRecording && enableBiometrics
-                ? "needed"
-                : "none";
+    const baselineState: "recording" | "recorded" | "none" = baselineProtocol.isActive
+        ? "recording"
+        : baselineSessionStatus === "completed" && baselineData
+          ? "recorded"
+          : "none";
+    const baselinePhaseLabel = baselineProtocol.state.phase === "eyes_closed" ? "Eyes closed" : "Eyes open";
+    const baselineStepNote =
+        baselineProtocol.state.stage === "cue"
+            ? "Listen to the instruction…"
+            : baselineProtocol.state.phase === "eyes_closed"
+              ? "Keep your eyes closed and relax — you'll be told when to open them."
+              : "Keep your eyes open, look at the screen and stay still.";
+    const baselinePhaseProgress =
+        baselineProtocol.state.stage === "recording" && baselineProtocol.state.phaseSeconds > 0
+            ? ((baselineProtocol.state.phaseSeconds - baselineProtocol.secondsLeft) / baselineProtocol.state.phaseSeconds) * 100
+            : 0;
 
     if (authState === "checking") {
         return (
@@ -822,10 +918,7 @@ function App() {
 
     if (authState === "unauthenticated") {
         return authView === "signup" ? (
-            <SignupScreen
-                onSignupSuccess={() => setAuthView("login")}
-                onSwitchToLogin={() => setAuthView("login")}
-            />
+            <SignupScreen onSignupSuccess={() => setAuthView("login")} onSwitchToLogin={() => setAuthView("login")} />
         ) : (
             <LoginScreen onLogin={handleLogin} onSwitchToSignup={() => setAuthView("signup")} />
         );
@@ -858,7 +951,9 @@ function App() {
                     <div className="flex min-w-0 items-center gap-3">
                         <img src={logo} alt="CIQ logo" className="ciq-logo h-9 w-9 shrink-0 sm:h-10 sm:w-10" />
                         <div className="min-w-0">
-                            <h1 className="truncate font-display text-base font-bold tracking-tight text-[color:var(--ciq-text-strong)] sm:text-xl">CIQ Voice Agent</h1>
+                            <h1 className="truncate font-display text-base font-bold tracking-tight text-[color:var(--ciq-text-strong)] sm:text-xl">
+                                CIQ Voice Agent
+                            </h1>
                             <p className="hidden truncate text-xs text-[color:var(--ciq-text-46)] sm:block">
                                 {surveyTypeConfig?.activeSurveyType === "READINESS" ? "Readiness Assessment Platform" : "Burnout Assessment Platform"}
                             </p>
@@ -868,7 +963,9 @@ function App() {
                     {/* Desktop/laptop nav — unchanged, always visible at lg+ */}
                     <div className="hidden items-center gap-3 lg:flex">
                         <nav className="flex items-center gap-1">
-                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin) && (!tab.guestOnly || isGuest)).map(tab => (
+                            {NAV_TABS.filter(
+                                tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin) && (!tab.guestOnly || isGuest)
+                            ).map(tab => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
@@ -909,10 +1006,15 @@ function App() {
                 {mobileNavOpen && (
                     <div className="mt-2 rounded-[24px] border border-[color:var(--ciq-border)] bg-[color:var(--ciq-header-bg)] p-3 shadow-[0_30px_100px_rgba(0,0,0,0.42)] backdrop-blur-[34px] lg:hidden">
                         <nav className="flex flex-col gap-1">
-                            {NAV_TABS.filter(tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin) && (!tab.guestOnly || isGuest)).map(tab => (
+                            {NAV_TABS.filter(
+                                tab => (!tab.adminOnly || isAdmin) && (!tab.managerOnly || isManager || isAdmin) && (!tab.guestOnly || isGuest)
+                            ).map(tab => (
                                 <button
                                     key={tab.id}
-                                    onClick={() => { setActiveTab(tab.id); setMobileNavOpen(false); }}
+                                    onClick={() => {
+                                        setActiveTab(tab.id);
+                                        setMobileNavOpen(false);
+                                    }}
                                     aria-current={activeTab === tab.id ? "page" : undefined}
                                     className={`ciq-touch w-full rounded-2xl px-4 text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] ${
                                         activeTab === tab.id
@@ -927,7 +1029,10 @@ function App() {
                         <div className="mt-2 flex items-center justify-between gap-2 border-t border-[color:var(--ciq-divider)] px-1 pt-3">
                             <span className="truncate text-xs text-[color:var(--ciq-text-60)]">{currentUser?.name}</span>
                             <button
-                                onClick={() => { setMobileNavOpen(false); handleLogout(); }}
+                                onClick={() => {
+                                    setMobileNavOpen(false);
+                                    handleLogout();
+                                }}
                                 className="ciq-touch shrink-0 rounded-full bg-[color:var(--ciq-tile-strong)] px-4 text-xs font-medium text-[color:var(--ciq-text-68)] transition-colors hover:bg-[color:var(--ciq-hover)]"
                             >
                                 Sign Out
@@ -1171,35 +1276,41 @@ function App() {
                             {/* Biometrics & Sentiment Panel - below the video */}
                             <section className="ciq-glass-card">
                                 <div className="flex h-full flex-col">
-                                    <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsBiometricsPanelExpanded(prev => !prev)}
+                                        aria-expanded={isBiometricsPanelExpanded}
+                                        aria-controls="biometrics-sentiment-panel"
+                                        className={`flex w-full items-center gap-2 px-5 py-3 text-left focus:outline-none ${
+                                            isBiometricsPanelExpanded ? "border-b border-[color:var(--ciq-divider)]" : ""
+                                        }`}
+                                    >
+                                        <ChevronRight
+                                            className={`h-4 w-4 shrink-0 text-[color:var(--ciq-text-60)] transition-transform duration-200 ${
+                                                isBiometricsPanelExpanded ? "rotate-90" : ""
+                                            }`}
+                                        />
                                         <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometrics &amp; Sentiment</h2>
-                                    </div>
-                                    <div className="flex-1 space-y-4 overflow-y-auto p-4">
+                                    </button>
+                                    <div
+                                        id="biometrics-sentiment-panel"
+                                        className={`flex-1 space-y-4 overflow-y-auto p-4 ${isBiometricsPanelExpanded ? "" : "hidden"}`}
+                                    >
                                         {/* Biometric Baseline — always visible; its inner content
                                             reflects baselineState (recorded / recording / needed / none). */}
                                         <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
                                             <div className="mb-2 flex items-center justify-between">
-                                                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">
-                                                    Biometric Baseline
-                                                </p>
+                                                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">Baseline</p>
                                                 <span
                                                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
                                                         baselineState === "recorded"
                                                             ? "text-[color:var(--ciq-accent-green)]"
                                                             : baselineState === "recording"
                                                               ? "text-[color:var(--ciq-accent-blue)]"
-                                                              : baselineState === "needed"
-                                                                ? "text-[color:var(--ciq-accent-amber)]"
-                                                                : "text-[color:var(--ciq-text-60)]"
+                                                              : "text-[color:var(--ciq-text-60)]"
                                                     }`}
                                                 >
-                                                    {baselineState === "recorded"
-                                                        ? "RECORDED"
-                                                        : baselineState === "recording"
-                                                          ? "RECORDING"
-                                                          : baselineState === "needed"
-                                                            ? "REQUIRED"
-                                                            : "NOT SET"}
+                                                    {baselineState === "recorded" ? "RECORDED" : baselineState === "recording" ? "RECORDING" : "NOT SET"}
                                                 </span>
                                             </div>
 
@@ -1220,47 +1331,44 @@ function App() {
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <Button onClick={handleRerecordBaseline} size="sm" variant="outline" className="h-6 shrink-0 px-2 text-[10px]">
+                                                    <Button
+                                                        onClick={handleRerecordBaseline}
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="h-6 shrink-0 px-2 text-[10px]"
+                                                    >
                                                         <RotateCcw className="mr-1 h-3 w-3" />
                                                         Rerecord
                                                     </Button>
                                                 </div>
                                             )}
 
-                                            {/* Recording — 30s progress */}
+                                            {/* Recording — baseline protocol phase + countdown */}
                                             {baselineState === "recording" && (
                                                 <div>
                                                     <div className="mb-2 flex items-center gap-2">
                                                         <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-accent-blue)]" />
-                                                        <span className="text-xs text-[color:var(--ciq-accent-blue)]">
-                                                            Hold still and look at the camera…
-                                                        </span>
+                                                        <span className="text-xs font-medium text-[color:var(--ciq-accent-blue)]">{baselinePhaseLabel}</span>
+                                                        {baselineProtocol.state.stage === "recording" && (
+                                                            <span className="font-data ml-auto text-xs text-[color:var(--ciq-text-strong)]">
+                                                                {formatCountdown(baselineProtocol.secondsLeft)} left
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="h-2 w-full rounded-full bg-[color:var(--ciq-track)]">
                                                         <div
-                                                            className="h-2 rounded-full bg-blue-500 transition-all duration-100"
-                                                            style={{ width: `${baselineProgress}%` }}
+                                                            className="h-2 rounded-full bg-blue-500 transition-all duration-1000"
+                                                            style={{ width: `${baselinePhaseProgress}%` }}
                                                         />
                                                     </div>
-                                                    <p className="mt-1.5 text-[11px] text-[color:var(--ciq-text-60)]">
-                                                        {Math.round((baselineProgress / 100) * 30)} / 30 seconds
-                                                    </p>
-                                                </div>
-                                            )}
-
-                                            {/* Needed — conversation live, prompt to record or skip */}
-                                            {baselineState === "needed" && (
-                                                <div>
-                                                    <p className="mb-3 text-xs text-[color:var(--ciq-text-86)]">
-                                                        Record a 30-second baseline of your pupil size and blink rate so changes during the
-                                                        conversation can be measured.
-                                                    </p>
-                                                    <div className="flex gap-2">
-                                                        <Button onClick={handleStartBaselineSession} size="sm" className="flex-1">
-                                                            <Play className="mr-2 h-4 w-4" />
-                                                            Start Baseline (30s)
-                                                        </Button>
-                                                        <Button onClick={handleProceedWithoutBaseline} size="sm" variant="outline">
+                                                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                                                        <p className="text-[11px] text-[color:var(--ciq-text-60)]">{baselineStepNote}</p>
+                                                        <Button
+                                                            onClick={baselineProtocol.skip}
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="h-6 shrink-0 px-2 text-[10px]"
+                                                        >
                                                             Skip
                                                         </Button>
                                                     </div>
@@ -1270,7 +1378,8 @@ function App() {
                                             {/* None — idle, no baseline yet */}
                                             {baselineState === "none" && (
                                                 <p className="text-xs text-[color:var(--ciq-text-60)]">
-                                                    No baseline recorded yet. It will be captured for 30 seconds when you start the conversation.
+                                                    No baseline recorded yet. When you start, a 3-minute eyes-open baseline is recorded (plus 3 minutes eyes
+                                                    closed if an EEG headband is connected) before the questions begin.
                                                 </p>
                                             )}
                                         </div>
@@ -1560,7 +1669,9 @@ function App() {
                                                                     <div className="flex items-center gap-3">
                                                                         <HeartHandshake className="h-5 w-5 shrink-0 text-[color:var(--ciq-accent-purple)]" />
                                                                         <div>
-                                                                            <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Recovery Window</p>
+                                                                            <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">
+                                                                                Recovery Window
+                                                                            </p>
                                                                             <p className="text-xs text-[color:var(--ciq-text-muted)]">
                                                                                 A short, voice-guided check-in tailored to how you're doing right now.
                                                                             </p>
@@ -1618,9 +1729,7 @@ function App() {
                 onAgree={() => {
                     setConsentGiven(true);
                     setShowConsent(false);
-                    apiFetch("/consent", { method: "POST" }).catch(err =>
-                        console.error("Failed to record consent:", err)
-                    );
+                    apiFetch("/consent", { method: "POST" }).catch(err => console.error("Failed to record consent:", err));
                     pendingStartActionRef.current?.();
                     pendingStartActionRef.current = null;
                 }}

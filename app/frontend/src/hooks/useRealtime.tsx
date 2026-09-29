@@ -14,7 +14,8 @@ import {
     SentimentUpdate,
     SurveyUpdate,
     SurveyBiometricUpdate,
-    RecoveryUpdate
+    RecoveryUpdate,
+    BaselineCue
 } from "@/types";
 
 // Server VAD tuning shared by every session.update — the default threshold (~0.5)
@@ -119,7 +120,9 @@ export default function useRealTime({
     // waiting for the user to speak. Fired once the session is ready (immediately if the
     // socket is already open, otherwise after the session.created restore). NOT set by a
     // genuine dropped-socket reconnect, so reconnects never trigger an unwanted greeting.
-    const pendingGreetingRef = useRef(false);
+    // Holds the opening message itself: a plain response.create for the normal greeting,
+    // or a baseline.cue (see sendBaselineCue) when a fresh baseline protocol opens instead.
+    const pendingGreetingRef = useRef<{ type: "response.create" } | { type: "baseline.cue"; cue: BaselineCue } | null>(null);
 
     const buildSessionUpdateCommand = (): SessionUpdateCommand => {
         const command: SessionUpdateCommand = {
@@ -161,10 +164,11 @@ export default function useRealTime({
     // can never double-fire (e.g. on the post-baseline refresh or a later reconnect).
     const maybeSendGreeting = () => {
         const socket = getWebSocket();
-        if (pendingGreetingRef.current && socket && socket.readyState === WebSocket.OPEN) {
-            pendingGreetingRef.current = false;
-            console.log("[Realtime] Triggering agent opening turn (response.create)");
-            sendJsonMessage({ type: "response.create" });
+        const pending = pendingGreetingRef.current;
+        if (pending && socket && socket.readyState === WebSocket.OPEN) {
+            pendingGreetingRef.current = null;
+            console.log(`[Realtime] Triggering agent turn (${pending.type})`);
+            sendJsonMessage(pending);
         }
     };
 
@@ -178,7 +182,15 @@ export default function useRealTime({
     // socket is open; if it is still reopening (new-survey reset reconnects first), it is
     // deferred to the next session.created.
     const requestGreeting = () => {
-        pendingGreetingRef.current = true;
+        pendingGreetingRef.current = { type: "response.create" };
+        maybeSendGreeting();
+    };
+
+    // Ask the agent to speak one baseline-protocol cue (the middle tier turns it into a
+    // single response.create with that cue's instructions). Deferred exactly like
+    // requestGreeting while the socket is still reopening (new-survey reset).
+    const sendBaselineCue = (cue: BaselineCue) => {
+        pendingGreetingRef.current = { type: "baseline.cue", cue };
         maybeSendGreeting();
     };
 
@@ -295,5 +307,5 @@ export default function useRealTime({
         }
     };
 
-    return { startSession, requestGreeting, refreshSession, reconnect, addUserAudio, inputAudioBufferClear };
+    return { startSession, requestGreeting, sendBaselineCue, refreshSession, reconnect, addUserAudio, inputAudioBufferClear };
 }

@@ -19,7 +19,7 @@ _MAX_HISTORY_SIZE = 50
 
 _VALID_STRESS_STATES = ("stressed", "relaxed", "normal")
 _VALID_CONVERSATION_STATES = ("active", "report_delivered", "qa_mode")
-_VALID_SURVEY_PHASES = ("warmup", "survey")
+_VALID_SURVEY_PHASES = ("baseline", "survey")
 
 
 @dataclass
@@ -61,12 +61,14 @@ class SessionState:
     # agent still knows what it said after the post-report reconnect wipes Azure's memory.
     spoken_report_text: str | None = None
 
-    # Pre-survey gate. "warmup" → the agent makes neutral small talk while the 30s
-    # biometric baseline records and the survey questions are NOT available to it;
+    # Pre-survey gate. "baseline" → the eyes-open (3 min) / eyes-closed (3 min, EEG
+    # only) calibration is running: the agent stays silent except for the spoken cues
+    # the frontend requests via `baseline.cue`, user audio is dropped before it reaches
+    # Azure, and the survey questions are NOT available to it;
     # "survey" → the questions are unlocked. Resolved at WS connect from the user's
     # stored baseline (see RTMiddleTier._resolve_survey_phase): a valid (non-expired)
     # baseline means a returning user who skips recording and starts in "survey".
-    survey_phase: str = "warmup"
+    survey_phase: str = "baseline"
     is_returning_user: bool = False
 
     # Voice response latency: time between the agent finishing a turn (e.g. asking
@@ -162,7 +164,7 @@ class SessionState:
         logger.info(f"[RTMT] ★ Conversation state set to: {state} (session={self.session_id})")
 
     def unlock_survey(self) -> None:
-        """Open the warm-up → survey gate. Fired when the 30s baseline completes."""
+        """Open the baseline → survey gate. Fired when the baseline protocol completes."""
         self.survey_phase = "survey"
         logger.info("[RTMT] ★ Survey phase unlocked (session=%s)", self.session_id)
 
@@ -221,9 +223,9 @@ class SessionState:
         self.current_right_gaze_position = "Center"
         self.stress_state = "normal"
         self.connection_count = 0
-        # Back to the gated warm-up phase; the next WS connect re-resolves whether
+        # Back to the gated baseline phase; the next WS connect re-resolves whether
         # this is a returning user (valid baseline) and may move it straight to "survey".
-        self.survey_phase = "warmup"
+        self.survey_phase = "baseline"
         self.is_returning_user = False
         self.pre_behaviour_snapshot = None
         self.post_behaviour_snapshot = None

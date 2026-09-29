@@ -320,29 +320,72 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
     return "\n".join(parts)
 
 
-def warmup_instructions() -> str:
-    """Warm-up phase script: neutral small talk while the 30s baseline records.
+def baseline_instructions() -> str:
+    """Baseline phase: stay silent while the eyes-open / eyes-closed calibration records.
 
-    Injected ONLY while ``survey_phase == "warmup"`` (a fresh / expired baseline). The
-    survey questions are deliberately withheld here — the agent has no questions to ask
-    and must NOT start the assessment. The warm-up → survey transition is NOT the agent's
-    decision; it fires when the 30s baseline completes (frontend unlocks the phase and
-    re-sends session.update), after which survey_instructions takes over.
+    Injected ONLY while ``survey_phase == "baseline"`` (a fresh / expired baseline). The
+    survey questions are withheld and user audio is dropped by RTMiddleTier before it
+    reaches the model, so the only turns the agent ever takes here are the spoken cues
+    the frontend requests via ``baseline.cue`` (see baseline_cue_instructions). The
+    baseline → survey transition is NOT the agent's decision; it fires when the
+    protocol completes (frontend unlocks the phase and re-sends session.update).
     """
-    return """WARM-UP PHASE — light small talk only (follow exactly):
-- We are quietly getting set up in the background. Your ONLY job right now is to keep the
-  user relaxed and naturally talking with brief, friendly small talk.
-- Open with a short, warm greeting and ONE easy small-talk question.
-- Stay on neutral, low-effort topics ONLY: the weather, their weekend or plans, coffee or
-  tea, their surroundings or where they're sitting — something light and pleasant.
-- STRICTLY AVOID anything about work, their job, stress, pressure, mood, feelings, energy,
-  sleep, health, or how they're coping. Those topics must wait until later.
-- Keep it to one short exchange at a time: warmly acknowledge what they say, then ask
-  another light question if the conversation lulls. Keep your turns to one or two sentences.
-- Do NOT mention surveys, questions, assessments, scoring, burnout, or that anything is
-  being recorded or calibrated.
-- Do NOT start the assessment or ask any assessment question yet — you do not have those
-  questions available. Simply keep the friendly chat going until you are told to continue."""
+    return """BASELINE CALIBRATION PHASE — stay silent (follow exactly):
+- A quiet calibration is running: the user is sitting still with their eyes open, then
+  closed, while we record a resting baseline. Talking would spoil it.
+- Do NOT speak unless you are explicitly given a line to say. When you are, say ONLY that
+  line — calmly, slowly and briefly — then stop. Never add small talk or follow-up questions.
+- Do NOT start the assessment or ask any assessment question — you do not have those
+  questions yet. You will be told when to continue."""
+
+
+# Spoken cues for the baseline protocol, keyed by the `cue` of a client `baseline.cue`
+# message. Each becomes the `instructions` of a single response.create, so the agent says
+# exactly one short line at a phase boundary and nothing else.
+_BASELINE_CUES = {
+    "eyes_open_start": (
+        "Say ONE short, calm line, then stop: briefly welcome the user, explain we'll start "
+        "with a quiet three-minute calibration, and ask them to sit comfortably, keep their eyes "
+        "open looking softly at the screen, stay still and not talk — you'll let them know when "
+        "to change. Do not ask any question."
+    ),
+    "eyes_closed_start": (
+        "Say ONE short, calm line, then stop: thank them, and ask them to now gently close their "
+        "eyes, relax and stay still for another three minutes — you'll tell them when to open "
+        "them. Do not ask any question."
+    ),
+}
+
+_SURVEY_START_LEADS = {
+    "survey_start_after_closed": (
+        "In a calm, gentle voice first tell the user they can slowly open their eyes now, and "
+        "thank them — the calibration is complete."
+    ),
+    "survey_start_after_open": (
+        "First thank the user warmly — the calibration is complete and they can relax."
+    ),
+}
+
+BASELINE_CUE_NAMES = frozenset(_BASELINE_CUES) | frozenset(_SURVEY_START_LEADS)
+
+
+def baseline_cue_instructions(cue: str) -> str | None:
+    """Per-response instructions for one baseline-protocol cue, or None if unknown.
+
+    The survey_start_* cues are sent AFTER the phase is unlocked and session.update has
+    re-injected the survey script, so they only add the lead-in; the model then follows
+    that script's OPENING (bridge line + permission question).
+    """
+    if cue in _BASELINE_CUES:
+        return _BASELINE_CUES[cue]
+    lead = _SURVEY_START_LEADS.get(cue)
+    if lead is None:
+        return None
+    return (
+        f"{lead} Then, in the SAME turn, continue with the OPENING from your survey "
+        "instructions (the short bridge line asking if they're ready to start), and stop to "
+        "wait for their reply."
+    )
 
 
 def readiness_conversation_instructions(questions: list, is_returning_user: bool = False) -> str:
@@ -365,10 +408,10 @@ def readiness_conversation_instructions(questions: list, is_returning_user: bool
    Then STOP and WAIT for their reply — that reply is a CONFIRMATION, not an answer to any
    topic, so never call record_survey_response for it."""
     else:
-        opening = """OPENING (you have just been making small talk with the user):
-1. Do NOT greet the user again as if meeting them for the first time — you were just chatting.
-2. Give ONE short, warm bridge line inviting them into the conversation, e.g. "nice chatting
-   — if you're up for it, I'd love to hear how work's been feeling lately. Shall we chat?"
+        opening = """OPENING (you have just guided the user through a quiet calibration):
+1. Do NOT greet the user again as if meeting them for the first time — you already welcomed them.
+2. Give ONE short, warm bridge line inviting them into the conversation, e.g. "thanks for
+   that — if you're up for it, I'd love to hear how work's been feeling lately. Shall we chat?"
    Then STOP and WAIT for their reply — that reply is a CONFIRMATION, not an answer to any
    topic, so never call record_survey_response for it."""
 
@@ -443,10 +486,10 @@ AFTER ALL {len(questions)} TOPICS HAVE BEEN GENUINELY EXPLORED:
 def survey_instructions(survey_config: dict, is_returning_user: bool = False) -> str:
     """Build the survey script the agent must follow exactly.
 
-    The OPENING is phase-aware: by the time this is injected the warm-up has already
+    The OPENING is phase-aware: by the time this is injected the baseline calibration has already
     happened, so the agent transitions in with a short bridge line rather than a fresh
     greeting. A returning user (skipped the 30s recording) gets a brief inline welcome +
-    one small-talk question first; a first-time user (just finished warm-up) only bridges.
+    one small-talk question first; a first-time user (just finished the baseline) only bridges.
 
     Qualitative surveys (e.g. READINESS, ``config.get("qualitative")``) do NOT use this
     rigid numbered-step script at all — see readiness_conversation_instructions instead,
@@ -501,9 +544,9 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
    it as the answer to Step 1. Once they've confirmed, {scale_step} THEN wait for the actual
    answer to that question."""
     else:
-        opening = f"""OPENING (you have just been making small talk with the user):
-1. Do NOT greet the user again as if meeting them for the first time — you were just chatting.
-2. Give ONE short, warm bridge line asking permission to start, e.g. "nice chatting — if you're
+        opening = f"""OPENING (you have just guided the user through a quiet calibration):
+1. Do NOT greet the user again as if meeting them for the first time — you already welcomed them.
+2. Give ONE short, warm bridge line asking permission to start, e.g. "thanks for that — if you're
    ready, I'd like to ask a few quick questions about how work's been feeling. Shall we start?"
    Then STOP and WAIT for the user's reply — do NOT ask Step 1's question in the same turn.
 3. The user's reply to that permission question (e.g. "ok", "sure", "yes", "go ahead") is a
@@ -816,12 +859,12 @@ def build_session_instructions(
 
     # Inject the survey script ONLY while actively running a survey. Once a report
     # has been delivered the session moves to report_delivered/qa_mode and must NOT
-    # see the survey steps again. While still in the warm-up phase the questions are
-    # gated out entirely — the agent gets the small-talk script instead, until the
-    # 30s baseline completes and unlocks survey_phase.
+    # see the survey steps again. While still in the baseline phase the questions are
+    # gated out entirely — the agent gets the stay-silent script instead, until the
+    # baseline protocol completes and unlocks survey_phase.
     if enable_survey and sess.conversation_state == "active":
-        if sess.survey_phase == "warmup":
-            extra += "\n\n" + warmup_instructions()
+        if sess.survey_phase == "baseline":
+            extra += "\n\n" + baseline_instructions()
         else:
             extra += "\n\n" + survey_instructions(survey_config, sess.is_returning_user)
 

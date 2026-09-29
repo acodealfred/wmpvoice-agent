@@ -41,6 +41,8 @@ export function useMuse() {
     const unsubsRef = useRef<Array<() => void>>([]);
     const recorderRef = useRef<Recorder | null>(null);
     const recordedAtRef = useRef<Date | null>(null);
+    // Consent timestamp of the current recording, carried over by splitRecording.
+    const consentAcceptedAtRef = useRef<string | null>(null);
     // The wall-clock instant streaming started, from source.start() itself —
     // reused as the anchor for any later recorder created by beginNewRecording,
     // since that anchor names when the packet clock zeroed, not when a
@@ -90,6 +92,7 @@ export function useMuse() {
     /** `consentAcceptedAt` is when the operator confirmed consent — take it before pairing, not here (docs/muse-wiring.md §2). */
     const connect = useCallback(
         async (consentAcceptedAt: string) => {
+            consentAcceptedAtRef.current = consentAcceptedAt;
             if (!available || !nav?.bluetooth) {
                 setError("This browser doesn't support Web Bluetooth. Use Chrome, Edge, or Opera on desktop.");
                 setStatus("error");
@@ -210,6 +213,20 @@ export function useMuse() {
         prevResolutionTMsRef.current = end;
     }, []);
 
+    /** Current EEG session-clock time (ms), for callers that mark their own intervals. */
+    const getSessionTMs = useCallback(() => sessionTMsRef.current, []);
+
+    /**
+     * Records an arbitrary labelled interval (e.g. the baseline's eyes-open / eyes-closed
+     * phases) on the current recording, alongside the per-question markers.
+     */
+    const addMarker = useCallback((label: string, tMsStart: number, tMsEnd: number) => {
+        const recorder = recorderRef.current;
+        if (!recorder || tMsEnd <= tMsStart) return;
+        questionMarkersRef.current = [...questionMarkersRef.current, { label, t_ms_start: tMsStart, t_ms_end: tMsEnd }];
+        recorder.setMarkers(questionMarkersRef.current);
+    }, []);
+
     /**
      * Marks the session-clock instant the assessment itself began — distinct from
      * when the headband paired, since pairing can happen earlier during consent.
@@ -231,6 +248,7 @@ export function useMuse() {
     const beginNewRecording = useCallback(
         (consentAcceptedAt: string) => {
             if (!sourceRef.current || !device) return false;
+            consentAcceptedAtRef.current = consentAcceptedAt;
             questionMarkersRef.current = [];
             // Not reset to 0 — the Bluetooth link (and its seq/session clock) stays
             // live across a retake, so the new recording's first marker should start
@@ -282,6 +300,20 @@ export function useMuse() {
         return recorder.finish();
     }, []);
 
+    /**
+     * Ends the current recording and immediately starts a fresh one on the same
+     * headband (same consent timestamp, same packet clock) — used at the end of the
+     * baseline protocol, so the baseline and the survey are stored as separate files.
+     * Returns the finished recording, or null when nothing is recording.
+     */
+    const splitRecording = useCallback((): SessionFile | null => {
+        const recorder = recorderRef.current;
+        if (!recorder) return null;
+        const file = recorder.finish();
+        beginNewRecording(consentAcceptedAtRef.current ?? new Date().toISOString());
+        return file;
+    }, [beginNewRecording]);
+
     // channelsForPreset returns a fresh array every call — memoized so a consumer
     // like EegWaveform, whose draw loop keys a useEffect off this array, doesn't
     // tear down and restart that loop on every unrelated re-render of whatever
@@ -301,9 +333,12 @@ export function useMuse() {
         resume,
         markQuestionResolved,
         markSurveyStarted,
+        getSessionTMs,
+        addMarker,
         beginNewRecording,
         save,
         finishForUpload,
+        splitRecording,
         getChannelSamples,
         channels
     };

@@ -186,9 +186,12 @@ async def init_db() -> None:
             ON survey_timeline_frames(survey_run_id, frame_index)
         """)
 
-        # One calibrated biometric baseline per user (pupil size + blink rate),
-        # keyed by user_id so it follows the user across devices/browsers. A new
-        # recording upserts this row; "Re-record" deletes it so a fresh one is taken.
+        # One calibrated baseline per user: camera biometrics (pupil size + blink
+        # rate, averaged over the eyes-open phase) plus, when a Muse headband was
+        # connected, the raw eyes-open/eyes-closed EEG session file as JSON
+        # (eeg_baseline_json, added below). Keyed by user_id so it follows the user
+        # across devices/browsers. A new recording overwrites this row (no history);
+        # "Re-record" deletes it so a fresh one is taken.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_baselines (
                 user_id    TEXT PRIMARY KEY REFERENCES users(user_id),
@@ -198,6 +201,10 @@ async def init_db() -> None:
                 updated_at TEXT NOT NULL
             )
         """)
+        try:
+            await db.execute("ALTER TABLE user_baselines ADD COLUMN eeg_baseline_json TEXT")
+        except aiosqlite.OperationalError:
+            pass  # column already present
 
         # Records informed-consent acceptance once per user (e.g. the pilot study
         # consent form) so it is never re-shown after the first acceptance — durable

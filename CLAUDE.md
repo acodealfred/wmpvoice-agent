@@ -44,7 +44,14 @@ source .venv/bin/activate
 pip install -r app/backend/requirements.txt
 ```
 
-There are no automated tests in this repository.
+### Automated tests
+```bash
+# Backend pytest suite (unit + integration)
+cd app/backend && pytest -q
+
+# Frontend vitest suite
+cd app/frontend && npm test
+```
 
 ## Environment variables (`app/backend/.env`)
 
@@ -175,3 +182,12 @@ Real-time API requires regions: `eastus2` or `swedencentral`.
 ### Data persistence (SQLite + Litestream)
 
 The SQLite DB (`app/backend/data/ciq.db`) lives on the container's ephemeral disk and would be wiped on every redeploy. **Litestream** streams its WAL to a dedicated Azure Blob container and restores it on boot, making the data durable across deployments — at ~cents/month and with no application code change. The app is pinned to a single replica (single writer), which is exactly Litestream's supported model. Auth is via the backend's managed identity (no keys). See `docs/persistence.md` for the full rationale, cost numbers, and the boot/restore flow. Touch points: `app/Dockerfile`, `app/backend/entrypoint.sh`, `app/backend/litestream.yml`, and the `litestreamStorage` module + `LITESTREAM_REPLICA_URL` env in `infra/main.bicep`.
+ 
++## Claude Code Orchestration (`.claude/`)
++
++For structured, context-efficient workflows, Claude Code uses the `.claude/` system:
++- Core instructions: `.claude/CLAUDE.md`
++- Persistent context: `.claude/context/` (`architecture.md`, `conventions.md`, `services.md`, `database.md`, `workflows.md`)
++- Specialized agents: `.claude/agents/` (`explorer.md`, `planner.md`, `implementer.md`, `reviewer.md`, `tester.md`, `debugger.md`)
++- Slash commands: `/explore`, `/plan`, `/implement`, `/review`, `/test`, `/debug` (in `.claude/commands/`)
+

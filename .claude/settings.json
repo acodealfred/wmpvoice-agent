@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/partial-claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(npm run:*)",
+      "Bash(npm test*)",
+      "Bash(pytest*)",
+      "Bash(ruff check*)",
+      "Bash(python -m pytest*)",
+      "Edit",
+      "Write"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard origin/*)",
+      "Bash(drop table*)"
+    ]
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/app/backend/static/assets/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "**/.ruff_cache/**",
+    "**/app/backend/data/*.db*",
+    "**/app/frontend/package-lock.json",
+    "**/*.pdf",
+    "**/*.tsbuildinfo",
+    "**/.azure/**",
+    "**/.git/**"
+  ]
+}

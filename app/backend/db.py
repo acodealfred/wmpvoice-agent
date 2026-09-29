@@ -267,6 +267,9 @@ async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
 async def get_user_baseline(user_id: str) -> dict | None:
     """Return the user's calibrated baseline if it is still within the TTL, else None.
 
+    Deliberately excludes eeg_baseline_json (several MB) — this runs on every new
+    realtime connection; use get_user_baseline_eeg for the EEG file.
+
     The 12-hour TTL is enforced here (DB level) by filtering on updated_at — the
     moment the row was last (re)recorded — so an expired baseline is returned as
     None, indistinguishable from a missing one, forcing a fresh recording. ISO-8601
@@ -283,20 +286,41 @@ async def get_user_baseline(user_id: str) -> dict | None:
             return dict(row) if row else None
 
 
-async def upsert_user_baseline(user_id: str, pupil_size: float, blink_rate: float) -> None:
-    """Insert or overwrite the user's baseline (one row per user)."""
+async def upsert_user_baseline(
+    user_id: str, pupil_size: float, blink_rate: float, eeg_baseline: dict | None = None
+) -> None:
+    """Insert or overwrite the user's baseline (one row per user).
+
+    Always overwrites eeg_baseline_json too — a recording made without a headband
+    stores NULL rather than keeping a stale EEG baseline from an earlier session.
+    """
     now = datetime.utcnow().isoformat()
+    eeg_json = json.dumps(eeg_baseline) if eeg_baseline is not None else None
     async with _open_db() as db:
         await db.execute(
-            """INSERT INTO user_baselines (user_id, pupil_size, blink_rate, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO user_baselines
+                   (user_id, pupil_size, blink_rate, eeg_baseline_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                    pupil_size = excluded.pupil_size,
                    blink_rate = excluded.blink_rate,
+                   eeg_baseline_json = excluded.eeg_baseline_json,
                    updated_at = excluded.updated_at""",
-            (user_id, pupil_size, blink_rate, now, now),
+            (user_id, pupil_size, blink_rate, eeg_json, now, now),
         )
         await db.commit()
+
+
+async def get_user_baseline_eeg(user_id: str) -> dict | None:
+    """Return the user's stored baseline EEG session file (no TTL filter), or None."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT eeg_baseline_json FROM user_baselines WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row or not row["eeg_baseline_json"]:
+                return None
+            return json.loads(row["eeg_baseline_json"])
 
 
 async def delete_user_baseline(user_id: str) -> None:

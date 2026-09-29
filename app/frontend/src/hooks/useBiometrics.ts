@@ -287,43 +287,52 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         }
     }, []);
 
-    const startBaselineSession = useCallback(() => {
-        // Always cancel any in-flight recording timer first so an explicit (re)start is
-        // reliable — including recovering from a session that was stopped mid-recording,
-        // which previously left the status stuck on "collecting" and made this a no-op.
-        if (baselineTimerRef.current) {
-            clearInterval(baselineTimerRef.current);
-            baselineTimerRef.current = null;
-        }
-
-        clearBaseline();
-        console.log("[Biometrics] Starting baseline session with duration:", baselineDuration, "seconds");
-
-        baselinePupilSizeSamplesRef.current = [];
-        baselineBlinkRateSamplesRef.current = [];
-        setBaselineProgress(0);
-        setBaselineSessionStatus("collecting");
-        baselineStartTimeRef.current = Date.now();
-
-        if (!isAnalyzing) {
-            setIsAnalyzing(true);
-        }
-
-        const durationMs = baselineDuration * 1000;
-        let elapsed = 0;
-
-        baselineTimerRef.current = window.setInterval(() => {
-            elapsed += 100;
-            const progress = Math.min((elapsed / durationMs) * 100, 100);
-            setBaselineProgress(progress);
-
-            if (elapsed >= durationMs) {
-                completeBaselineSession();
+    // `durationSec` overrides the hook's default (the baseline protocol records camera
+    // biometrics over the whole eyes-open phase rather than the default 30s).
+    const startBaselineSession = useCallback(
+        (durationSec?: number) => {
+            // Always cancel any in-flight recording timer first so an explicit (re)start is
+            // reliable — including recovering from a session that was stopped mid-recording,
+            // which previously left the status stuck on "collecting" and made this a no-op.
+            if (baselineTimerRef.current) {
+                clearInterval(baselineTimerRef.current);
+                baselineTimerRef.current = null;
             }
-        }, 100);
-    }, [baselineDuration, isAnalyzing]);
 
-    const completeBaselineSession = useCallback(() => {
+            clearBaseline();
+            const seconds = durationSec ?? baselineDuration;
+            console.log("[Biometrics] Starting baseline session with duration:", seconds, "seconds");
+
+            baselinePupilSizeSamplesRef.current = [];
+            baselineBlinkRateSamplesRef.current = [];
+            setBaselineProgress(0);
+            setBaselineSessionStatus("collecting");
+            baselineStartTimeRef.current = Date.now();
+
+            if (!isAnalyzing) {
+                setIsAnalyzing(true);
+            }
+
+            const durationMs = seconds * 1000;
+            let elapsed = 0;
+
+            baselineTimerRef.current = window.setInterval(() => {
+                elapsed += 100;
+                const progress = Math.min((elapsed / durationMs) * 100, 100);
+                setBaselineProgress(progress);
+
+                if (elapsed >= durationMs) {
+                    completeBaselineSession();
+                }
+            }, 100);
+        },
+        [baselineDuration, isAnalyzing]
+    );
+
+    // Returns the captured baseline (or null when there were no usable samples) so a
+    // caller that ends the recording itself — the baseline protocol at the end of the
+    // eyes-open phase — gets the result synchronously instead of via state.
+    const completeBaselineSession = useCallback((): BaselineData | null => {
         if (baselineTimerRef.current) {
             clearInterval(baselineTimerRef.current);
             baselineTimerRef.current = null;
@@ -349,6 +358,9 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             setBaselineData(newBaseline);
             saveBaselineToFile(newBaseline);
             console.log("[Biometrics] Baseline captured:", newBaseline, `(${pupilSamples.length} pupil samples)`);
+            setBaselineSessionStatus("completed");
+            setBaselineProgress(100);
+            return newBaseline;
         } else {
             // No usable samples (e.g. face not detected / out of frame for the full 30s).
             // Leave baselineData null so the card falls back to a re-recordable state.
@@ -360,6 +372,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
 
         setBaselineSessionStatus("completed");
         setBaselineProgress(100);
+        return null;
     }, []);
 
     const clearBaseline = useCallback(() => {
@@ -708,6 +721,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         baselineData,
         baselineProgress,
         startBaselineSession,
+        completeBaselineSession,
         clearBaseline,
         setBaseline
     };
