@@ -157,7 +157,13 @@ export interface BiometricMetrics {
         yaw: number;
     };
     blinkRate: number;
+    // False until the trailing window has enough face-visible time for a real rate;
+    // blinkRate (0) and blinkRateChangePercent (0) are placeholders while false.
+    blinkRateReady: boolean;
+    // Cumulative detector totals since analysis started — the backend differences
+    // these to get a per-question blink rate.
     blinkCount: number;
+    blinkValidMs: number;
     eyeOpenness: number;
     mouthOpenness: number;
     smileIntensity: number;

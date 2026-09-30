@@ -464,12 +464,22 @@ function App() {
         }
     });
 
+    const lastBiometricsPostRef = useRef(0);
+    const biometricsPostInFlightRef = useRef(false);
     const handleBiometricsUpdate = useCallback(
         async (biometrics: BiometricResult) => {
             if (!enableBiometrics) return;
 
-            // (blinkChange is never actually undefined here, but this survives that anyway.)
-            const blinkToSend = biometrics.metrics.blinkRateChangePercent ?? 0;
+            // Once per second, never overlapping: the hook produces a result per camera
+            // frame, and unordered concurrent POSTs could land an older value last.
+            const now = Date.now();
+            if (biometricsPostInFlightRef.current || now - lastBiometricsPostRef.current < 1000) return;
+            lastBiometricsPostRef.current = now;
+            biometricsPostInFlightRef.current = true;
+
+            // null (not 0) while the blink window lacks enough face-visible time.
+            const ready = biometrics.metrics.blinkRateReady;
+            const blinkToSend = ready ? biometrics.metrics.blinkRateChangePercent : null;
 
             // Pupil dilation as mm change vs the calibrated baseline (CIQ thresholds use mm).
             const pupilMm = biometrics.metrics.pupilSizeMm;
@@ -484,7 +494,10 @@ function App() {
                         session_id: sessionId,
                         sentiment: sentiment?.sentiment || "neutral",
                         blink_rate_change_percent: blinkToSend,
-                        blink_rate_bpm: biometrics.metrics.blinkRate,
+                        blink_rate_bpm: ready ? biometrics.metrics.blinkRate : null,
+                        blink_count: biometrics.metrics.blinkCount,
+                        blink_valid_ms: biometrics.metrics.blinkValidMs,
+                        baseline_blink_rate: baselineData?.blinkRate ?? null,
                         pupil_mm_change: pupilMmChange,
                         face_emotion: "NEUTRAL",
                         left_gaze_position: biometrics.metrics.leftGaze.label,
@@ -493,21 +506,30 @@ function App() {
                 });
             } catch (err) {
                 console.error("Failed to update biometrics:", err);
+            } finally {
+                biometricsPostInFlightRef.current = false;
             }
         },
         [sentiment, enableBiometrics, sessionId, baselineData]
     );
 
-    // Stress analysis effect — polls /analyze-stress off the live blink rate.
+    // Stress analysis effect — polls /analyze-stress off the live blink rate every 5s.
+    // Reads the latest biometrics through a ref: depending on currentBiometrics directly
+    // re-ran this effect (and fired a request) on every camera frame.
+    const latestBiometricsRef = useRef(currentBiometrics);
+    latestBiometricsRef.current = currentBiometrics;
+    const faceDetected = !!currentBiometrics?.faceDetected;
     useEffect(() => {
-        if (!isRecording || !currentBiometrics?.faceDetected || !enableBiometrics) {
+        if (!isRecording || !faceDetected || !enableBiometrics) {
             return;
         }
 
         const fetchStressAnalysis = async () => {
-            if (!currentBiometrics?.metrics?.blinkRate) return;
+            const metrics = latestBiometricsRef.current?.metrics;
+            // Skip only when there's no real rate yet — a true 0 blinks/min is still data.
+            if (!metrics?.blinkRateReady) return;
 
-            const blinkRate = currentBiometrics.metrics.blinkRate;
+            const blinkRate = metrics.blinkRate;
             const baselineBlinkRate = baselineData?.blinkRate;
 
             try {
@@ -533,7 +555,7 @@ function App() {
         const intervalId = setInterval(fetchStressAnalysis, 5000);
 
         return () => clearInterval(intervalId);
-    }, [isRecording, currentBiometrics, enableBiometrics, baselineData, sessionId]);
+    }, [isRecording, faceDetected, enableBiometrics, baselineData, sessionId]);
 
     // Forward real biometrics to backend whenever the hook produces a new result
     useEffect(() => {

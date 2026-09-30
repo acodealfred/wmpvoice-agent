@@ -237,11 +237,14 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
 
     voice_sentiment = args.get("voice_sentiment") or sess.current_sentiment
 
-    # Use aggregated values from history for accurate per-question biometrics
-    provided_blink = args.get("blink_rate_change_percent")
+    # Always the measured value: blinks over this question's own window, falling back
+    # to the recent rolling average when the window is too short. (A model-supplied
+    # blink_rate_change_percent used to take precedence here — the model has no access
+    # to the camera, so any value it sent was invented.)
+    question_blink = sess.take_question_blink_change()
     blink_rate_change_percent = (
-        provided_blink
-        if provided_blink is not None
+        question_blink
+        if question_blink is not None
         else sess.average_blink_rate_change()
     )
 
@@ -256,7 +259,7 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
 
     logger.info(
         f"[RTMT] ★ Survey Tool Debug - question_id={question_id}, "
-        f"provided_blink={provided_blink}, calculated_blink={blink_rate_change_percent}%, "
+        f"question_window_blink={question_blink}, blink_used={blink_rate_change_percent}%, "
         f"left_gaze_position={left_gaze_position}, right_gaze_position={right_gaze_position}"
     )
     logger.info(f"[RTMT] ★ Blink History: {sess.blink_rate_history[-10:]}")

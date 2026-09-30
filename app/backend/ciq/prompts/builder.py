@@ -455,7 +455,7 @@ WHEN TO RECORD (silent, never tell the user — the user never hears a number or
   This is YOUR internal judgment call, made silently — NEVER mention Low/Medium/High,
   a number, or any scale to the user; they simply had a natural conversation.
 - Also capture their natural-language answer via user_verbal_response, and include
-  voice_sentiment, blink_rate_change_percent, and face_emotion when available.
+  voice_sentiment and face_emotion when available.
 - Do NOT call record_survey_response twice for the same question_id.
 
 AFTER ALL {len(questions)} TOPICS HAVE BEEN GENUINELY EXPLORED:
@@ -625,7 +625,7 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
 - record_survey_response: call ONLY after the user has answered that step's question.
   Required fields: question_id (as shown per step), score (matching the scale explained
   for that step — see the tool's own description for the exact value mapping),
-  voice_sentiment, blink_rate_change_percent, face_emotion.
+  voice_sentiment, face_emotion.
 - DO NOT call record_survey_response for a question_id that you have already recorded.
 - query_survey_results: call with "burnout_score" to deliver the final result, and use it
   again for any follow-up questions after the survey is complete."""

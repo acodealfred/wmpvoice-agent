@@ -16,11 +16,13 @@ from db import (
     get_manager_overview,
     get_manager_score_trend,
     get_pilot_survey_export_rows,
+    get_survey_record,
     get_survey_timeline_frames,
     get_user_survey_records,
     get_user_survey_run_summaries,
 )
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
+from survey_loader import compute_survey_summary, effective_score, load_survey
 
 _TIMELINE_EXPORT_HEADERS = [
     "frame_index", "elapsed_seconds", "timestamp", "turn_state",
@@ -29,6 +31,68 @@ _TIMELINE_EXPORT_HEADERS = [
     "left_gaze_position", "right_gaze_position", "face_emotion",
     "voice_sentiment", "stress_state",
 ]
+
+_SURVEY_RESPONSES_HEADERS = [
+    "question_index", "question_id", "domain", "question", "user_response",
+    "raw_score", "effective_score",
+]
+
+
+def build_survey_summary_rows(record: dict | None) -> list[list]:
+    """The SURVEY RESPONSES + SURVEY TOTAL blocks appended below the per-second
+    rows of the timeline/combined CSV exports (blank row before each block).
+
+    Built from the run's persisted survey_results (answer text + raw score per
+    question) — not from the frames' question_id tags — so every question shows
+    up regardless of how the timeline frames were labeled. Totals come from
+    survey_loader.compute_survey_summary, the same figures the report uses.
+    Returns [] when the run has no survey record yet.
+    """
+    if not record:
+        return []
+    try:
+        results = json.loads(record.get("survey_results") or "{}")
+    except (TypeError, ValueError):
+        results = {}
+
+    survey_type = (record.get("survey_type") or "TEST").upper()
+    config = load_survey(survey_type)
+    qualitative = bool(config.get("qualitative"))
+
+    rows: list[list] = [[], ["SURVEY RESPONSES"], _SURVEY_RESPONSES_HEADERS]
+    config_ids = [q.get("id") for q in config.get("questions", [])]
+    # Survey order first (unanswered questions included, left blank), then any
+    # answered question the current config no longer lists.
+    ordered = [*config_ids, *(qid for qid in results if qid not in config_ids)]
+    prompts = {q.get("id"): q for q in config.get("questions", [])}
+    for idx, qid in enumerate(ordered, start=1):
+        q = prompts.get(qid, {})
+        r = results.get(qid, {})
+        raw = None if qualitative else r.get("score")
+        rows.append([
+            idx, qid, r.get("domain") or q.get("domain", ""), q.get("prompt", ""),
+            r.get("userResponse", ""),
+            "" if raw is None else raw,
+            "" if raw is None else effective_score(config, qid, raw),
+        ])
+
+    rows += [[], ["SURVEY TOTAL"]]
+    snapshots = [{"questionId": qid, **r} for qid, r in results.items() if r.get("score") is not None]
+    if qualitative:
+        rows += [["survey_type", "total_score", "max_score", "risk_level"], [survey_type, "", "", ""]]
+    elif config.get("scoringSections"):
+        rows.append(["survey_type", "section", "score", "score_range", "risk_level"])
+        for s in compute_survey_summary(config, snapshots)["sections"]:
+            lo, hi = s["scoreRange"]
+            rows.append([survey_type, s["label"], s["score"], f"{lo}-{hi}", s["riskLevel"]])
+    else:
+        summary = compute_survey_summary(config, snapshots)
+        rows += [
+            ["survey_type", "total_score", "max_score", "risk_level"],
+            [survey_type, summary["totalScore"], summary["maxScore"], summary["riskLevel"]],
+        ]
+    return rows
+
 
 _PILOT_EXPORT_HEADERS = [
     "Index",
@@ -169,6 +233,7 @@ async def admin_export_survey_timeline(request: web.Request) -> web.Response:
         return web.json_response({"error": "survey_run_id is required"}, status=400)
 
     frames = await get_survey_timeline_frames(survey_run_id)
+    record = await get_survey_record(survey_run_id)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -182,6 +247,7 @@ async def admin_export_survey_timeline(request: web.Request) -> web.Response:
             f["left_gaze_position"], f["right_gaze_position"], f["face_emotion"],
             f["voice_sentiment"], f["stress_state"],
         ])
+    writer.writerows(build_survey_summary_rows(record))
 
     return web.Response(
         body=buf.getvalue(),
@@ -226,6 +292,7 @@ async def admin_export_survey_timeline_combined(request: web.Request) -> web.Res
             f["voice_sentiment"], f["stress_state"],
             *(eeg[c] for c in EEG_COLUMNS),
         ])
+    writer.writerows(build_survey_summary_rows(await get_survey_record(survey_run_id)))
 
     headers = {"Content-Disposition": f'attachment; filename="survey_timeline_combined_{survey_run_id[:8]}.csv"'}
     if warnings:

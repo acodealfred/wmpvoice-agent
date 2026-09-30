@@ -78,6 +78,7 @@ async def clear_stress_state(request):
         sess.stress_state = "normal"
         sess.blink_rate_history.clear()
         sess.face_emotion_history.clear()
+        sess.blink_question_mark = None
         sess.current_blink_rate_change = 0.0
         sess.current_blink_rate_bpm = 0.0
         sess.current_face_emotion = "NEUTRAL"
@@ -138,8 +139,11 @@ async def update_biometrics(request):
         data = await request.json()
         session_id = data.get("session_id", "")
         sentiment = data.get("sentiment", "neutral")
-        blink_rate_change = data.get("blink_rate_change_percent", 0.0)
-        blink_rate_bpm = data.get("blink_rate_bpm", 0.0)
+        # None = the browser doesn't have enough face-visible time for a real rate yet.
+        blink_rate_change = data.get("blink_rate_change_percent")
+        blink_rate_bpm = data.get("blink_rate_bpm")
+        blink_count = data.get("blink_count")
+        blink_valid_ms = data.get("blink_valid_ms")
         face_emotion = data.get("face_emotion", "NEUTRAL")
         left_gaze_position = data.get("left_gaze_position", "Center")
         right_gaze_position = data.get("right_gaze_position", "Center")
@@ -150,8 +154,12 @@ async def update_biometrics(request):
 
         sess = rtmt.get_or_create_session(session_id)
         sess.current_sentiment = sentiment
-        sess.current_blink_rate_change = blink_rate_change
-        sess.current_blink_rate_bpm = blink_rate_bpm
+        if blink_rate_change is not None:
+            sess.current_blink_rate_change = blink_rate_change
+        if blink_rate_bpm is not None:
+            sess.current_blink_rate_bpm = blink_rate_bpm
+        if blink_count is not None and blink_valid_ms is not None:
+            sess.update_blink_totals(int(blink_count), float(blink_valid_ms), data.get("baseline_blink_rate"))
         sess.current_face_emotion = face_emotion
         sess.current_left_gaze_position = left_gaze_position
         sess.current_right_gaze_position = right_gaze_position

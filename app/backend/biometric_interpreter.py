@@ -27,7 +27,10 @@ class BiometricInterpreter:
     def __init__(self):
         self._blink_rate_history: list[tuple[float, float]] = []
         self._last_state: str = "normal"
-        self._baseline_blink_rate: float = 25.0
+        # None until a calibrated baseline arrives — then the absolute-threshold
+        # fallback in analyze_blink_rate is used (a made-up 25.0 default here meant that
+        # fallback never ran and uncalibrated users were compared to an arbitrary number).
+        self._baseline_blink_rate: float | None = None
 
     def set_baseline_blink_rate(self, baseline: float):
         if baseline > 0:
@@ -40,7 +43,7 @@ class BiometricInterpreter:
             self._blink_rate_history.pop(0)
 
         blink_rate_change_percent = 0.0
-        if self._baseline_blink_rate > 0:
+        if self._baseline_blink_rate:
             blink_rate_change_percent = (
                 (blink_rate - self._baseline_blink_rate) / self._baseline_blink_rate
             ) * 100
@@ -51,7 +54,7 @@ class BiometricInterpreter:
             f"[STRESS] ★ Baseline: {self._baseline_blink_rate}, Current: {blink_rate}, Change: {blink_rate_change_percent}%"
         )
 
-        if self._baseline_blink_rate > 0:
+        if self._baseline_blink_rate:
             if blink_rate_change_percent > 30:
                 state = "stressed"
                 excess = blink_rate_change_percent - 30

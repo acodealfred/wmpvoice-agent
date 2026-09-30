@@ -16,6 +16,9 @@ logger = logging.getLogger("voicerag")
 
 _SESSION_TTL_SECONDS = 4 * 3600  # sessions expire after 4 hours of inactivity
 _MAX_HISTORY_SIZE = 50
+# A question's blink window needs at least this much face-visible time to yield its
+# own rate; shorter windows fall back to the recent rolling average.
+_MIN_QUESTION_BLINK_VALID_MS = 10_000
 
 _VALID_STRESS_STATES = ("stressed", "relaxed", "normal")
 _VALID_CONVERSATION_STATES = ("active", "report_delivered", "qa_mode")
@@ -52,6 +55,14 @@ class SessionState:
     current_pupil_mm_change: float = 0.0
     blink_rate_history: list = field(default_factory=list)
     face_emotion_history: list = field(default_factory=list)
+    # Cumulative blink-detector totals from the browser (blinks, face-visible ms), the
+    # calibrated baseline rate, and the totals at the start of the current question's
+    # window — so each question gets the blink rate measured during THAT question
+    # rather than a trailing value that mostly reflects the previous one.
+    blink_total_count: int = 0
+    blink_total_valid_ms: float = 0.0
+    blink_baseline_bpm: float | None = None
+    blink_question_mark: tuple[int, float] | None = None
 
     conversation_state: str = "active"  # "active" | "report_delivered" | "qa_mode"
     report_context: str | None = None
@@ -218,6 +229,7 @@ class SessionState:
         self.face_emotion_history.clear()
         self.current_blink_rate_change = 0.0
         self.current_blink_rate_bpm = 0.0
+        self.blink_question_mark = None
         self.current_face_emotion = "NEUTRAL"
         self.current_left_gaze_position = "Center"
         self.current_right_gaze_position = "Center"
@@ -248,9 +260,14 @@ class SessionState:
         logger.info("[RTMT] ★ Session fully reset for new survey (session=%s)", self.session_id)
 
     # ── biometric history ────────────────────────────────────────────────────
-    def update_biometric_history(self, blink_change: float, face_emotion: str) -> None:
-        """Append new readings to the rolling history buffers."""
-        self.blink_rate_history.append(blink_change)
+    def update_biometric_history(self, blink_change: float | None, face_emotion: str) -> None:
+        """Append new readings to the rolling history buffers.
+
+        ``blink_change`` is None while the browser has too little face-visible time for
+        a real rate — skipped rather than recorded as a fake 0%.
+        """
+        if blink_change is not None:
+            self.blink_rate_history.append(blink_change)
         self.face_emotion_history.append(face_emotion)
         if len(self.blink_rate_history) > _MAX_HISTORY_SIZE:
             self.blink_rate_history.pop(0)
@@ -262,14 +279,49 @@ class SessionState:
         self.face_emotion_history.clear()
         self.current_blink_rate_change = 0.0
         self.current_blink_rate_bpm = 0.0
+        self.blink_question_mark = None
         self.current_face_emotion = "NEUTRAL"
         self.current_left_gaze_position = "Center"
         self.current_right_gaze_position = "Center"
         logger.info("[RTMT] ★ Biometric history cleared")
 
+    def update_blink_totals(self, blink_count: int, valid_ms: float, baseline_bpm: float | None) -> None:
+        """Record the browser's cumulative blink totals and open the first question window.
+
+        The window opens on the first update once the survey phase is on, and re-opens
+        if the totals go backwards (the browser restarted analysis and reset them).
+        """
+        self.blink_total_count = blink_count
+        self.blink_total_valid_ms = valid_ms
+        if baseline_bpm is not None and baseline_bpm > 0:
+            self.blink_baseline_bpm = baseline_bpm
+        mark = self.blink_question_mark
+        if self.survey_phase == "survey" and (mark is None or blink_count < mark[0] or valid_ms < mark[1]):
+            self.blink_question_mark = (blink_count, valid_ms)
+
+    def take_question_blink_change(self) -> float | None:
+        """Blink-rate % change vs baseline over the current question's window, then
+        start the next question's window. None when the window is too short (or there's
+        no baseline) to measure — the caller falls back to the rolling average."""
+        mark = self.blink_question_mark
+        self.blink_question_mark = (self.blink_total_count, self.blink_total_valid_ms)
+        if mark is None or not self.blink_baseline_bpm:
+            return None
+        valid_ms = self.blink_total_valid_ms - mark[1]
+        blinks = self.blink_total_count - mark[0]
+        if valid_ms < _MIN_QUESTION_BLINK_VALID_MS or blinks < 0:
+            return None
+        rate = blinks / valid_ms * 60_000
+        change = (rate - self.blink_baseline_bpm) / self.blink_baseline_bpm * 100
+        logger.info(
+            "[RTMT] ★ question blink window: %d blinks / %.1fs -> %.1f bpm (baseline %.1f) = %.1f%%",
+            blinks, valid_ms / 1000, rate, self.blink_baseline_bpm, change,
+        )
+        return change
+
     def average_blink_rate_change(self) -> float:
-        """Average blink rate change from history, excluding zero values."""
-        valid_changes = [c for c in self.blink_rate_history if c != 0]
+        """Average blink rate change over the recent history (real 0% readings included)."""
+        valid_changes = list(self.blink_rate_history)
         if not valid_changes:
             logger.warning("[RTMT] ★ average_blink_rate_change: no valid changes, history: %s", self.blink_rate_history[-10:])
             return 0.0

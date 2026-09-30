@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { FaceLandmarker, FilesetResolver, FaceLandmarkerResult } from "@mediapipe/tasks-vision";
 import { BiometricResult, BiometricMetrics } from "@/types";
 import { gazeLabel } from "@/components/ui/gaze-indicator";
+import { BlinkDetector, BlinkTotals, computeEAR, isPoseUsable, rateBetween } from "@/lib/blink";
 
 interface UseBiometricsProps {
     onBiometricsDetected?: (biometrics: BiometricResult) => void;
@@ -17,9 +18,10 @@ interface BaselineData {
 
 const BASELINE_FILE_KEY = "voicerag_biometric_baseline";
 const DEFAULT_BASELINE_DURATION = 30;
-const BLINK_WINDOW_MS = 30000;
-const BLINK_UPDATE_INTERVAL_MS = 5000;
-const EMA_ALPHA = 0.3;
+// Baseline blink rate: skip the first seconds while the participant settles, and
+// require enough face-visible time for the count to mean anything.
+const BASELINE_BLINK_SETTLE_MS = 10_000;
+const BASELINE_MIN_VALID_MS = 20_000;
 
 const calculateDistance = (p1: { x: number; y: number }, p2: { x: number; y: number }): number => {
     return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
@@ -190,20 +192,6 @@ const calculatePupilSize = (normalizedIrisSize: number, interocularDistance: num
     return pupilDiameterMm;
 };
 
-// Averages both eyes, so which set is labeled "left" vs "right" doesn't change
-// the result — but it was backwards here (159/145 are RIGHT_EYE_LANDMARKS,
-// 386/374 are LEFT_EYE_LANDMARKS, per the canonical indices defined above).
-// Fixed to use those constants directly: same value, no more misleading names
-// for the next person who touches this expecting per-eye correctness.
-const calculateNormalizedEyeOpenness = (landmarks: { x: number; y: number }[]): number => {
-    const leftOpen = Math.abs(landmarks[LEFT_EYE_LANDMARKS.upperLid].y - landmarks[LEFT_EYE_LANDMARKS.lowerLid].y);
-    const rightOpen = Math.abs(landmarks[RIGHT_EYE_LANDMARKS.upperLid].y - landmarks[RIGHT_EYE_LANDMARKS.lowerLid].y);
-    const avgOpen = (leftOpen + rightOpen) / 2;
-
-    const eyeWidth = Math.abs(landmarks[33].x - landmarks[133].x);
-    return avgOpen / eyeWidth;
-};
-
 const saveBaselineToFile = (data: BaselineData): void => {
     try {
         const jsonStr = JSON.stringify(data);
@@ -228,7 +216,7 @@ const loadBaselineFromFile = (): BaselineData | null => {
     return null;
 };
 
-export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, baselineDuration = DEFAULT_BASELINE_DURATION }: UseBiometricsProps = {}) {
+export function useBiometrics({ onBiometricsDetected, analyzeInterval = 15, baselineDuration = DEFAULT_BASELINE_DURATION }: UseBiometricsProps = {}) {
     const [isModelLoaded, setIsModelLoaded] = useState(false);
     const [currentBiometrics, setCurrentBiometrics] = useState<BiometricResult | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -239,21 +227,19 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
     const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const lastFrameTimeRef = useRef<number>(0);
+    const lastVideoTimeRef = useRef<number>(-1);
     const analysisStartTimeRef = useRef<number>(0);
-    const blinkTimestampsRef = useRef<number[]>([]);
-    const totalBlinkCountRef = useRef<number>(0);
-    const isBlinkingRef = useRef<boolean>(false);
-    const previousEARRef = useRef<number>(1);
+    const blinkDetectorRef = useRef<BlinkDetector>(new BlinkDetector());
     const intervalRef = useRef<number | null>(null);
     const logCounterRef = useRef<number>(0);
     const baselinePupilSizeSamplesRef = useRef<number[]>([]);
-    const baselineBlinkRateSamplesRef = useRef<number[]>([]);
+    // Detector totals at the start of the eyes-open baseline, and again once the
+    // settle period has passed — the baseline rate is counted between these and the end.
+    const baselineBlinkStartRef = useRef<BlinkTotals | null>(null);
+    const baselineBlinkSettledRef = useRef<BlinkTotals | null>(null);
     const baselineStartTimeRef = useRef<number>(0);
     const baselineTimerRef = useRef<number | null>(null);
-    const smoothedBlinkRateRef = useRef<number>(0);
     const baselineRateRef = useRef<number>(0);
-    const lastBlinkRateUpdateRef = useRef<number>(0);
-    const currentSmoothedBlinkRateRef = useRef<number>(0);
     // Adaptive gaze baselines: slow EMA of each eye's raw iris x position, tracked
     // independently per eye so one eye's drift/occlusion can't bias the other.
     // Initialised to null so the first detected position sets it instantly,
@@ -304,7 +290,8 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             console.log("[Biometrics] Starting baseline session with duration:", seconds, "seconds");
 
             baselinePupilSizeSamplesRef.current = [];
-            baselineBlinkRateSamplesRef.current = [];
+            baselineBlinkStartRef.current = blinkDetectorRef.current.totals();
+            baselineBlinkSettledRef.current = null;
             setBaselineProgress(0);
             setBaselineSessionStatus("collecting");
             baselineStartTimeRef.current = Date.now();
@@ -339,11 +326,21 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         }
 
         const pupilSamples = baselinePupilSizeSamplesRef.current;
-        const blinkSamples = baselineBlinkRateSamplesRef.current;
 
         const avgPupilSize = pupilSamples.length > 0 ? pupilSamples.reduce((a, b) => a + b, 0) / pupilSamples.length : 0;
 
-        const avgBlinkRate = blinkSamples.length > 0 ? blinkSamples.reduce((a, b) => a + b, 0) / blinkSamples.length : 0;
+        // Blinks counted over the recording's face-visible time (after the settle period
+        // when there's enough of it), rather than an average of a lagging live rate.
+        const endTotals = blinkDetectorRef.current.totals();
+        const startTotals = baselineBlinkStartRef.current;
+        const settledTotals = baselineBlinkSettledRef.current;
+        const avgBlinkRate =
+            (settledTotals && rateBetween(settledTotals, endTotals, BASELINE_MIN_VALID_MS)) ??
+            (startTotals && rateBetween(startTotals, endTotals, BASELINE_MIN_VALID_MS)) ??
+            0;
+        if (avgBlinkRate === 0) {
+            console.warn("[Biometrics] Baseline blink rate unavailable — too little face-visible time or no blinks detected", { startTotals, endTotals });
+        }
 
         if (avgPupilSize > 0 && avgBlinkRate >= 0) {
             const newBaseline: BaselineData = {
@@ -353,8 +350,6 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             };
 
             baselineRateRef.current = avgBlinkRate;
-            smoothedBlinkRateRef.current = avgBlinkRate;
-            currentSmoothedBlinkRateRef.current = avgBlinkRate;
             setBaselineData(newBaseline);
             saveBaselineToFile(newBaseline);
             console.log("[Biometrics] Baseline captured:", newBaseline, `(${pupilSamples.length} pupil samples)`);
@@ -385,7 +380,8 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         setBaselineSessionStatus("idle");
         setBaselineProgress(0);
         baselinePupilSizeSamplesRef.current = [];
-        baselineBlinkRateSamplesRef.current = [];
+        baselineBlinkStartRef.current = null;
+        baselineBlinkSettledRef.current = null;
     }, []);
 
     // Inject a baseline obtained elsewhere (e.g. fetched from the DB for a returning
@@ -393,8 +389,6 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
     // ref wiring so downstream blink-change math uses it, and caches it locally.
     const setBaseline = useCallback((data: BaselineData) => {
         baselineRateRef.current = data.blinkRate;
-        smoothedBlinkRateRef.current = data.blinkRate;
-        currentSmoothedBlinkRateRef.current = data.blinkRate;
         setBaselineData(data);
         setBaselineSessionStatus("completed");
         setBaselineProgress(100);
@@ -402,7 +396,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
     }, []);
 
     const extractMetrics = useCallback(
-        (result: FaceLandmarkerResult): BiometricMetrics | null => {
+        (result: FaceLandmarkerResult, frameTime: number, frameWidth: number, frameHeight: number): BiometricMetrics | null => {
             const faceLandmarks = result.faceLandmarks?.[0] || [];
             if (faceLandmarks.length === 0) {
                 return null;
@@ -418,59 +412,36 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 yaw = Math.atan2(matrix[2], Math.sqrt(matrix[0] * matrix[0] + matrix[2] * matrix[2])) * (180 / Math.PI);
             }
 
-            const leftEAR = calculateNormalizedEyeOpenness(faceLandmarks);
-            const avgEyeOpenness = leftEAR;
+            const blendshapes = result.faceBlendshapes?.[0]?.categories || [];
+            const getBlendshapeValue = (name: string): number => {
+                const shape = blendshapes.find(b => b.categoryName === name);
+                return shape?.score || 0;
+            };
 
-            const currentTime = Date.now();
+            const ear = computeEAR(faceLandmarks, frameWidth, frameHeight);
+            const avgEyeOpenness = ear;
+            const blinkDetector = blinkDetectorRef.current;
+            const blinked = blinkDetector.update({
+                t: frameTime,
+                ear,
+                blinkScore: Math.max(getBlendshapeValue("eyeBlinkLeft"), getBlendshapeValue("eyeBlinkRight")),
+                usable: isPoseUsable(pitch, yaw)
+            });
 
             logCounterRef.current++;
             const shouldLog = logCounterRef.current % 30 === 0;
-
-            if (shouldLog) {
-                console.log("[Biometrics] EyeOpenness:", leftEAR.toFixed(3));
+            if (blinked || shouldLog) {
+                console.log("[Biometrics] EAR:", ear.toFixed(3), "| blink:", blinked, "| totals:", blinkDetector.totals());
             }
 
-            const isClosed = leftEAR < 0.1;
+            // null until there's enough face-visible time in the window for a real rate.
+            const liveBlinkRate = blinkDetector.rate(frameTime);
+            const blinkRateReady = liveBlinkRate !== null;
+            const blinkRate = liveBlinkRate ?? 0;
 
-            if (shouldLog || leftEAR < 0.1) {
-                console.log("[Biometrics] isClosed:", isClosed, "| isBlinkingRef:", isBlinkingRef.current, "| EyeOpenness:", leftEAR.toFixed(3));
+            if (baselineSessionStatus === "collecting" && !baselineBlinkSettledRef.current && Date.now() - baselineStartTimeRef.current >= BASELINE_BLINK_SETTLE_MS) {
+                baselineBlinkSettledRef.current = blinkDetector.totals();
             }
-
-            if (isClosed && !isBlinkingRef.current) {
-                isBlinkingRef.current = true;
-
-                const lastBlink = blinkTimestampsRef.current.length > 0 ? currentTime - blinkTimestampsRef.current[blinkTimestampsRef.current.length - 1] : 0;
-
-                if (lastBlink === 0 || lastBlink > 250) {
-                    blinkTimestampsRef.current.push(currentTime);
-                    totalBlinkCountRef.current++;
-
-                    while (blinkTimestampsRef.current.length > 0 && currentTime - blinkTimestampsRef.current[0] > BLINK_WINDOW_MS) {
-                        blinkTimestampsRef.current.shift();
-                    }
-                }
-            } else if (!isClosed && isBlinkingRef.current) {
-                isBlinkingRef.current = false;
-            }
-
-            previousEARRef.current = leftEAR;
-
-            const thirtySecondsAgo = currentTime - BLINK_WINDOW_MS;
-            const blinksInWindow = blinkTimestampsRef.current.filter(t => t > thirtySecondsAgo).length;
-            const rawBlinkRate = blinksInWindow * 2;
-
-            if (currentTime - lastBlinkRateUpdateRef.current >= BLINK_UPDATE_INTERVAL_MS) {
-                lastBlinkRateUpdateRef.current = currentTime;
-
-                if (smoothedBlinkRateRef.current === 0) {
-                    smoothedBlinkRateRef.current = rawBlinkRate;
-                } else {
-                    smoothedBlinkRateRef.current = EMA_ALPHA * rawBlinkRate + (1 - EMA_ALPHA) * smoothedBlinkRateRef.current;
-                }
-                currentSmoothedBlinkRateRef.current = smoothedBlinkRateRef.current;
-            }
-
-            const blinkRate = currentSmoothedBlinkRateRef.current;
 
             if (baselineSessionStatus === "collecting") {
                 let interocularDistance = 0;
@@ -486,15 +457,7 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 if (pupilSize > 0) {
                     baselinePupilSizeSamplesRef.current.push(pupilSize);
                 }
-
-                baselineBlinkRateSamplesRef.current.push(blinkRate);
             }
-
-            const blendshapes = result.faceBlendshapes?.[0]?.categories || [];
-            const getBlendshapeValue = (name: string): number => {
-                const shape = blendshapes.find(b => b.categoryName === name);
-                return shape?.score || 0;
-            };
 
             const leftMouthOpen = getBlendshapeValue("mouthShrugUpper");
             const rightMouthOpen = getBlendshapeValue("mouthShrugLower");
@@ -562,14 +525,16 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
 
             let blinkRateChangePercent = 0;
             const baselineRateForChange = baselineRateRef.current > 0 ? baselineRateRef.current : baselineData?.blinkRate || 0;
-            if (baselineRateForChange > 0 && blinkRate > 0) {
+            if (baselineRateForChange > 0 && blinkRateReady) {
                 blinkRateChangePercent = ((blinkRate - baselineRateForChange) / baselineRateForChange) * 100;
             }
 
             return {
                 headPose: { pitch, roll, yaw },
-                blinkRate: Math.min(blinkRate, 60),
-                blinkCount: totalBlinkCountRef.current,
+                blinkRate,
+                blinkRateReady,
+                blinkCount: blinkDetector.totals().blinks,
+                blinkValidMs: blinkDetector.totals().validMs,
                 eyeOpenness: avgEyeOpenness,
                 mouthOpenness,
                 smileIntensity,
@@ -596,14 +561,20 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
         const video = videoRef.current;
         if (video.readyState < 2) return;
 
-        const currentTime = performance.now();
-        if (currentTime - lastFrameTimeRef.current < 33) return;
+        // Process every NEW camera frame exactly once. (A fixed 33 ms guard on top of a
+        // 33 ms timer silently skipped ~every other frame on timer jitter, halving the
+        // effective fps and missing short blinks.)
+        if (video.currentTime === lastVideoTimeRef.current) return;
+        lastVideoTimeRef.current = video.currentTime;
+
+        let currentTime = performance.now();
+        if (currentTime <= lastFrameTimeRef.current) currentTime = lastFrameTimeRef.current + 1; // detectForVideo needs increasing timestamps
         lastFrameTimeRef.current = currentTime;
 
         const result = faceLandmarkerRef.current.detectForVideo(video, currentTime);
 
         if (result.faceLandmarks && result.faceLandmarks.length > 0) {
-            const metrics = extractMetrics(result);
+            const metrics = extractMetrics(result, currentTime, video.videoWidth, video.videoHeight);
 
             if (metrics) {
                 const elapsedSeconds = analysisStartTimeRef.current > 0 ? Math.floor((currentTime - analysisStartTimeRef.current) / 1000) : 0;
@@ -618,11 +589,15 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
                 onBiometricsDetected?.(biometricResult);
             }
         } else {
+            // No face: this time is excluded from the blink-rate time base.
+            blinkDetectorRef.current.markUnusable(currentTime);
             setCurrentBiometrics({
                 metrics: {
                     headPose: { pitch: 0, roll: 0, yaw: 0 },
                     blinkRate: 0,
-                    blinkCount: totalBlinkCountRef.current,
+                    blinkRateReady: false,
+                    blinkCount: blinkDetectorRef.current.totals().blinks,
+                    blinkValidMs: blinkDetectorRef.current.totals().validMs,
                     eyeOpenness: 0,
                     mouthOpenness: 0,
                     smileIntensity: 0,
@@ -664,10 +639,8 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 33, base
             clearInterval(baselineTimerRef.current);
             baselineTimerRef.current = null;
         }
-        blinkTimestampsRef.current = [];
-        isBlinkingRef.current = false;
-        previousEARRef.current = 1;
-        totalBlinkCountRef.current = 0;
+        blinkDetectorRef.current.reset();
+        lastVideoTimeRef.current = -1;
         analysisStartTimeRef.current = 0;
         logCounterRef.current = 0;
     }, []);

@@ -61,10 +61,6 @@ SURVEY_SCHEMA = {
                 "enum": ["positive", "neutral", "negative"],
                 "description": "Sentiment detected from user's voice",
             },
-            "blink_rate_change_percent": {
-                "type": "number",
-                "description": "Percentage change in blink rate from baseline during this answer",
-            },
             "face_emotion": {
                 "type": "string",
                 "description": "Dominant emotion detected from face (e.g., HAPPY, SAD, ANGRY, NEUTRAL)",
