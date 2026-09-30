@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Any
 
+from ciq.assessments.service import persist_answer
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import SessionState
 from ciq.realtime.spoken_report import build_pilot_spoken_report
@@ -16,6 +17,7 @@ from ciq.realtime.timeline_capture import (
     schedule_stop_timeline_capture,
 )
 from ciq.realtime.tools.base import ToolResult, ToolResultDirection
+from ciq.realtime.transcripts import assign_items_to_question, user_response_for
 from ciq.survey import get_question_domain
 from survey_loader import (
     blink_band,
@@ -223,7 +225,8 @@ async def sentiment_tool(args: Any) -> ToolResult:
 async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> ToolResult:
     question_id = args.get("question_id")
     score = args.get("score")
-    user_response = args.get("user_verbal_response", "")
+    # The model's own paraphrase — only a fallback; see ciq.realtime.transcripts.
+    model_response = args.get("user_verbal_response", "")
 
     # Idempotency guard: reject duplicate recordings for the same question so a
     # misfired tool call cannot pollute the report or confuse the progress counter.
@@ -263,6 +266,11 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
         f"left_gaze_position={left_gaze_position}, right_gaze_position={right_gaze_position}"
     )
     logger.info(f"[RTMT] ★ Blink History: {sess.blink_rate_history[-10:]}")
+
+    # Every user reply since this question was asked is its answer. Their Whisper
+    # transcripts replace the model's text now if already back, else when they land.
+    assign_items_to_question(sess, question_id)
+    user_response = user_response_for(sess, question_id, model_response)
 
     sess.survey_results[question_id] = {
         "score": score,
@@ -309,20 +317,25 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
         f"blink_change={blink_rate_change_percent}%, gaze_left={left_gaze_position}, gaze_right={right_gaze_position}"
     )
 
+    snapshot = {
+        "questionId": question_id,
+        "domain": domain,
+        "score": score,
+        "userResponse": user_response,
+        "voiceSentiment": voice_sentiment,
+        "blinkRateChange": blink_rate_change_percent,
+        "pupilMmChange": pupil_mm_change,
+        "leftGazePosition": left_gaze_position,
+        "rightGazePosition": right_gaze_position,
+        "responseLatencyMs": response_latency_ms,
+    }
+    # Persist now (not only at report time) so a paused / dropped run can be
+    # continued where the user left off. No-op when no run is bound.
+    await persist_answer(sess, survey_config, snapshot)
+
     client_message = {
         "type": "survey.biometric.update",
-        "snapshot": {
-            "questionId": question_id,
-            "domain": domain,
-            "score": score,
-            "userResponse": user_response,
-            "voiceSentiment": voice_sentiment,
-            "blinkRateChange": blink_rate_change_percent,
-            "pupilMmChange": pupil_mm_change,
-            "leftGazePosition": left_gaze_position,
-            "rightGazePosition": right_gaze_position,
-            "responseLatencyMs": response_latency_ms,
-        },
+        "snapshot": snapshot,
         "totalScore": total_score,
         "completed": completed,
         "total": total,

@@ -8,10 +8,10 @@ from aiohttp import web
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
-from ciq.eeg.combine import EEG_COLUMNS, compute_unified_columns
+from ciq.eeg.combine import EEG_COLUMNS, combine_segments
 from db import (
     get_all_users_with_session_info,
-    get_eeg_session,
+    get_eeg_segments,
     get_manager_analytics,
     get_manager_overview,
     get_manager_score_trend,
@@ -261,21 +261,22 @@ async def admin_export_survey_timeline_combined(request: web.Request) -> web.Res
     per-second timeline as admin_export_survey_timeline above, with per-second
     EEG band power, signal quality, pulse and head-motion columns appended,
     computed on the fly from that run's stored Muse recording (nothing derived is
-    persisted). Rows are joined on their own UTC timestamps — see ciq.eeg.combine."""
+    persisted). Rows are joined on their own UTC timestamps — see ciq.eeg.combine.
+    A paused-and-continued run is combined per segment (ciq.eeg.combine.combine_segments)."""
     survey_run_id = request.query.get("survey_run_id", "")
     if not survey_run_id:
         return web.json_response({"error": "survey_run_id is required"}, status=400)
 
-    eeg_session = await get_eeg_session(survey_run_id)
-    if not eeg_session:
+    segments = await get_eeg_segments(survey_run_id)
+    if not segments:
         return web.json_response({"error": "No EEG session recorded for this survey run"}, status=404)
 
     frames = await get_survey_timeline_frames(survey_run_id)
-    file_json = eeg_session["file_json"]
+    segment_files = {s["segment_index"]: s["file_json"] for s in segments}
 
     # numpy/scipy work — off the event loop so live voice sessions don't stall.
     try:
-        eeg_rows, warnings = await asyncio.to_thread(compute_unified_columns, file_json, frames)
+        eeg_rows, warnings = await asyncio.to_thread(combine_segments, segment_files, frames)
     except (KeyError, TypeError, ValueError, IndexError) as e:
         return web.json_response({"error": f"The stored EEG recording is malformed: {e!r}"}, status=422)
 

@@ -256,3 +256,42 @@ def compute_unified_columns(file_json: dict, frames: list[dict]) -> tuple[list[d
             "normally 1-4 s, so the two clocks may disagree and EEG values may be shifted by about that much."
         )
     return rows, warnings
+
+
+def _segment_of(frame: dict) -> int:
+    """A frame's segment_index (DB rows carry an int, CSV rows a string; absent = 0)."""
+    try:
+        return int(frame.get("segment_index") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def combine_segments(segment_files: dict, frames: list[dict]) -> tuple[list[dict], list[str]]:
+    """compute_unified_columns for a run recorded in one or more Start/Continue segments.
+
+    `segment_files` maps segment_index -> that segment's Muse file. Each segment is
+    lined up against ONLY its own timeline frames: a resumed segment is a separate
+    recording (usually a headband reconnect, so a new t0_epoch_ms and a restarted
+    seq), and pooling two recordings would mix two packet clocks. Rows come back in
+    `frames` order. A segment with no recording keeps its rows with empty EEG cells.
+    """
+    rows: list[dict] = [dict.fromkeys(EEG_COLUMNS) for _ in frames]
+    warnings: list[str] = []
+    by_segment: dict[int, list[int]] = {}
+    for i, frame in enumerate(frames):
+        by_segment.setdefault(_segment_of(frame), []).append(i)
+    multi = len(by_segment) > 1 or len(segment_files) > 1
+
+    for segment, positions in sorted(by_segment.items()):
+        file_json = segment_files.get(segment)
+        if file_json is None:
+            warnings.append(f"Segment {segment} has no EEG recording, so its {len(positions)} rows have no EEG.")
+            continue
+        seg_rows, seg_warnings = compute_unified_columns(file_json, [frames[i] for i in positions])
+        for i, row in zip(positions, seg_rows):
+            rows[i] = row
+        warnings.extend(f"Segment {segment}: {w}" if multi else w for w in seg_warnings)
+
+    for segment in sorted(set(segment_files) - set(by_segment)):
+        warnings.append(f"Segment {segment} has an EEG recording but no timeline rows, so it is not in the output.")
+    return rows, warnings

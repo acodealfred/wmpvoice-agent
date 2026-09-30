@@ -1,10 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Trash2, Loader2, CheckCircle2, XCircle, RefreshCw, FileText, ShieldCheck, Hash, Database, Users, Eye, Type, Download, X, Clock, ShieldAlert } from "lucide-react";
+import {
+    Upload,
+    Trash2,
+    Loader2,
+    CheckCircle2,
+    XCircle,
+    RefreshCw,
+    FileText,
+    ShieldCheck,
+    Hash,
+    Database,
+    Users,
+    Eye,
+    Type,
+    Download,
+    X,
+    Clock,
+    ShieldAlert
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KBDocument, AdminUser, SurveyRunSummary, FlaggedRecoverySession } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
 import { PILL, BANNER } from "@/lib/badges";
+import { formatServerDate } from "@/lib/datetime";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -260,7 +279,10 @@ export function AdminPanel() {
     useEffect(() => {
         apiFetch("/admin/demo-data", { credentials: "same-origin" })
             .then(r => (r.ok ? r.json() : Promise.reject()))
-            .then(d => { setDemoEnabled(!!d.enabled); setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 }); })
+            .then(d => {
+                setDemoEnabled(!!d.enabled);
+                setDemoCounts({ userCount: d.userCount ?? 0, surveyCount: d.surveyCount ?? 0 });
+            })
             .catch(() => setDemoEnabled(null));
     }, []);
 
@@ -273,7 +295,7 @@ export function AdminPanel() {
             const resp = await apiFetch("/admin/demo-data", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ enabled: next }),
+                body: JSON.stringify({ enabled: next })
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const d = await resp.json();
@@ -297,7 +319,7 @@ export function AdminPanel() {
             const resp = await apiFetch("/admin/demo-data", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ enabled: false }),
+                body: JSON.stringify({ enabled: false })
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const d = await resp.json();
@@ -399,22 +421,29 @@ export function AdminPanel() {
     const [eegExporting, setEegExporting] = useState(false);
     const [eegError, setEegError] = useState<string | null>(null);
 
-    const handleDownloadEegRaw = useCallback(async () => {
-        if (!timelineRunId) return;
-        setEegExporting(true);
-        setEegError(null);
-        try {
-            const resp = await apiFetch(`/admin/eeg-sessions/export?survey_run_id=${encodeURIComponent(timelineRunId)}`, {
-                credentials: "same-origin"
-            });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            triggerBlobDownload(await resp.blob(), `eeg_session_${timelineRunId.slice(0, 8)}.json`);
-        } catch (err) {
-            setEegError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");
-        } finally {
-            setEegExporting(false);
-        }
-    }, [timelineRunId]);
+    // No segment → the whole run (one raw file, or a {segments: [...]} bundle for a
+    // paused-and-continued run); a segment → just that segment's raw Muse file.
+    const handleDownloadEegRaw = useCallback(
+        async (segment?: number) => {
+            if (!timelineRunId) return;
+            setEegExporting(true);
+            setEegError(null);
+            try {
+                const segmentParam = segment === undefined ? "" : `&segment=${segment}`;
+                const resp = await apiFetch(`/admin/eeg-sessions/export?survey_run_id=${encodeURIComponent(timelineRunId)}${segmentParam}`, {
+                    credentials: "same-origin"
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const suffix = segment === undefined ? "" : `_segment${segment}`;
+                triggerBlobDownload(await resp.blob(), `eeg_session_${timelineRunId.slice(0, 8)}${suffix}.json`);
+            } catch (err) {
+                setEegError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");
+            } finally {
+                setEegExporting(false);
+            }
+        },
+        [timelineRunId]
+    );
 
     // ── Combined export: the same per-second timeline CSV, with per-second EEG
     // band power, signal quality, pulse and head-motion columns appended.
@@ -445,7 +474,9 @@ export function AdminPanel() {
         }
     }, [timelineRunId]);
 
-    const selectedRunHasEeg = timelineRuns.find(r => r.survey_run_id === timelineRunId)?.has_eeg_session ?? false;
+    const selectedRun = timelineRuns.find(r => r.survey_run_id === timelineRunId);
+    const selectedRunHasEeg = selectedRun?.has_eeg_session ?? false;
+    const selectedRunEegSegments = selectedRun?.eeg_segments ?? [];
 
     // ── Upload Document ───────────────────────────────────────────────
     const [uploadTitle, setUploadTitle] = useState("");
@@ -622,9 +653,8 @@ export function AdminPanel() {
                     </Button>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
-                    Sessions where a Recovery Window user answered the safety question "yes" or "prefer not to say".
-                    Individual intake answers and reflections are never shown here — only that a session was flagged, for
-                    HR follow-up. Acknowledging marks it reviewed; it does not notify the user.
+                    Sessions where a Recovery Window user answered the safety question "yes" or "prefer not to say". Individual intake answers and reflections
+                    are never shown here — only that a session was flagged, for HR follow-up. Acknowledging marks it reviewed; it does not notify the user.
                 </p>
                 {flaggedError && (
                     <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
@@ -656,7 +686,7 @@ export function AdminPanel() {
                                     <tr key={s.recoverySessionId} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
                                         <td className="px-4 py-3 font-medium text-[color:var(--ciq-text-strong)]">{s.userName}</td>
                                         <td className="px-4 py-3 text-[color:var(--ciq-text-body)]">{s.status}</td>
-                                        <td className="px-4 py-3 text-[color:var(--ciq-text-muted)]">{new Date(s.createdAt).toLocaleString()}</td>
+                                        <td className="px-4 py-3 text-[color:var(--ciq-text-muted)]">{formatServerDate(s.createdAt)}</td>
                                         <td className="px-4 py-3 text-center">
                                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${s.reviewed ? PILL.green : PILL.neutral}`}>
                                                 {s.reviewed ? "Reviewed" : "Pending"}
@@ -688,17 +718,17 @@ export function AdminPanel() {
                     <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Demo Data (E2E)</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
-                    When ON, the database is seeded with six departments of synthetic staff and burnout assessments so the
-                    Manager dashboard can be demoed end-to-end. When OFF, <strong>all</strong> seeded demo data is deleted and the
-                    app shows real data only. Real users and real assessments are never touched.
+                    When ON, the database is seeded with six departments of synthetic staff and burnout assessments so the Manager dashboard can be demoed
+                    end-to-end. When OFF, <strong>all</strong> seeded demo data is deleted and the app shows real data only. Real users and real assessments are
+                    never touched.
                 </p>
                 <div className="flex items-center justify-between gap-4">
                     <span className="text-sm font-medium text-[color:var(--ciq-text-body)]">
                         {demoEnabled === null
                             ? "Loading…"
                             : demoEnabled
-                                ? `Demo data is ON — ${demoCounts.userCount} staff · ${demoCounts.surveyCount} assessments`
-                                : "Demo data is OFF (real data only)"}
+                              ? `Demo data is ON — ${demoCounts.userCount} staff · ${demoCounts.surveyCount} assessments`
+                              : "Demo data is OFF (real data only)"}
                     </span>
                     <div className="flex items-center gap-3">
                         {demoSaving && <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-text-muted)]" />}
@@ -743,8 +773,8 @@ export function AdminPanel() {
                     <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Pilot Survey Export</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
-                    Download every PILOT survey run's BAT-4 and CBI-WRB3 totals/averages, pre/post biometric
-                    capture (blink rate, pupil dilation), and response latency as a spreadsheet.
+                    Download every PILOT survey run's BAT-4 and CBI-WRB3 totals/averages, pre/post biometric capture (blink rate, pupil dilation), and response
+                    latency as a spreadsheet.
                 </p>
                 <button
                     type="button"
@@ -763,9 +793,8 @@ export function AdminPanel() {
                     <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Survey Timeline Export</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
-                    Download a per-second log of one survey run — whether the agent was asking a question or the
-                    user was answering it each second, plus the biometric snapshot (blink rate, pupil change, gaze,
-                    stress state) at that moment. Pick a user, then one of their completed survey runs.
+                    Download a per-second log of one survey run — whether the agent was asking a question or the user was answering it each second, plus the
+                    biometric snapshot (blink rate, pupil change, gaze, stress state) at that moment. Pick a user, then one of their completed survey runs.
                 </p>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                     <div className="flex-1">
@@ -792,11 +821,17 @@ export function AdminPanel() {
                             className="w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm text-[color:var(--ciq-text-strong)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none disabled:opacity-50"
                         >
                             <option value="">
-                                {timelineRunsLoading ? "Loading…" : !timelineUserId ? "Select a user first" : timelineRuns.length === 0 ? "No completed runs" : "Select a run…"}
+                                {timelineRunsLoading
+                                    ? "Loading…"
+                                    : !timelineUserId
+                                      ? "Select a user first"
+                                      : timelineRuns.length === 0
+                                        ? "No completed runs"
+                                        : "Select a run…"}
                             </option>
                             {timelineRuns.map(r => (
                                 <option key={r.survey_run_id} value={r.survey_run_id}>
-                                    {(r.survey_type ?? "Survey")} — {new Date(r.created_at).toLocaleString()}
+                                    {r.survey_type ?? "Survey"} — {formatServerDate(r.created_at)}
                                 </option>
                             ))}
                         </select>
@@ -816,7 +851,9 @@ export function AdminPanel() {
                 <div className="mt-4 border-t border-[color:var(--ciq-line)] pt-4">
                     <p className="mb-3 text-xs text-[color:var(--ciq-text-muted)]">
                         {selectedRunHasEeg
-                            ? "This run also has a recorded Muse EEG session — download it raw, or combined with the timeline above (per-second EEG band power, signal quality, pulse and head motion, joined on the timeline's own UTC timestamps)."
+                            ? selectedRunEegSegments.length > 1
+                                ? `This run was paused and continued, so its Muse EEG was recorded in ${selectedRunEegSegments.length} segments — download all of them, one segment raw, or combined with the timeline above (each segment lined up on its own clock).`
+                                : "This run also has a recorded Muse EEG session — download it raw, or combined with the timeline above (per-second EEG band power, signal quality, pulse and head motion, joined on the timeline's own UTC timestamps)."
                             : timelineRunId
                               ? "No EEG session was recorded for this run."
                               : "Select a run above to check for an EEG recording."}
@@ -824,13 +861,32 @@ export function AdminPanel() {
                     <div className="flex flex-wrap gap-3">
                         <button
                             type="button"
-                            onClick={handleDownloadEegRaw}
+                            onClick={() => handleDownloadEegRaw()}
                             disabled={!timelineRunId || !selectedRunHasEeg || eegExporting}
                             className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm font-medium text-[color:var(--ciq-text-strong)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                             {eegExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                            {eegExporting ? "Downloading…" : "Download EEG (raw JSON)"}
+                            {eegExporting
+                                ? "Downloading…"
+                                : selectedRunEegSegments.length > 1
+                                  ? "Download EEG — all segments (JSON)"
+                                  : "Download EEG (raw JSON)"}
                         </button>
+                        {/* A paused-and-continued run: each segment is its own recording (own
+                        clock), downloadable as a standard raw Muse file. */}
+                        {selectedRunEegSegments.length > 1 &&
+                            selectedRunEegSegments.map(segment => (
+                                <button
+                                    key={segment}
+                                    type="button"
+                                    onClick={() => handleDownloadEegRaw(segment)}
+                                    disabled={eegExporting}
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 py-2 text-sm font-medium text-[color:var(--ciq-text-strong)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    {`EEG segment ${segment}`}
+                                </button>
+                            ))}
                         <button
                             type="button"
                             onClick={handleDownloadCombined}
@@ -877,7 +933,11 @@ export function AdminPanel() {
                 </div>
 
                 {regStatus !== "registered" && (
-                    <Button onClick={handleRegister} disabled={registering || regStatus === "loading"} className="bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e] hover:opacity-90">
+                    <Button
+                        onClick={handleRegister}
+                        disabled={registering || regStatus === "loading"}
+                        className="bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e] hover:opacity-90"
+                    >
                         {registering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {registering ? "Registering…" : "Register Company"}
                     </Button>
@@ -929,7 +989,11 @@ export function AdminPanel() {
                         )}
                     </div>
 
-                    <Button onClick={handleUpload} disabled={uploading || !uploadFile} className="bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e] hover:opacity-90">
+                    <Button
+                        onClick={handleUpload}
+                        disabled={uploading || !uploadFile}
+                        className="bg-[color:var(--ciq-accent-blue)] text-[#0a0c0e] hover:opacity-90"
+                    >
                         {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                         {uploading ? "Uploading…" : "Upload to Knowledge Base"}
                     </Button>
@@ -1017,7 +1081,7 @@ export function AdminPanel() {
                                             </span>
                                         </td>
                                         <td className="hidden border border-[color:var(--ciq-line)] px-3 py-2 text-xs text-[color:var(--ciq-text-muted)] lg:table-cell">
-                                            {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "—"}
+                                            {formatServerDate(doc.uploadedAt)}
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
                                             <Button
@@ -1118,13 +1182,13 @@ export function AdminPanel() {
                                         </td>
                                         <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] md:table-cell">
                                             {u.last_active_at ? (
-                                                new Date(u.last_active_at).toLocaleString()
+                                                formatServerDate(u.last_active_at)
                                             ) : (
                                                 <span className="text-[color:var(--ciq-text-body)]">—</span>
                                             )}
                                         </td>
                                         <td className="hidden px-4 py-3 text-[color:var(--ciq-text-muted)] lg:table-cell">
-                                            {new Date(u.created_at).toLocaleDateString()}
+                                            {formatServerDate(u.created_at, { dateStyle: "medium" })}
                                         </td>
                                     </tr>
                                 ))}
@@ -1161,8 +1225,8 @@ export function AdminPanel() {
                             </button>
                         </div>
                         <p className="mb-5 text-sm text-[color:var(--ciq-text-muted)]">
-                            This downloads an Excel (.xlsx) file with one row per PILOT survey run — BAT-4 and
-                            CBI-WRB3 totals/averages, pre/post blink rate and pupil dilation, and response latency.
+                            This downloads an Excel (.xlsx) file with one row per PILOT survey run — BAT-4 and CBI-WRB3 totals/averages, pre/post blink rate and
+                            pupil dilation, and response latency.
                         </p>
                         {exportError && <p className="mb-3 text-xs text-petroleum-flare">{exportError}</p>}
                         <div className="flex justify-end gap-3">

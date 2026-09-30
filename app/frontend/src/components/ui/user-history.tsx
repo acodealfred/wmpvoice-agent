@@ -4,12 +4,10 @@ import { SurveyRecord } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { Markdown } from "@/components/ui/markdown";
 import { PILL, BANNER, TEXT_TONE, riskTone, sentimentTone } from "@/lib/badges";
+import { formatServerDate } from "@/lib/datetime";
 
 function fmt(iso: string) {
-    return new Date(iso).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short"
-    });
+    return formatServerDate(iso, { dateStyle: "medium", timeStyle: "short" });
 }
 
 interface SsotSection {
@@ -212,8 +210,12 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                                                         {r.blinkRateChange.toFixed(1)}%
                                                     </span>
                                                 </td>
-                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">{r.leftGazePosition || "—"}</td>
-                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">{r.rightGazePosition || "—"}</td>
+                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">
+                                                    {r.leftGazePosition || "—"}
+                                                </td>
+                                                <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">
+                                                    {r.rightGazePosition || "—"}
+                                                </td>
                                                 <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] lg:table-cell">
                                                     {r.responseLatencyMs != null ? `${(r.responseLatencyMs / 1000).toFixed(1)}s` : "—"}
                                                 </td>

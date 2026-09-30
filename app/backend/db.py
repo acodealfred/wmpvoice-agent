@@ -235,6 +235,7 @@ async def get_user_survey_records(user_id: str) -> list[dict]:
                    survey_results, technical_report, prompt_info
             FROM survey_records
             WHERE user_id = ?
+              AND status = 'completed'
               AND (survey_results IS NOT NULL OR prompt_info IS NOT NULL)
             ORDER BY created_at DESC
         """, (user_id,)) as cursor:
@@ -249,19 +250,34 @@ async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
     therefore may have timeline frames) show up as pickable. `has_eeg_session`
     tells the run-picker whether an EEG/combined export is even possible for
     that run, without fetching the (potentially large) eeg_sessions.file_json.
+    `eeg_segments` lists the run's recorded EEG segments (a legacy single-file
+    recording is [0]) so the panel can offer a per-segment download.
     """
     async with _open_db() as db:
         async with db.execute("""
             SELECT sr.survey_run_id, sr.survey_type, sr.created_at,
-                   CASE WHEN es.survey_run_id IS NOT NULL THEN 1 ELSE 0 END AS has_eeg_session
+                   CASE WHEN es.survey_run_id IS NOT NULL
+                          OR EXISTS (SELECT 1 FROM eeg_session_segments seg
+                                     WHERE seg.survey_run_id = sr.survey_run_id)
+                        THEN 1 ELSE 0 END AS has_eeg_session,
+                   (SELECT GROUP_CONCAT(seg.segment_index) FROM eeg_session_segments seg
+                     WHERE seg.survey_run_id = sr.survey_run_id) AS segment_list,
+                   CASE WHEN es.survey_run_id IS NOT NULL THEN 1 ELSE 0 END AS has_legacy_eeg
             FROM survey_records sr
             LEFT JOIN eeg_sessions es ON es.survey_run_id = sr.survey_run_id
             WHERE sr.user_id = ?
+              AND sr.status = 'completed'
               AND (sr.survey_results IS NOT NULL OR sr.prompt_info IS NOT NULL)
             ORDER BY sr.created_at DESC
         """, (user_id,)) as cursor:
             rows = await cursor.fetchall()
-            return [{**dict(r), "has_eeg_session": bool(r["has_eeg_session"])} for r in rows]
+            summaries = []
+            for r in rows:
+                row = dict(r)
+                segment_list, has_legacy = row.pop("segment_list"), row.pop("has_legacy_eeg")
+                segments = sorted(int(x) for x in segment_list.split(",")) if segment_list else ([0] if has_legacy else [])
+                summaries.append({**row, "has_eeg_session": bool(row["has_eeg_session"]), "eeg_segments": segments})
+            return summaries
 
 
 async def get_user_baseline(user_id: str) -> dict | None:
@@ -455,8 +471,8 @@ async def save_survey_item_responses(
                     raw_score, effective_score, voice_sentiment,
                     blink_rate_change_percent, pupil_mm_change,
                     left_gaze_position, right_gaze_position,
-                    response_latency_ms, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    response_latency_ms, user_response, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(survey_run_id, question_id) DO UPDATE SET
                        domain = excluded.domain,
                        raw_score = excluded.raw_score,
@@ -466,7 +482,8 @@ async def save_survey_item_responses(
                        pupil_mm_change = excluded.pupil_mm_change,
                        left_gaze_position = excluded.left_gaze_position,
                        right_gaze_position = excluded.right_gaze_position,
-                       response_latency_ms = excluded.response_latency_ms""",
+                       response_latency_ms = excluded.response_latency_ms,
+                       user_response = COALESCE(excluded.user_response, user_response)""",
                 (
                     survey_run_id, user_id, session_id, question_id, s.get("domain"),
                     raw_score,
@@ -477,9 +494,21 @@ async def save_survey_item_responses(
                     s.get("leftGazePosition", "Center"),
                     s.get("rightGazePosition", "Center"),
                     s.get("responseLatencyMs"),
+                    s.get("userResponse"),
                     now,
                 ),
             )
+        await db.commit()
+
+
+async def update_item_user_response(survey_run_id: str, question_id: str, user_response: str) -> None:
+    """Replace one answer's user_response — the Whisper transcript landing after the
+    answer row was written with the model's fallback text. No-op if the row doesn't exist."""
+    async with _open_db() as db:
+        await db.execute(
+            "UPDATE survey_item_responses SET user_response = ? WHERE survey_run_id = ? AND question_id = ?",
+            (user_response, survey_run_id, question_id),
+        )
         await db.commit()
 
 
@@ -500,30 +529,34 @@ async def save_survey_timeline_frames(
     session_id: str | None,
     frames: list[dict],
 ) -> None:
-    """Bulk-insert the per-second timeline log captured live during one survey run.
+    """Bulk-upsert the per-second timeline log captured live during one survey run.
 
-    Frames accumulate in memory on SessionState for the whole survey (see
-    ciq.realtime.timeline_capture) and are only written here once, at report
-    time — nothing hits the DB per-second while the survey is live, same
-    pattern as save_survey_item_responses. INSERT OR IGNORE + the
-    (survey_run_id, frame_index) unique constraint make this safe to call more
-    than once for the same run (e.g. both /analyze-report and /ssot-report).
+    Frames accumulate in memory on SessionState (see
+    ciq.realtime.timeline_capture) and are written here at report time, on
+    Pause, and on WS disconnect — nothing hits the DB per-second. The upsert on
+    the (survey_run_id, frame_index) unique constraint makes repeat calls safe
+    AND lets a later call carry turn_state/question labels that were patched in
+    memory after an earlier flush (resolve_agent_turn is retroactive).
     """
     if not frames:
         return
     now = datetime.utcnow().isoformat()
     async with _open_db() as db:
         await db.executemany(
-            """INSERT OR IGNORE INTO survey_timeline_frames
-               (survey_run_id, session_id, user_id, frame_index, timestamp, turn_state,
-                question_id, question_index, blink_rate_bpm, blink_rate_change_percent,
-                pupil_mm_change, left_gaze_position, right_gaze_position, face_emotion,
-                voice_sentiment, stress_state, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO survey_timeline_frames
+               (survey_run_id, session_id, user_id, frame_index, segment_index, timestamp,
+                turn_state, question_id, question_index, blink_rate_bpm,
+                blink_rate_change_percent, pupil_mm_change, left_gaze_position,
+                right_gaze_position, face_emotion, voice_sentiment, stress_state, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(survey_run_id, frame_index) DO UPDATE SET
+                   turn_state = excluded.turn_state,
+                   question_id = excluded.question_id,
+                   question_index = excluded.question_index""",
             [
                 (
                     survey_run_id, session_id, user_id,
-                    f["frame_index"], f["timestamp"], f["turn_state"],
+                    f["frame_index"], f.get("segment_index", 0), f["timestamp"], f["turn_state"],
                     f.get("question_id"), f.get("question_index"),
                     f.get("blink_rate_bpm"), f.get("blink_rate_change_percent"),
                     f.get("pupil_mm_change"), f.get("left_gaze_position"),
@@ -664,6 +697,206 @@ async def get_eeg_session(survey_run_id: str) -> dict | None:
             return result
 
 
+async def save_eeg_segment(
+    survey_run_id: str,
+    segment_index: int,
+    user_id: str,
+    session_id: str | None,
+    file: dict,
+) -> None:
+    """Persist the Muse recording for one Start/Continue segment of a run.
+
+    Same columns as save_eeg_session, keyed by (survey_run_id, segment_index) so
+    a Pause upload never overwrites an earlier segment. A repeat upload for the
+    same segment replaces it.
+    """
+    now = datetime.utcnow().isoformat()
+    device = file.get("device") or {}
+    markers = file.get("markers") or []
+    dropped = (file.get("eeg") or {}).get("dropped_packets") or {}
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO eeg_session_segments
+               (survey_run_id, segment_index, user_id, session_id, device_name, preset,
+                recorded_at, t0_epoch_ms, marker_count, dropped_packets_json, file_json,
+                created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(survey_run_id, segment_index) DO UPDATE SET
+                   user_id = excluded.user_id,
+                   session_id = excluded.session_id,
+                   device_name = excluded.device_name,
+                   preset = excluded.preset,
+                   recorded_at = excluded.recorded_at,
+                   t0_epoch_ms = excluded.t0_epoch_ms,
+                   marker_count = excluded.marker_count,
+                   dropped_packets_json = excluded.dropped_packets_json,
+                   file_json = excluded.file_json,
+                   created_at = excluded.created_at""",
+            (
+                survey_run_id, segment_index, user_id, session_id, device.get("name"),
+                file.get("preset"), file.get("recorded_at"), file.get("t0_epoch_ms"),
+                len(markers), json.dumps(dropped), json.dumps(file), now,
+            ),
+        )
+        await db.commit()
+
+
+async def get_eeg_segments(survey_run_id: str) -> list[dict]:
+    """Every EEG recording of a run as [{segment_index, file_json, ...}], in segment order.
+
+    Falls back to the legacy single-file eeg_sessions row (as segment 0) for runs
+    recorded before segments existed. Empty when the run has no EEG at all.
+    """
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM eeg_session_segments WHERE survey_run_id = ? ORDER BY segment_index",
+            (survey_run_id,),
+        ) as cursor:
+            rows = [dict(r) for r in await cursor.fetchall()]
+    if not rows:
+        legacy = await get_eeg_session(survey_run_id)
+        return [{**legacy, "segment_index": 0}] if legacy else []
+    for r in rows:
+        r["file_json"] = json.loads(r["file_json"])
+        r["dropped_packets_json"] = json.loads(r["dropped_packets_json"]) if r["dropped_packets_json"] else {}
+    return rows
+
+
+# ── Assessment lifecycle (see ciq/assessments/) ──────────────────────────────
+# "Open" = active or paused: the one run per user that can still be continued.
+# A run left "active" with no live connection (tab closed, network drop) is
+# resumable exactly like a paused one — see ciq.assessments.service.
+_OPEN_STATUSES = ("active", "paused")
+
+
+async def create_active_survey_run(
+    survey_run_id: str,
+    user_id: str,
+    session_token: str | None,
+    session_id: str | None,
+    survey_type: str | None,
+) -> list[str]:
+    """Close the user's open run(s) and create a new active one, in ONE transaction.
+
+    Returns the ids of the runs that were closed. Doing both in one transaction
+    is what guarantees the "at most one open run per user" invariant (single
+    writer — see docs/persistence.md).
+    """
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT survey_run_id FROM survey_records WHERE user_id = ? AND status IN (?, ?)",
+            (user_id, *_OPEN_STATUSES),
+        ) as cursor:
+            closed = [r["survey_run_id"] for r in await cursor.fetchall()]
+        await db.execute(
+            "UPDATE survey_records SET status = 'closed', closed_at = ?, updated_at = ? "
+            "WHERE user_id = ? AND status IN (?, ?)",
+            (now, now, user_id, *_OPEN_STATUSES),
+        )
+        await db.execute(
+            """INSERT INTO survey_records
+               (survey_run_id, user_id, session_token, session_id, survey_type,
+                created_at, updated_at, status, current_segment)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0)""",
+            (survey_run_id, user_id, session_token, session_id, survey_type, now, now),
+        )
+        await db.commit()
+    return closed
+
+
+async def get_open_survey_run(user_id: str) -> dict | None:
+    """The user's single open (active or paused) run, or None."""
+    async with _open_db() as db:
+        async with db.execute(
+            """SELECT survey_run_id, user_id, session_id, survey_type, status,
+                      current_segment, created_at, updated_at, paused_at
+               FROM survey_records
+               WHERE user_id = ? AND status IN (?, ?)
+               ORDER BY created_at DESC LIMIT 1""",
+            (user_id, *_OPEN_STATUSES),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_survey_run_status(survey_run_id: str) -> str | None:
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT status FROM survey_records WHERE survey_run_id = ?", (survey_run_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["status"] if row else None
+
+
+async def pause_survey_run(survey_run_id: str, user_id: str) -> bool:
+    """active -> paused. False when the run isn't this user's active run."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        cursor = await db.execute(
+            "UPDATE survey_records SET status = 'paused', paused_at = ?, updated_at = ? "
+            "WHERE survey_run_id = ? AND user_id = ? AND status = 'active'",
+            (now, now, survey_run_id, user_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def resume_survey_run(survey_run_id: str, user_id: str) -> int | None:
+    """Open run -> active, starting its next segment. Returns the new segment index,
+    or None when the run isn't one of this user's open runs."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        cursor = await db.execute(
+            "UPDATE survey_records SET status = 'active', current_segment = current_segment + 1, "
+            "updated_at = ? WHERE survey_run_id = ? AND user_id = ? AND status IN (?, ?)",
+            (now, survey_run_id, user_id, *_OPEN_STATUSES),
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            return None
+        async with db.execute(
+            "SELECT current_segment FROM survey_records WHERE survey_run_id = ?", (survey_run_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row["current_segment"]
+
+
+async def close_survey_run(survey_run_id: str, user_id: str) -> bool:
+    """Open run -> closed. False when the run isn't one of this user's open runs."""
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        cursor = await db.execute(
+            "UPDATE survey_records SET status = 'closed', closed_at = ?, updated_at = ? "
+            "WHERE survey_run_id = ? AND user_id = ? AND status IN (?, ?)",
+            (now, now, survey_run_id, user_id, *_OPEN_STATUSES),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def mark_survey_run_completed(survey_run_id: str) -> None:
+    """Open run -> completed, once its report is persisted. No-op for any other status."""
+    async with _open_db() as db:
+        await db.execute(
+            "UPDATE survey_records SET status = 'completed', updated_at = ? "
+            "WHERE survey_run_id = ? AND status IN (?, ?)",
+            (datetime.utcnow().isoformat(), survey_run_id, *_OPEN_STATUSES),
+        )
+        await db.commit()
+
+
+async def get_max_timeline_frame_index(survey_run_id: str) -> int:
+    """Highest persisted frame_index for a run, or -1 when none are stored yet."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT MAX(frame_index) AS m FROM survey_timeline_frames WHERE survey_run_id = ?",
+            (survey_run_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["m"] if row and row["m"] is not None else -1
+
+
 async def get_pilot_survey_export_rows() -> list[dict]:
     """One row per PILOT survey run that has at least some subscale data, joining
     its BAT-4 / CBI-WRB3 / behaviour data.
@@ -693,6 +926,7 @@ async def get_pilot_survey_export_rows() -> list[dict]:
                LEFT JOIN pilot_cbi3_scores c ON c.survey_run_id = sr.survey_run_id
                LEFT JOIN pilot_behaviour_snapshots v ON v.survey_run_id = sr.survey_run_id
                WHERE sr.survey_type = 'PILOT'
+                 AND sr.status = 'completed'
                  AND (b.survey_run_id IS NOT NULL OR c.survey_run_id IS NOT NULL OR v.survey_run_id IS NOT NULL)
                ORDER BY sr.created_at ASC""",
         )
@@ -723,10 +957,10 @@ async def get_all_users_with_session_info() -> list[dict]:
                 COUNT(sr.survey_run_id) AS session_count,
                 MAX(sr.updated_at)      AS last_active_at,
                 (SELECT session_id FROM survey_records
-                 WHERE user_id = u.user_id
+                 WHERE user_id = u.user_id AND status = 'completed'
                  ORDER BY updated_at DESC LIMIT 1) AS last_session_id
             FROM users u
-            LEFT JOIN survey_records sr ON u.user_id = sr.user_id
+            LEFT JOIN survey_records sr ON u.user_id = sr.user_id AND sr.status = 'completed'
             GROUP BY u.user_id
             ORDER BY u.name
         """) as cursor:
@@ -763,7 +997,7 @@ async def get_manager_overview() -> dict:
             "SELECT sr.user_id AS uid, u.department AS dept, "
             "       sr.technical_report AS tr, sr.updated_at AS updated_at "
             "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
-            "WHERE sr.technical_report IS NOT NULL AND u.role = 'employee' AND u.active = 1 "
+            "WHERE sr.technical_report IS NOT NULL AND sr.status = 'completed' AND u.role = 'employee' AND u.active = 1 "
             "ORDER BY sr.updated_at DESC"
         ) as cur:
             rows = await cur.fetchall()
@@ -906,7 +1140,7 @@ async def get_manager_score_trend(
             "SELECT u.department AS department, u.shift AS shift, u.job_title AS job_title, "
             "       sr.technical_report AS tr, sr.updated_at AS updated_at "
             "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
-            "WHERE sr.technical_report IS NOT NULL AND u.role = 'employee'"
+            "WHERE sr.technical_report IS NOT NULL AND sr.status = 'completed' AND u.role = 'employee'"
         ) as cur:
             rows = await cur.fetchall()
         async with db.execute(
@@ -987,7 +1221,7 @@ async def get_manager_analytics(
             "SELECT u.department AS department, u.shift AS shift, u.job_title AS job_title, "
             "       sr.user_id AS uid, sr.technical_report AS tr, sr.updated_at AS updated_at "
             "FROM survey_records sr JOIN users u ON u.user_id = sr.user_id "
-            "WHERE sr.technical_report IS NOT NULL AND u.role = 'employee' AND u.active = 1"
+            "WHERE sr.technical_report IS NOT NULL AND sr.status = 'completed' AND u.role = 'employee' AND u.active = 1"
         ) as cur:
             rows = await cur.fetchall()
 

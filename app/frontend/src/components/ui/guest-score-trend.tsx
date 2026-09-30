@@ -1,17 +1,17 @@
 import { useMemo } from "react";
 import { LineChart as LineChartIcon } from "lucide-react";
-import {
-    ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-} from "recharts";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { SurveyRecord } from "@/types";
+import { formatServerDate, parseServerDate } from "@/lib/datetime";
 
 const RISK_COLOR: Record<string, string> = {
-    Low: "var(--ciq-accent-green)", Moderate: "var(--ciq-accent-amber)", High: "var(--ciq-accent-red)",
+    Low: "var(--ciq-accent-green)",
+    Moderate: "var(--ciq-accent-amber)",
+    High: "var(--ciq-accent-red)"
 };
 
 function label(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleString("en", { month: "short", day: "numeric" });
+    return formatServerDate(iso, { month: "short", day: "numeric" }, "en");
 }
 
 /**
@@ -23,11 +23,11 @@ export function GuestScoreTrend({ records }: { records: SurveyRecord[] }) {
     const points = useMemo(() => {
         return [...records]
             .filter(r => typeof r.technical_report?.totalScore === "number")
-            .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+            .sort((a, b) => parseServerDate(a.created_at).getTime() - parseServerDate(b.created_at).getTime())
             .map(r => ({
                 label: label(r.created_at),
                 score: r.technical_report!.totalScore,
-                risk: r.technical_report!.riskLevel,
+                risk: r.technical_report!.riskLevel
             }));
     }, [records]);
 
@@ -49,43 +49,60 @@ export function GuestScoreTrend({ records }: { records: SurveyRecord[] }) {
                 {points.length < 2 ? (
                     <div className="flex h-full items-center justify-center">
                         <p className="text-center text-sm text-[color:var(--ciq-text-60)]">
-                            {points.length === 0
-                                ? "No scored assessments yet."
-                                : "One assessment so far — your trend line appears after your next check-in."}
+                            {points.length === 0 ? "No scored assessments yet." : "One assessment so far — your trend line appears after your next check-in."}
                         </p>
                     </div>
                 ) : (
                     <div className="absolute inset-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -12 }}>
-                            <CartesianGrid stroke="var(--ciq-divider)" vertical={false} />
-                            <XAxis dataKey="label" tick={{ fill: "var(--ciq-text-60)", fontSize: 11 }}
-                                axisLine={{ stroke: "var(--ciq-divider)" }} tickLine={false} />
-                            <YAxis tick={{ fill: "var(--ciq-text-60)", fontSize: 11 }}
-                                axisLine={false} tickLine={false} width={40} allowDecimals={false} />
-                            <Tooltip
-                                contentStyle={{
-                                    background: "var(--ciq-card)", border: "1px solid var(--ciq-border)",
-                                    borderRadius: 12, fontSize: 12,
-                                }}
-                                formatter={(v: number, _n, p) => [`${v} · ${p.payload.risk}`, "Score"]} />
-                            <Line type="linear" dataKey="score" stroke="var(--ciq-accent-blue)" strokeWidth={2.5}
-                                dot={(props) => {
-                                    const { cx, cy, payload } = props;
-                                    return <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={3.5}
-                                        fill={RISK_COLOR[payload.risk] ?? "var(--ciq-accent-blue)"} stroke="none" />;
-                                }}
-                                activeDot={{ r: 5 }} />
-                        </LineChart>
-                    </ResponsiveContainer>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -12 }}>
+                                <CartesianGrid stroke="var(--ciq-divider)" vertical={false} />
+                                <XAxis
+                                    dataKey="label"
+                                    tick={{ fill: "var(--ciq-text-60)", fontSize: 11 }}
+                                    axisLine={{ stroke: "var(--ciq-divider)" }}
+                                    tickLine={false}
+                                />
+                                <YAxis tick={{ fill: "var(--ciq-text-60)", fontSize: 11 }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
+                                <Tooltip
+                                    contentStyle={{
+                                        background: "var(--ciq-card)",
+                                        border: "1px solid var(--ciq-border)",
+                                        borderRadius: 12,
+                                        fontSize: 12
+                                    }}
+                                    formatter={(v: number, _n, p) => [`${v} · ${p.payload.risk}`, "Score"]}
+                                />
+                                <Line
+                                    type="linear"
+                                    dataKey="score"
+                                    stroke="var(--ciq-accent-blue)"
+                                    strokeWidth={2.5}
+                                    dot={props => {
+                                        const { cx, cy, payload } = props;
+                                        return (
+                                            <circle
+                                                key={`${cx}-${cy}`}
+                                                cx={cx}
+                                                cy={cy}
+                                                r={3.5}
+                                                fill={RISK_COLOR[payload.risk] ?? "var(--ciq-accent-blue)"}
+                                                stroke="none"
+                                            />
+                                        );
+                                    }}
+                                    activeDot={{ r: 5 }}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
                     </div>
                 )}
             </div>
 
             {latest && (
                 <p className="mt-3 text-xs text-[color:var(--ciq-text-40)]">
-                    Latest: <b className="text-[color:var(--ciq-text-86)]">{latest.score}</b> ({latest.risk}). Lower is better —
-                    a downward line means improving. Your data only.
+                    Latest: <b className="text-[color:var(--ciq-text-86)]">{latest.score}</b> ({latest.risk}). Lower is better — a downward line means
+                    improving. Your data only.
                 </p>
             )}
         </div>

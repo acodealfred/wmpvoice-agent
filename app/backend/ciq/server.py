@@ -24,6 +24,13 @@ from ciq.api.history_routes import (
     user_sessions_history,
 )
 from ciq.api.meta_routes import get_config, get_version
+from ciq.assessments.routes import (
+    close_assessment,
+    continue_assessment,
+    get_assessment,
+    pause_assessment,
+    start_assessment,
+)
 from ciq.biometrics.routes import analyze_face
 from ciq.bootstrap import build_rtmt
 from ciq.chat.routes import (
@@ -118,7 +125,14 @@ async def create_app():
     app.router.add_post("/survey-phase", set_survey_phase)
     app.router.add_get("/session", get_session)
 
-    # ── EEG / Muse — raw recording only, uploaded once an assessment completes ──
+    # ── Assessment lifecycle: Start / Pause / Continue / Close (ciq/assessments/) ──
+    app.router.add_get("/me/assessment", get_assessment)
+    app.router.add_post("/me/assessment/start", start_assessment)
+    app.router.add_post("/me/assessment/pause", pause_assessment)
+    app.router.add_post("/me/assessment/continue", continue_assessment)
+    app.router.add_post("/me/assessment/close", close_assessment)
+
+    # ── EEG / Muse — raw recording only, uploaded per segment (Pause) and on completion ──
     app.router.add_post("/eeg-sessions", upload_eeg_session)
     app.router.add_get("/admin/eeg-sessions/export", admin_export_eeg_session)
 

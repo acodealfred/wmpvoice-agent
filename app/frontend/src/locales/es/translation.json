@@ -6,7 +6,13 @@
         "startRecording": "Comenzar grabación",
         "stopConversation": "Detener conversación",
         "continueConversation": "Continuar conversación",
-        "startNewSurvey": "Iniciar nueva evaluación"
+        "startNewSurvey": "Iniciar nueva evaluación",
+        "startAssessment": "Iniciar evaluación",
+        "pauseAssessment": "Pausar",
+        "continueAssessment": "Continuar evaluación",
+        "closeAssessment": "Cerrar",
+        "finishAssessment": "Finalizar",
+        "pausedAssessmentNotice": "Evaluación en pausa: {{answered}} de {{total}} respondidas"
     },
     "status": {
         "notRecordingMessage": "Pregunta cualquier cosa sobre los beneficios de los empleados de Contoso",

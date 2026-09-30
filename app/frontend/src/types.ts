@@ -120,6 +120,38 @@ export interface BiometricSnapshot {
     responseLatencyMs?: number | null;
 }
 
+// Assessment lifecycle (backend ciq/assessments/): a run is active, paused,
+// closed or completed. GET /me/assessment returns the user's one open run.
+export type ResumableAssessment = {
+    surveyRunId: string;
+    surveyType: string;
+    // "active" with no live connection = the tab was closed / the network dropped.
+    status: "active" | "paused";
+    answered: number;
+    total: number;
+    startedAt: string;
+    pausedAt: string;
+    snapshots: BiometricSnapshot[];
+};
+
+export type AssessmentStarted = {
+    surveyRunId: string;
+    surveyType: string;
+    segmentIndex: number;
+    closedRunIds: string[];
+};
+
+export type AssessmentContinued = {
+    surveyRunId: string;
+    surveyType: string;
+    segmentIndex: number;
+    // No stored (non-expired) baseline: run the baseline protocol before resuming.
+    baselineRequired: boolean;
+    answered: number;
+    total: number;
+    snapshots: BiometricSnapshot[];
+};
+
 export type SurveyBiometricUpdate = {
     type: "survey.biometric.update";
     snapshot: BiometricSnapshot;
@@ -316,6 +348,9 @@ export type SurveyRunSummary = {
     survey_type: string | null;
     created_at: string;
     has_eeg_session: boolean;
+    // Recorded EEG segments (one per Start/Continue stretch of a paused-and-continued
+    // run; [0] for a single recording). More than one → per-segment downloads.
+    eeg_segments: number[];
 };
 
 export type SurveyRecord = {
@@ -353,11 +388,7 @@ export type SurveyRecord = {
 
 // ── Recovery Window (see docs/recovery-window.md, ciq/recovery/) ───────────
 
-export type RecoveryTrackId =
-    | "cbt_reframe_reset"
-    | "mindfulness_downshift"
-    | "act_values_recalibration"
-    | "practical_recovery_plan";
+export type RecoveryTrackId = "cbt_reframe_reset" | "mindfulness_downshift" | "act_values_recalibration" | "practical_recovery_plan";
 
 export type RecoverySessionStatus =
     | "not_started"

@@ -7,6 +7,10 @@ Every timeline row is kept, in order, with all its original columns, and the EEG
 columns (band power, signal quality, pulse, PRV, head motion) are added to it. Rows
 are joined on the CSV's own `timestamp` column, never `elapsed_seconds`.
 
+A paused-and-continued assessment downloads its EEG as {"segments": [{segment_index,
+file}, ...]}; each segment is joined only against the timeline rows with the same
+`segment_index` (the recordings have separate clocks and are never merged).
+
 All the maths lives in app/backend/ciq/eeg/combine.py, the same module behind the
 admin "Download Combined (CSV)" button, so the two always agree. Needs numpy and scipy:
     pip install numpy scipy
@@ -37,16 +41,25 @@ def load_combine():
     return module
 
 
-def read_session(path: Path) -> dict:
+def read_session(path: Path) -> dict[int, dict]:
+    """{segment_index: Muse file}. A plain single-recording file is segment 0."""
     try:
         session = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         fail(f"session file not found: {path}")
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         fail(f"{path} is not valid JSON: {e}")
+    if isinstance(session, dict) and isinstance(session.get("segments"), list):
+        segments = {}
+        for seg in session["segments"]:
+            file = seg.get("file") if isinstance(seg, dict) else None
+            if not isinstance(file, dict) or "eeg" not in file:
+                fail(f"{path}: a segment does not look like a muse-web-bridge session file (no 'eeg' section).")
+            segments[int(seg.get("segment_index") or 0)] = file
+        return segments
     if not isinstance(session, dict) or "eeg" not in session:
         fail(f"{path} does not look like a muse-web-bridge session file (no 'eeg' section).")
-    return session
+    return {0: session}
 
 
 def read_timeline(path: Path) -> tuple[list[str], list[dict]]:
@@ -76,11 +89,11 @@ def main() -> None:
     args = parser.parse_args()
 
     combine = load_combine()
-    session = read_session(args.session)
+    segments = read_session(args.session)
     columns, frames = read_timeline(args.timeline)
 
     try:
-        eeg_rows, warnings = combine.compute_unified_columns(session, frames)
+        eeg_rows, warnings = combine.combine_segments(segments, frames)
     except (KeyError, TypeError, ValueError, IndexError) as e:
         fail(f"the session file is malformed: {e!r}")
 
@@ -92,18 +105,22 @@ def main() -> None:
         for frame, eeg in zip(frames, eeg_rows):
             writer.writerow({**frame, **{c: "" if v is None else v for c, v in eeg.items()}})
 
-    eeg = session.get("eeg") or {}
-    print(
-        f"session: {len(eeg.get('packets') or [])} EEG, {len((session.get('ppg') or {}).get('packets') or [])} PPG, "
-        f"{len((session.get('accelerometer') or {}).get('packets') or [])} accelerometer packets"
-    )
+    for index, session in sorted(segments.items()):
+        eeg = session.get("eeg") or {}
+        print(
+            f"session segment {index}: {len(eeg.get('packets') or [])} EEG, "
+            f"{len((session.get('ppg') or {}).get('packets') or [])} PPG, "
+            f"{len((session.get('accelerometer') or {}).get('packets') or [])} accelerometer packets"
+        )
     print(f"timeline: {len(frames)} rows -> {output}")
     for column in combine.EEG_COLUMNS:
         filled = sum(1 for r in eeg_rows if r[column] is not None)
         print(f"  {column:16} {filled:5} / {len(frames)} rows filled")
-    gap = combine.clock_gap_seconds(session, frames)
-    if gap is not None:
-        print(f"clock check: Start to the agent's first turn = {gap:.1f} s (normally 1-4 s)")
+    for index, session in sorted(segments.items()):
+        seg_frames = [f for f in frames if combine._segment_of(f) == index]
+        gap = combine.clock_gap_seconds(session, seg_frames)
+        if gap is not None:
+            print(f"clock check (segment {index}): Start to the agent's first turn = {gap:.1f} s (normally 1-4 s)")
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
 

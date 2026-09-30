@@ -16,7 +16,8 @@ import {
     Menu,
     X,
     HeartHandshake,
-    ChevronRight
+    ChevronRight,
+    CheckCircle2
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -41,6 +42,7 @@ import { GuestLanding } from "@/components/ui/guest-landing";
 import { Button } from "@/components/ui/button";
 import ConsentModal from "@/components/ui/consent-modal";
 import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
+import { assessmentControls, closeAssessment, continueAssessment, fetchResumableAssessment, pauseAssessment, startAssessment } from "@/lib/assessment";
 import { applyFontScale, getFontScale } from "@/lib/fontScale";
 
 import useRealTime from "@/hooks/useRealtime";
@@ -60,7 +62,9 @@ import {
     AuthUser,
     AuthState,
     RecoveryUpdate,
-    ChatTurn
+    ChatTurn,
+    AssessmentContinued,
+    ResumableAssessment
 } from "./types";
 
 import logo from "./assets/logo.png";
@@ -91,9 +95,16 @@ function App() {
     const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
     // Session ID starts as a local UUID and is replaced with the server-issued one on login
     const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
-    // Identifies a single survey run. A fresh id is minted for every new assessment so
-    // each survey is persisted as its own history record instead of overwriting the last.
+    // Identifies a single survey run. Minted by the backend on Start (POST
+    // /me/assessment/start) so each survey is persisted as its own history record; a
+    // Continue carries the paused run's id back. The local UUID is only a placeholder.
     const [surveyRunId, setSurveyRunId] = useState<string>(() => crypto.randomUUID());
+    // The user's open (paused, or left active by a closed tab) assessment, fetched on
+    // entering the assessment page — drives Start new / Continue / Close vs plain Start.
+    const [resumable, setResumable] = useState<ResumableAssessment | null>(null);
+    // Which Start/Continue segment of the run the live EEG recording belongs to — each
+    // segment is uploaded as its own file (see ciq/eeg/combine.combine_segments).
+    const eegSegmentRef = useRef(0);
     const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "assessment" | "admin" | "test" | "eeg" | "history">("assessment");
     // Nav collapses into this drawer below the `lg` breakpoint (see the header markup) —
     // desktop keeps the always-visible pill row untouched.
@@ -285,6 +296,22 @@ function App() {
             .catch(err => console.error("Failed to fetch config:", err));
     }, [authState]);
 
+    // On entering the assessment page (and whenever recording stops) ask the backend
+    // whether this user has an open assessment: a paused one, or one left "active" by a
+    // closed tab / dropped network. Yes → Start new / Continue / Close; no → Start only.
+    useEffect(() => {
+        if (authState !== "authenticated" || activeTab !== "assessment" || isRecording) return;
+        let cancelled = false;
+        fetchResumableAssessment()
+            .then(run => {
+                if (!cancelled) setResumable(run);
+            })
+            .catch(err => console.error("Failed to fetch resumable assessment:", err));
+        return () => {
+            cancelled = true;
+        };
+    }, [authState, activeTab, isRecording]);
+
     // Look up whether this user has already accepted the pilot-study consent form
     // (see GET /consent) — a one-time, durable acceptance stored in `user_consents`,
     // so returning users are never re-prompted.
@@ -452,7 +479,7 @@ function App() {
                         apiFetch("/eeg-sessions", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ session_id: sessionId, survey_run_id: surveyRunId, file })
+                            body: JSON.stringify({ session_id: sessionId, survey_run_id: surveyRunId, segment_index: eegSegmentRef.current, file })
                         }).catch(err => console.error("Failed to upload EEG session:", err));
                     }
                     void disconnectEeg();
@@ -592,8 +619,8 @@ function App() {
         setSentiment(null);
         setStressResult(null);
         setEnableBiometrics(true);
-        // Each fresh assessment is a new persisted survey record.
-        setSurveyRunId(crypto.randomUUID());
+        // The run id itself is set by the caller: minted by the backend on Start, or
+        // the paused run's id on Continue.
     }, []);
 
     // Resolve the user's baseline before a conversation starts. Returns true when a
@@ -768,22 +795,26 @@ function App() {
         setIsRecording(false);
     };
 
-    // Dedicated "Start New Survey": discards the current assessment and starts a fresh
-    // conversation. Fully resets the SAME backend session (clears survey_results,
-    // conversation_state and the reconnect counter), wipes the UI, then forces a clean
-    // realtime reconnect so the agent has no memory of the previous survey.
+    // Start (and "Start new"): closes any open assessment server-side and starts a fresh
+    // one. POST /me/assessment/start fully resets the SAME backend session (clears
+    // survey_results, conversation_state and the reconnect counter) and mints the new
+    // run's id; the UI is wiped and the realtime socket is forced to reconnect cleanly so
+    // the agent has no memory of the previous survey.
     const onStartNewSurvey = async () => {
         // Silence the agent the instant the button is pressed — window.confirm() blocks the
         // JS main thread, but already-buffered speech keeps playing on the audio thread
         // underneath the dialog. Flushing the player here "pauses" the agent while the user
         // decides, instead of letting it talk over the confirmation prompt.
         stopAudioPlayer();
-        if (!window.confirm("This discards the current assessment and starts a fresh survey. Continue?")) {
-            return;
+        // Only confirm when something is actually discarded — the very first Start has nothing.
+        if (resumable || hasAssessment || isRecording) {
+            const message = resumable
+                ? "This closes your paused assessment (it can't be continued afterwards) and starts a new one. Continue?"
+                : "This discards the current assessment and starts a fresh survey. Continue?";
+            if (!window.confirm(message)) return;
         }
-        // A retake always starts a genuinely fresh recording below (beginNewEegRecording),
-        // so — unlike onStartListening — there's no "already made progress" case to skip
-        // this for. Only asked if the headband isn't connected at all.
+        // A new assessment always starts a genuinely fresh recording below
+        // (beginNewEegRecording). Only asked if the headband isn't connected at all.
         if (!eegHasRecording) {
             const proceed = window.confirm(
                 "EEG headband isn't connected. If you plan to use it for this new assessment, cancel and pair it first — otherwise no EEG data will be recorded for this session. Continue without it?"
@@ -801,17 +832,30 @@ function App() {
         pendingGuardrailResetRef.current = false;
         baselineProtocol.cancel();
         baselineDoneRef.current = false;
+        // Any survey-type selection must have landed before the server binds the new run.
+        if (surveyTypeChangeRef.current) {
+            await surveyTypeChangeRef.current;
+        }
+        let newRunId: string;
         try {
+            const started = await startAssessment(surveyTypeConfig?.activeSurveyType);
+            newRunId = started.surveyRunId;
+        } catch (err) {
+            // Fall back to the pre-lifecycle flow: the report still persists the run (as
+            // completed), it just can't be paused/continued.
+            console.error("Failed to start assessment run; continuing without pause/resume:", err);
             await apiFetch("/clear-conversation", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ session_id: sessionId })
-            });
-        } catch (err) {
-            console.error("Failed to reset session for new survey:", err);
+            }).catch(e => console.error("Failed to reset session for new survey:", e));
+            newRunId = crypto.randomUUID();
         }
         resetAssessmentState();
+        setSurveyRunId(newRunId);
+        setResumable(null);
         setAssessmentComplete(false);
+        eegSegmentRef.current = 0;
         // Keep the headband connected across a retake — a fresh Recorder tied to the
         // new surveyRunId, not a full reconnect (the participant already consented).
         if (eegHasRecording) beginNewEegRecording(new Date().toISOString());
@@ -821,9 +865,6 @@ function App() {
         // runs) — agreeing with the phase the backend resolves from the same baseline on
         // the fresh connection below (DB hit → returning-user "survey"; miss → "baseline").
         const hasStoredBaseline = await resolveBaseline();
-        if (surveyTypeChangeRef.current) {
-            await surveyTypeChangeRef.current;
-        }
 
         setIsRecording(true);
         reconnect();
@@ -841,6 +882,133 @@ function App() {
             markEegSurveyStarted();
         }
         await startAudioRecording();
+    };
+
+    // Pause: stop listening and park the run server-side. The backend persists this
+    // segment's timeline frames (answers were persisted as each was scored); the EEG
+    // recorded so far is uploaded as this segment's own file. After the report, the
+    // run is already complete — Pause then just stops the post-report conversation.
+    const onPauseAssessment = async () => {
+        // Read before onStopListening cancels the protocol.
+        const pausedDuringBaseline = baselineProtocol.isActive;
+        await onStopListening();
+        if (assessmentComplete) return;
+        // Mid-baseline the recorder holds a partial BASELINE recording, not survey data —
+        // discarded like the camera baseline (Continue re-runs the protocol and starts a
+        // fresh recorder), never uploaded as a survey segment.
+        if (eegHasRecording && !pausedDuringBaseline) {
+            // Finish this segment's recording and keep the headband streaming into a
+            // fresh recorder (discarded/replaced on Continue).
+            const file = splitEegRecording();
+            if (file) {
+                apiFetch("/eeg-sessions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: sessionId, survey_run_id: surveyRunId, segment_index: eegSegmentRef.current, file })
+                }).catch(err => console.error("Failed to upload EEG segment:", err));
+            }
+        }
+        try {
+            await pauseAssessment();
+        } catch (err) {
+            // e.g. the run was never bound (start failed) — nothing to park server-side.
+            console.warn("Failed to pause assessment:", err);
+        }
+        // The isRecording → false transition also refetches; this makes it immediate.
+        setResumable(await fetchResumableAssessment().catch(() => null));
+    };
+
+    // Continue: resume the open run where the user left off. The backend rehydrates the
+    // live session (answered questions, next timeline segment) and the agent picks up via
+    // its reconnect instructions; the stored baseline is reused when there is one.
+    const onContinueAssessment = async () => {
+        if (!resumable) {
+            // Nothing paused — Continue after a finished report resumes the conversation.
+            await onStartListening();
+            return;
+        }
+        stopAudioPlayer();
+        if (!eegHasRecording) {
+            const proceed = window.confirm(
+                "EEG headband isn't connected. If you plan to use it for the rest of this assessment, cancel and pair it first — otherwise no EEG data will be recorded for the remaining questions. Continue without it?"
+            );
+            if (!proceed) return;
+        }
+        let run: AssessmentContinued;
+        try {
+            run = await continueAssessment(resumable.surveyRunId);
+        } catch (err) {
+            console.error("Failed to continue assessment:", err);
+            window.alert("This assessment can no longer be continued. Please start a new one.");
+            setResumable(await fetchResumableAssessment().catch(() => null));
+            return;
+        }
+        suppressAgentAudioRef.current = true;
+        pendingGuardrailResetRef.current = false;
+        baselineProtocol.cancel();
+        resetAssessmentState();
+        setSurveyRunId(run.surveyRunId);
+        setBiometricSnapshots(run.snapshots);
+        setSurveyCompleted(run.answered);
+        setSurveyTotal(run.total);
+        setAssessmentComplete(false);
+        setResumable(null);
+        // The run's own survey type is already bound server-side by /continue (the WS
+        // survey_type param is ignored once a session has one), so the selector is left
+        // alone — changing it would change the WS URL and force an extra reconnect.
+        // A fresh recorder for this segment — whatever streamed while paused is dropped.
+        eegSegmentRef.current = run.segmentIndex;
+        if (eegHasRecording) beginNewEegRecording(new Date().toISOString());
+
+        const hasStoredBaseline = await resolveBaseline();
+        const runBaseline = enableSurvey && run.baselineRequired && !hasStoredBaseline;
+        baselineDoneRef.current = !runBaseline;
+
+        setIsRecording(true);
+        reconnect();
+        startSession();
+        resetAudioPlayer();
+        if (runBaseline) {
+            startBaselineProtocol();
+        } else {
+            requestGreeting();
+            markEegSurveyStarted();
+        }
+        await startAudioRecording();
+    };
+
+    // Finish: end a completed assessment's session and return the page to its starting
+    // state. The report is already saved (History); the run's status isn't touched.
+    // Resets the server session too, so the post-report Q&A context doesn't linger.
+    const onFinishAssessment = async () => {
+        if (!window.confirm("Finish this assessment? Your report stays saved in History.")) return;
+        stopAudioPlayer();
+        pendingGuardrailResetRef.current = false;
+        try {
+            await apiFetch("/clear-conversation", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sessionId })
+            });
+        } catch (err) {
+            console.error("Failed to reset session on finish:", err);
+        }
+        resetAssessmentState();
+        setAssessmentComplete(false);
+        setRecoveryWindowOpen(false);
+        setResumable(await fetchResumableAssessment().catch(() => null));
+    };
+
+    // Close: discard the paused run for good (it stays out of history and dashboards).
+    const onCloseAssessment = async () => {
+        if (!resumable) return;
+        if (!window.confirm("Close this paused assessment? It can't be continued afterwards.")) return;
+        try {
+            await closeAssessment(resumable.surveyRunId);
+        } catch (err) {
+            console.error("Failed to close assessment:", err);
+        }
+        setResumable(await fetchResumableAssessment().catch(() => null));
     };
 
     // Called by DetailedReport once POST /analyze-report has resolved (report
@@ -901,11 +1069,11 @@ function App() {
 
     const { t } = useTranslation();
 
-    // A survey that was started and stopped before completion — the primary button
-    // becomes "Continue Conversation" to resume it.
-    const surveyInProgress = surveyCompleted > 0 && !assessmentComplete;
-    // There is an assessment worth discarding/resetting.
+    // There is an assessment on screen worth discarding/resetting.
     const hasAssessment = surveyCompleted > 0 || assessmentComplete;
+    // Which Start / Pause / Continue / Close buttons are shown (see lib/assessment.ts).
+    const controls = assessmentControls({ isRecording, hasResumable: resumable !== null, assessmentComplete });
+    const controlCount = Object.values(controls).filter(Boolean).length;
 
     // Single source of truth for the always-visible baseline card's state:
     //  • recording — the baseline protocol is running (cue or eyes-open/closed phase)
@@ -1260,35 +1428,78 @@ function App() {
                                                     </div>
                                                 </div>
                                             )}
-                                            {/* Controls — desktop: [Restart][Start/Continue][Stop] on one row.
-                                            Mobile: [Start/Continue][Stop] on top, [Restart] full-width below. */}
-                                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                                <Button
-                                                    onClick={() => runWithConsent(onStartNewSurvey)}
-                                                    variant="outline"
-                                                    disabled={!hasAssessment && !isRecording}
-                                                    className="ciq-btn-secondary ciq-touch order-3 col-span-2 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:opacity-40 sm:order-1 sm:col-span-1"
-                                                >
-                                                    <RotateCcw className="h-4 w-4" />
-                                                    {t("app.startNewSurvey") || "Restart"}
-                                                </Button>
-                                                <Button
-                                                    onClick={() => runWithConsent(onStartListening)}
-                                                    disabled={isRecording}
-                                                    className="ciq-btn-primary ciq-touch-lg order-1 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] disabled:opacity-40 sm:order-2"
-                                                >
-                                                    <Mic className="h-4 w-4" />
-                                                    {surveyInProgress ? t("app.continueConversation") || "Continue" : t("app.startRecording") || "Start"}
-                                                </Button>
-                                                <Button
-                                                    onClick={onStopListening}
-                                                    disabled={!isRecording}
-                                                    variant="outline"
-                                                    className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)] disabled:opacity-40 sm:order-3"
-                                                >
-                                                    <MicOff className="h-4 w-4" />
-                                                    {t("app.stopConversation") || "Stop"}
-                                                </Button>
+                                            {/* Controls — driven by the assessment lifecycle (lib/assessment.ts):
+                                            recording → [Pause]; paused run → [Start new][Continue][Close];
+                                            finished report → [Start new][Continue]; otherwise → [Start]. */}
+                                            {controls.close && resumable && (
+                                                <p className="mb-2 text-xs text-[color:var(--ciq-text-60)]" role="status">
+                                                    {t("app.pausedAssessmentNotice", { answered: resumable.answered, total: resumable.total }) ||
+                                                        `Paused assessment: ${resumable.answered} of ${resumable.total} answered`}
+                                                </p>
+                                            )}
+                                            <div
+                                                className={`grid gap-2 ${controlCount === 3 ? "grid-cols-2 sm:grid-cols-3" : controlCount === 2 ? "grid-cols-2" : "grid-cols-1"}`}
+                                            >
+                                                {controls.start && (
+                                                    <Button
+                                                        onClick={() => runWithConsent(onStartNewSurvey)}
+                                                        className="ciq-btn-primary ciq-touch-lg flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)]"
+                                                    >
+                                                        <Mic className="h-4 w-4" />
+                                                        {t("app.startAssessment") || "Start Assessment"}
+                                                    </Button>
+                                                )}
+                                                {controls.startNew && (
+                                                    <Button
+                                                        onClick={() => runWithConsent(onStartNewSurvey)}
+                                                        variant="outline"
+                                                        className="ciq-btn-secondary ciq-touch order-3 col-span-2 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] sm:order-1 sm:col-span-1"
+                                                    >
+                                                        <RotateCcw className="h-4 w-4" />
+                                                        {t("app.startNewSurvey") || "Start New Survey"}
+                                                    </Button>
+                                                )}
+                                                {controls.continue && (
+                                                    <Button
+                                                        onClick={() => runWithConsent(onContinueAssessment)}
+                                                        className="ciq-btn-primary ciq-touch-lg order-1 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] sm:order-2"
+                                                    >
+                                                        <Mic className="h-4 w-4" />
+                                                        {resumable
+                                                            ? t("app.continueAssessment") || "Continue Assessment"
+                                                            : t("app.continueConversation") || "Continue Conversation"}
+                                                    </Button>
+                                                )}
+                                                {controls.close && (
+                                                    <Button
+                                                        onClick={onCloseAssessment}
+                                                        variant="outline"
+                                                        className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)] sm:order-3"
+                                                    >
+                                                        <X className="h-4 w-4" />
+                                                        {t("app.closeAssessment") || "Close"}
+                                                    </Button>
+                                                )}
+                                                {controls.finish && (
+                                                    <Button
+                                                        onClick={onFinishAssessment}
+                                                        variant="outline"
+                                                        className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-green)] sm:order-3"
+                                                    >
+                                                        <CheckCircle2 className="h-4 w-4" />
+                                                        {t("app.finishAssessment") || "Finish"}
+                                                    </Button>
+                                                )}
+                                                {controls.pause && (
+                                                    <Button
+                                                        onClick={onPauseAssessment}
+                                                        variant="outline"
+                                                        className="ciq-btn-secondary ciq-touch flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)]"
+                                                    >
+                                                        <MicOff className="h-4 w-4" />
+                                                        {t("app.pauseAssessment") || "Pause"}
+                                                    </Button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

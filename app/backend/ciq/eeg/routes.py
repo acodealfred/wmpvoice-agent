@@ -4,7 +4,7 @@ import logging
 
 from aiohttp import web
 
-from db import get_eeg_session, save_eeg_session
+from db import get_eeg_segments, save_eeg_segment, save_eeg_session
 
 logger = logging.getLogger("voicerag")
 
@@ -25,6 +25,10 @@ async def upload_eeg_session(request):
     (EEG/IMU/PPG/telemetry + per-question markers) as-is. No stress/burnout
     metric is derived from it here or anywhere downstream — see
     docs/muse-2-findings.md for why that's deliberately out of scope for now.
+
+    With `segment_index` (sent by the Start/Pause/Continue flow) the file is
+    stored as that segment of the run, so a Pause upload never overwrites an
+    earlier segment. Without it (older clients) it's the run's single file.
     """
     try:
         request = request.clone(client_max_size=_EEG_UPLOAD_MAX_SIZE)
@@ -32,6 +36,7 @@ async def upload_eeg_session(request):
         survey_run_id = data.get("survey_run_id", "")
         session_id = data.get("session_id", "")
         file = data.get("file")
+        segment_index = data.get("segment_index")
 
         if not survey_run_id or not file:
             return web.json_response({"error": "survey_run_id and file are required"}, status=400)
@@ -40,7 +45,12 @@ async def upload_eeg_session(request):
         if not auth_session:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
-        await save_eeg_session(survey_run_id, auth_session["user_id"], session_id, file)
+        if segment_index is None:
+            await save_eeg_session(survey_run_id, auth_session["user_id"], session_id, file)
+        else:
+            if not isinstance(segment_index, int) or segment_index < 0:
+                return web.json_response({"error": "segment_index must be a non-negative integer"}, status=400)
+            await save_eeg_segment(survey_run_id, segment_index, auth_session["user_id"], session_id, file)
         return web.json_response({"ok": True})
 
     except web.HTTPException:
@@ -55,17 +65,39 @@ async def upload_eeg_session(request):
 async def admin_export_eeg_session(request: web.Request) -> web.Response:
     """GET /admin/eeg-sessions/export?survey_run_id=... — download the raw
     muse-web-bridge/3 session file (EEG/IMU/PPG/telemetry + markers), exactly
-    as uploaded and stored by upload_eeg_session above. No processing."""
+    as uploaded and stored by upload_eeg_session above. No processing.
+
+    A run recorded in one segment downloads as that file, unchanged. A paused-
+    and-continued run downloads as {"survey_run_id", "segments": [{segment_index,
+    file}]} — each segment keeps its own clock, so they are never merged.
+    `&segment=N` downloads just that segment's raw file (a standard Muse file)."""
     survey_run_id = request.query.get("survey_run_id", "")
     if not survey_run_id:
         return web.json_response({"error": "survey_run_id is required"}, status=400)
+    segment_param = request.query.get("segment")
+    if segment_param is not None and not segment_param.isdigit():
+        return web.json_response({"error": "segment must be a non-negative integer"}, status=400)
 
-    eeg_session = await get_eeg_session(survey_run_id)
-    if not eeg_session:
+    segments = await get_eeg_segments(survey_run_id)
+    if not segments:
         return web.json_response({"error": "No EEG session recorded for this survey run"}, status=404)
 
+    filename = f"eeg_session_{survey_run_id[:8]}.json"
+    if segment_param is not None:
+        match = next((s for s in segments if s["segment_index"] == int(segment_param)), None)
+        if not match:
+            return web.json_response({"error": f"No EEG recorded for segment {segment_param}"}, status=404)
+        body = match["file_json"]
+        filename = f"eeg_session_{survey_run_id[:8]}_segment{segment_param}.json"
+    elif len(segments) == 1:
+        body = segments[0]["file_json"]
+    else:
+        body = {
+            "survey_run_id": survey_run_id,
+            "segments": [{"segment_index": s["segment_index"], "file": s["file_json"]} for s in segments],
+        }
     return web.Response(
-        body=json.dumps(eeg_session["file_json"]),
-        headers={"Content-Disposition": f'attachment; filename="eeg_session_{survey_run_id[:8]}.json"'},
+        body=json.dumps(body),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         content_type="application/json",
     )

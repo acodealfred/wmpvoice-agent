@@ -108,7 +108,11 @@ def _next_expected_question(sess: SessionState) -> tuple[dict, int] | None:
 def _frame_snapshot(sess: SessionState, turn_state: str, question_id: str | None,
                      question_index: int | None) -> dict:
     return {
-        "frame_index": len(sess.timeline_frames),
+        # Continues across Pause/Continue: timeline_frame_offset is the run's max
+        # persisted frame_index + 1 on a resumed segment (0 otherwise), so frames
+        # count active survey seconds and never collide with a stored segment.
+        "frame_index": sess.timeline_frame_offset + len(sess.timeline_frames),
+        "segment_index": sess.timeline_segment_index,
         "timestamp": datetime.now(UTC).isoformat(),
         "turn_state": turn_state,
         "question_id": question_id,
@@ -128,10 +132,15 @@ def _frame_snapshot(sess: SessionState, turn_state: str, question_id: str | None
     }
 
 
-async def run_timeline_sampler(sess: SessionState) -> None:
-    """1Hz loop: append one frame per elapsed second while the survey is live."""
+async def run_timeline_sampler(sess: SessionState, generation: int) -> None:
+    """1Hz loop: append one frame per elapsed second while the survey is live.
+
+    Exits when a newer sampler has been started (generation bumped) — a stop
+    followed by a start within one sleep interval (Pause -> Continue, a quick
+    reconnect) would otherwise leave this loop running alongside the new one.
+    """
     logger.info("[Timeline] ★ Sampler started (session=%s)", sess.session_id)
-    while sess.timeline_active:
+    while sess.timeline_active and sess.timeline_generation == generation:
         if sess.agent_speaking:
             # Real turn_state/question_id resolved retroactively in resolve_agent_turn
             # once this turn's transcript is known (response.done).
@@ -177,6 +186,8 @@ def resolve_agent_turn(sess: SessionState, transcript: str) -> None:
             sess.pending_answer_question_id = question["id"]
             sess.pending_answer_question_index = index
             sess.pending_answer_started_at_frame_index = pending_frames[0]["frame_index"]
+            # Replies before this question was asked aren't its answer (ciq.realtime.transcripts).
+            sess.unassigned_user_items = []
             logger.info(
                 "[Timeline] ★ Turn matched question %s (session=%s): %r ~ %r",
                 question["id"], sess.session_id, transcript[:80], prompt_text[:80],
@@ -219,7 +230,7 @@ def start_timeline_capture(sess: SessionState) -> None:
         return
     sess.timeline_active = True
     sess.timeline_generation += 1
-    sess._timeline_task = asyncio.create_task(run_timeline_sampler(sess))
+    sess._timeline_task = asyncio.create_task(run_timeline_sampler(sess, sess.timeline_generation))
 
 
 def stop_timeline_capture(sess: SessionState) -> None:

@@ -6,7 +6,13 @@
         "startRecording": "録音を開始",
         "stopConversation": "会話を停止",
         "continueConversation": "会話を続ける",
-        "startNewSurvey": "新しい評価を開始"
+        "startNewSurvey": "新しい評価を開始",
+        "startAssessment": "評価を開始",
+        "pauseAssessment": "一時停止",
+        "continueAssessment": "評価を再開",
+        "closeAssessment": "閉じる",
+        "finishAssessment": "終了",
+        "pausedAssessmentNotice": "一時停止中の評価：{{total}}問中{{answered}}問回答済み"
     },
     "status": {
         "notRecordingMessage": "Contoso 従業員の福利厚生について質問してください",

@@ -6,7 +6,13 @@
         "startRecording": "Start Conversation",
         "stopConversation": "Stop Conversation",
         "continueConversation": "Continue Conversation",
-        "startNewSurvey": "Start New Survey"
+        "startNewSurvey": "Start New Survey",
+        "startAssessment": "Start Assessment",
+        "pauseAssessment": "Pause",
+        "continueAssessment": "Continue Assessment",
+        "closeAssessment": "Close",
+        "finishAssessment": "Finish",
+        "pausedAssessmentNotice": "Paused assessment: {{answered}} of {{total}} answered"
     },
     "status": {
         "notRecordingMessage": "Your Burnout Assistant",

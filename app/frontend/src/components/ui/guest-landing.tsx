@@ -4,6 +4,7 @@ import { Mic, Calendar, TrendingUp, TrendingDown, Minus, ShieldCheck, Brain, Wav
 import { apiFetch } from "@/lib/api";
 import { SurveyRecord } from "@/types";
 import { TEXT_TONE } from "@/lib/badges";
+import { formatServerDate } from "@/lib/datetime";
 import { GuestScoreTrend } from "./guest-score-trend";
 import { GuestChat } from "./guest-chat";
 import "./guest-landing.css";
@@ -193,8 +194,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                             transition={{ delay: 0.3 }}
                             className="mt-3 text-xs text-[color:var(--ciq-text-40)]"
                         >
-                            Takes about 3–5 minutes · your last check-in was{" "}
-                            {new Date(stats.last!.created_at).toLocaleDateString(undefined, { month: "long", day: "numeric" })}
+                            Takes about 3–5 minutes · your last check-in was {formatServerDate(stats.last!.created_at, { month: "long", day: "numeric" })}
                         </motion.p>
                     )}
                 </section>
@@ -210,9 +210,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                     <span className="text-xs font-semibold uppercase tracking-wider">Progress</span>
                                 </div>
                                 <p className="font-data mt-3 text-4xl font-bold text-[color:var(--ciq-text-strong)]">{stats.total}</p>
-                                <p className="mt-1 text-sm text-[color:var(--ciq-text-68)]">
-                                    {stats.total === 1 ? "Tour Checked" : "Tours Checked"}
-                                </p>
+                                <p className="mt-1 text-sm text-[color:var(--ciq-text-68)]">{stats.total === 1 ? "Tour Checked" : "Tours Checked"}</p>
                             </StatCard>
 
                             {/* Hitch rotation */}
@@ -222,8 +220,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                     <span className="text-xs font-semibold uppercase tracking-wider">Hitch Rotation</span>
                                 </div>
                                 <p className="font-data mt-3 flex items-baseline gap-1.5 text-4xl font-bold text-[color:var(--ciq-text-strong)]">
-                                    Day 9
-                                    <span className="text-base font-medium text-[color:var(--ciq-text-60)]">of 14</span>
+                                    Day 9<span className="text-base font-medium text-[color:var(--ciq-text-60)]">of 14</span>
                                 </p>
                                 <p className="mt-3 text-sm text-[color:var(--ciq-text-68)]">Crew change in 5 days</p>
                             </StatCard>
@@ -266,7 +263,7 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                         <p className="mt-2 text-sm text-[color:var(--ciq-text-68)]">
                                             Readiness Index: <strong className="font-data text-[color:var(--ciq-text-strong)]">53/ 100</strong>
                                             {" · "}
-                                            {new Date(stats.last!.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                            {formatServerDate(stats.last!.created_at, { month: "short", day: "numeric" })}
                                         </p>
                                     </>
                                 ) : (
@@ -312,8 +309,12 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                             transition={{ duration: 0.55, delay: 0.32, ease: [0.22, 1, 0.36, 1] }}
                             className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5"
                         >
-                            <div className="lg:col-span-3"><GuestScoreTrend records={records ?? []} /></div>
-                            <div className="lg:col-span-2"><GuestChat /></div>
+                            <div className="lg:col-span-3">
+                                <GuestScoreTrend records={records ?? []} />
+                            </div>
+                            <div className="lg:col-span-2">
+                                <GuestChat />
+                            </div>
                         </motion.section>
                     </>
                 )}

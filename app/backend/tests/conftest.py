@@ -58,3 +58,38 @@ async def auth_app(initialized_db):
 async def auth_client(auth_app):
     async with _make_client(auth_app) as client:
         yield client
+
+
+class LiveSessionRtmt:
+    """Stand-in for RTMiddleTier with a REAL SessionStore — just the surface the
+    assessment lifecycle (ciq/assessments/service.py) touches, no Azure."""
+
+    default_survey_type = "TEST"
+    survey_type_overridden = False
+
+    def __init__(self):
+        from ciq.realtime.session import SessionStore
+
+        self._store = SessionStore()
+
+    def get_or_create_session(self, session_id):
+        return self._store.get_or_create(session_id)
+
+    def set_survey_type_for_session(self, session_id, survey_type):
+        from survey_loader import load_survey
+
+        resolved = (survey_type or self.default_survey_type).upper()
+        self._store.get_or_create(session_id).set_survey_type(resolved, load_survey(resolved))
+        return resolved
+
+
+@pytest.fixture
+def live_rtmt():
+    return LiveSessionRtmt()
+
+
+async def seed_user_id(name: str) -> str:
+    """user_id of a seeded account (seed ids are random UUIDs)."""
+    from db import get_user_by_name
+
+    return (await get_user_by_name(name))["user_id"]

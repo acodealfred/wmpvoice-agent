@@ -19,6 +19,7 @@ from ciq.reports.prompts import (
 )
 from db import (
     ensure_survey_record,
+    mark_survey_run_completed,
     merge_survey_record_json,
     save_bat4_scores,
     save_behaviour_snapshot_after,
@@ -43,6 +44,20 @@ logger = logging.getLogger("voicerag")
 _background_tasks: set[asyncio.Task] = set()
 
 
+async def _with_user_transcripts(rtmt, session_id: str, snapshots: list) -> list:
+    """Snapshots with each answer's userResponse replaced by the user's own words
+    (Whisper transcript, see ciq.realtime.transcripts) wherever the live session has
+    one. The browser's copy carries the model's paraphrase captured at scoring time.
+    Waits briefly first: the last answer's transcript often lands just after the
+    report request."""
+    await rtmt.await_answer_transcripts(session_id)
+    words = rtmt.get_answer_transcripts(session_id)
+    return [
+        {**s, "userResponse": words[s.get("questionId")]} if s.get("questionId") in words else s
+        for s in snapshots
+    ]
+
+
 async def analyze_report(request):
     """Build the DETERMINISTIC burnout report (no LLM) and persist it.
 
@@ -65,6 +80,7 @@ async def analyze_report(request):
             return web.json_response({"error": "Analysis service not available"}, status=503)
         survey_config = rtmt.get_survey_config_for_session(session_id)
         is_qualitative = bool(survey_config.get("qualitative"))
+        snapshots = await _with_user_transcripts(rtmt, session_id, snapshots)
 
         survey_results_snapshot = serialize_survey_results(snapshots)
 
@@ -133,6 +149,13 @@ async def analyze_report(request):
                             survey_run_id[:8], len(frames))
             except Exception as tl_err:
                 logger.error("[APP] Timeline frame persist failed: %s", tl_err)
+
+            # The report is persisted: the run leaves the resumable (active/paused)
+            # states and starts counting in history + the manager dashboard.
+            try:
+                await mark_survey_run_completed(survey_run_id)
+            except Exception as status_err:
+                logger.error("[APP] Marking run %s completed failed: %s", survey_run_id[:8], status_err)
 
             if survey_type == "PILOT":
                 try:
@@ -368,6 +391,8 @@ async def generate_ssot_report(request):
         # Canonical, reverse-aware scoring — same source of truth as /analyze-report.
         rtmt = request.app.get("rtmt")
         survey_config = rtmt.get_survey_config_for_session(session_id) if rtmt else {}
+        if rtmt and snapshots:
+            snapshots = await _with_user_transcripts(rtmt, session_id, snapshots)
         summary = compute_survey_summary(survey_config, snapshots) if snapshots else {
             "totalScore": 0, "riskLevel": "Low", "interpretation": "Low burnout risk", "domainTotals": {}
         }
@@ -426,6 +451,11 @@ async def generate_ssot_report(request):
                     )
                 except Exception as tl_err:
                     logger.error("[APP] Timeline frame persist failed (SSoT path): %s", tl_err)
+
+            try:
+                await mark_survey_run_completed(survey_run_id)
+            except Exception as status_err:
+                logger.error("[APP] Marking run %s completed failed (SSoT path): %s", survey_run_id[:8], status_err)
 
         # Allow the frontend (test generator) to supply a custom query.
         if query_override:

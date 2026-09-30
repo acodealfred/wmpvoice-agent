@@ -33,6 +33,27 @@ class SessionState:
     last_active_at: float = field(default_factory=time.time)
     connection_count: int = 0  # incremented on every WS reconnect
 
+    # ── Assessment run binding (see ciq/assessments/) ──────────────────────────
+    # Set by POST /me/assessment/start|continue. While bound, each scored answer
+    # and the timeline frames are persisted against this run as they happen, so a
+    # paused (or dropped) run survives a reload / redeploy / session eviction.
+    # None = legacy flow: nothing is persisted until the report, as before.
+    survey_run_id: str | None = None
+    user_id: str | None = None
+    # Which Start/Continue stretch of the run is live, and where its frame_index
+    # numbering starts (max persisted frame_index + 1 on Continue).
+    timeline_segment_index: int = 0
+    timeline_frame_offset: int = 0
+
+    # ── The user's own words per answer (see ciq.realtime.transcripts) ──────────
+    # User conversation items since the current question was asked; the item ->
+    # question mapping made when it was scored; its items in speaking order; and
+    # the Whisper transcript of each item ("" = transcription failed/empty).
+    unassigned_user_items: list = field(default_factory=list)
+    answer_items: dict = field(default_factory=dict)
+    answer_item_order: dict = field(default_factory=dict)
+    item_transcripts: dict = field(default_factory=dict)
+
     survey_results: dict = field(default_factory=dict)
     # Per-session survey binding. Empty/None means "not yet resolved" — the
     # WS handler falls back to the server default (see RTMiddleTier.default_survey_type)
@@ -257,6 +278,15 @@ class SessionState:
         self.pending_answer_question_index = None
         self.pending_answer_started_at_frame_index = None
         self.reset_recovery_state()
+        # Unbound until POST /me/assessment/start|continue binds the next run.
+        self.survey_run_id = None
+        self.user_id = None
+        self.timeline_segment_index = 0
+        self.timeline_frame_offset = 0
+        self.unassigned_user_items = []
+        self.answer_items = {}
+        self.answer_item_order = {}
+        self.item_transcripts = {}
         logger.info("[RTMT] ★ Session fully reset for new survey (session=%s)", self.session_id)
 
     # ── biometric history ────────────────────────────────────────────────────

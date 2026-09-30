@@ -113,9 +113,27 @@ async def init_db() -> None:
             )
         except aiosqlite.OperationalError:
             pass  # column already present
+        # Assessment lifecycle (see ciq/assessments/): active -> paused -> active
+        # (Continue), paused -> closed (Close / Start new), active -> completed
+        # (report persisted). DEFAULT 'completed' keeps every pre-existing row —
+        # which only ever existed once a report was generated — counted as before.
+        for ddl in (
+            "ALTER TABLE survey_records ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'",
+            "ALTER TABLE survey_records ADD COLUMN paused_at TEXT",
+            "ALTER TABLE survey_records ADD COLUMN closed_at TEXT",
+            "ALTER TABLE survey_records ADD COLUMN current_segment INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                await db.execute(ddl)
+            except aiosqlite.OperationalError:
+                pass  # column already present
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_survey_records_user
             ON survey_records(user_id, created_at DESC)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_survey_records_user_status
+            ON survey_records(user_id, status)
         """)
 
         # Generic per-question response table — one row per answered question,
@@ -149,6 +167,12 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_survey_item_responses_user
             ON survey_item_responses(user_id, created_at)
         """)
+        # The spoken answer text, persisted per answer so a paused run can be
+        # rehydrated on Continue (qualitative surveys have no numeric score).
+        try:
+            await db.execute("ALTER TABLE survey_item_responses ADD COLUMN user_response TEXT")
+        except aiosqlite.OperationalError:
+            pass  # column already present
 
         # Per-second timeline log for a survey run: one row per elapsed second,
         # covering the whole session (not just answered questions). turn_state
@@ -185,6 +209,14 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_survey_timeline_frames_run
             ON survey_timeline_frames(survey_run_id, frame_index)
         """)
+        # Which Start/Continue stretch of a paused-and-resumed run a frame belongs
+        # to. frame_index keeps counting across segments (active seconds only).
+        try:
+            await db.execute(
+                "ALTER TABLE survey_timeline_frames ADD COLUMN segment_index INTEGER NOT NULL DEFAULT 0"
+            )
+        except aiosqlite.OperationalError:
+            pass  # column already present
 
         # One calibrated baseline per user: camera biometrics (pupil size + blink
         # rate, averaged over the eyes-open phase) plus, when a Muse headband was
@@ -519,6 +551,29 @@ async def init_db() -> None:
                 dropped_packets_json TEXT,
                 file_json          TEXT NOT NULL,
                 created_at         TEXT NOT NULL
+            )
+        """)
+
+        # One Muse recording per Start/Continue segment of a run. A resumed run
+        # usually spans a headband reconnect (new t0_epoch_ms, restarted seq), so
+        # segments are stored — and later combined — separately, never
+        # concatenated into one file. eeg_sessions above stays as the read-only
+        # fallback for runs recorded before segments existed.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS eeg_session_segments (
+                survey_run_id      TEXT NOT NULL REFERENCES survey_records(survey_run_id),
+                segment_index      INTEGER NOT NULL,
+                user_id            TEXT NOT NULL REFERENCES users(user_id),
+                session_id         TEXT,
+                device_name        TEXT,
+                preset             TEXT,
+                recorded_at        TEXT,
+                t0_epoch_ms        INTEGER,
+                marker_count       INTEGER,
+                dropped_packets_json TEXT,
+                file_json          TEXT NOT NULL,
+                created_at         TEXT NOT NULL,
+                PRIMARY KEY (survey_run_id, segment_index)
             )
         """)
 

@@ -17,6 +17,7 @@ from aiohttp import web
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
+from ciq.assessments.service import flush_timeline, persist_transcript
 from ciq.llm.azure_chat import AzureChatClient
 from ciq.prompts.builder import baseline_cue_instructions, build_session_instructions
 from ciq.prompts.personas import READINESS_SYSTEM_MESSAGE
@@ -55,6 +56,12 @@ from ciq.realtime.tools.schemas import (
     QUERY_SURVEY_SCHEMA,
     SENTIMENT_SCHEMA,
     SURVEY_SCHEMA,
+)
+from ciq.realtime.transcripts import (
+    note_user_item,
+    pending_transcripts,
+    record_transcript,
+    transcript_for,
 )
 from ciq.survey import get_question_domain
 from survey_loader import options_for_question
@@ -285,6 +292,36 @@ class RTMiddleTier:
         sess = self._store.get_or_create(session_id)
         return {"pre": sess.pre_behaviour_snapshot, "post": sess.post_behaviour_snapshot}
 
+    async def _apply_user_transcript(self, item_id: str | None, text: str) -> None:
+        """A user speech turn's transcription landed: if it answers a scored question,
+        replace that answer's user_response (memory + DB) with the user's own words."""
+        sess = self._sess
+        question_id = record_transcript(sess, item_id, text)
+        if not question_id or question_id not in sess.survey_results:
+            return
+        words = transcript_for(sess, question_id)
+        if not words:
+            return  # Whisper came back empty — keep the model's fallback text
+        sess.survey_results[question_id]["user_response"] = words
+        await persist_transcript(sess, question_id, words)
+        logger.info("[RTMT] ★ Transcript attached to %s: %r", question_id, words[:80])
+
+    async def await_answer_transcripts(self, session_id: str, timeout_s: float = 3.0) -> None:
+        """Block briefly for answer transcripts still in flight — the last answer's
+        Whisper result can land just after the frontend fires the report request."""
+        sess = self._store.get_or_create(session_id)
+        deadline = time.time() + timeout_s
+        while pending_transcripts(sess) and time.time() < deadline:
+            await asyncio.sleep(0.1)
+        if pending_transcripts(sess):
+            logger.warning("[RTMT] %d answer transcript(s) still pending after %.1fs — using fallback text",
+                           len(pending_transcripts(sess)), timeout_s)
+
+    def get_answer_transcripts(self, session_id: str) -> dict:
+        """{question_id: the user's own words} for every answer whose transcript is back."""
+        sess = self._store.get_or_create(session_id)
+        return {qid: text for qid in sess.answer_item_order if (text := transcript_for(sess, qid))}
+
     def get_timeline_frames_for_session(self, session_id: str) -> list:
         """Return the buffered per-second timeline frames (report/export endpoints).
 
@@ -476,6 +513,15 @@ class RTMiddleTier:
                                         "User input is audio, checking for transcription..."
                                     )
 
+                    # A committed user SPEECH turn: remember it so its Whisper transcript
+                    # can become the answer's user_response (ciq.realtime.transcripts).
+                    # Audio-only — text items never get an input-audio transcription.
+                    user_item = message.get("item") or {}
+                    if user_item.get("type") == "message" and user_item.get("role") == "user" and any(
+                        c.get("type") == "input_audio" for c in user_item.get("content") or []
+                    ):
+                        note_user_item(self._sess, user_item.get("id"))
+
                     if "item" in message and message["item"]["type"] == "function_call":
                         item = message["item"]
                         if item["call_id"] not in self._tools_pending:
@@ -488,6 +534,14 @@ class RTMiddleTier:
                         and message["item"]["type"] == "function_call_output"
                     ):
                         updated_message = None
+
+                case "conversation.item.input_audio_transcription.completed" | "conversation.item.input_audio_transcription.failed":
+                    # Passed on to the browser unchanged (chat panel); also patches the
+                    # answer it belongs to with the user's actual words.
+                    await self._apply_user_transcript(
+                        message.get("item_id"),
+                        message.get("transcript", "") if message["type"].endswith("completed") else "",
+                    )
 
                 case "response.function_call_arguments.delta":
                     updated_message = None
@@ -857,6 +911,9 @@ class RTMiddleTier:
                         session["disable_audio"] = self.disable_audio
                     if self.voice_choice is not None:
                         session["voice"] = self.voice_choice
+                    # Whisper transcription of the user's audio: the source of each answer's
+                    # user_response (the user's own words — see ciq.realtime.transcripts).
+                    session["input_audio_transcription"] = {"model": "whisper-1"}
                     # No tool calls during the baseline calibration: the agent must only speak
                     # its cues. A cue like "close your eyes and relax" otherwise reads as a
                     # mindfulness step and triggers a Recovery Window tool, whose "unavailable"
@@ -1063,6 +1120,10 @@ class RTMiddleTier:
             # leaked task if the browser closes mid-survey); a later reconnect
             # on this session_id restarts it and just keeps appending frames.
             stop_timeline_capture(sess)
+            # A bound assessment run gets its frames persisted now: a closed tab /
+            # dropped network is an implicit pause, and the run must be
+            # continuable after a reload, redeploy or session eviction.
+            await flush_timeline(sess)
             reset_active_session(token)
         return ws
 
