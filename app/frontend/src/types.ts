@@ -442,3 +442,35 @@ export type FlaggedRecoverySession = {
 // the middle tier as a custom `baseline.cue` message; the wording lives server-side in
 // ciq/prompts/builder.py (_BASELINE_CUES / _SURVEY_START_LEADS).
 export type BaselineCue = "eyes_open_start" | "eyes_closed_start" | "survey_start_after_closed" | "survey_start_after_open";
+
+// ── Fatigue ↔ Burnout zone (GET /api/zone-trend) — spec 2026-10-01 ─────────
+export type ZoneKey = "well" | "mild" | "moderate" | "high";
+export type LeanKey = "none" | "fatigue" | "mixed" | "burnout";
+export type ZoneTrendStatus = "none" | "first" | "improving" | "steady" | "worsening";
+
+export type ZoneSignal = { key: "blink_up" | "slower"; label: string; approximate: boolean };
+
+export type ZoneResult = {
+    surveyRunId: string;
+    date: string;
+    fatigue: number;
+    burnout: number;
+    severity: number;
+    zone: ZoneKey;
+    lean: LeanKey;
+    leanValue: number;
+    marker: number | null;
+    signals: ZoneSignal[];
+};
+
+export type ZonePoint = { surveyRunId: string; date: string; severity: number; zone: ZoneKey; lean: LeanKey };
+
+export type ZoneTrend = {
+    status: ZoneTrendStatus;
+    delta?: number;
+    ref?: number;
+    compared?: number;
+    points: ZonePoint[];
+};
+
+export type ZoneTrendResponse = { latest: ZoneResult | null; trend: ZoneTrend };
