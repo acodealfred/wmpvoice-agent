@@ -4,6 +4,7 @@ Pure functions: no DB, no network. Nothing here is persisted; every call recompu
 from the stored survey_results so a formula change applies to all history at once.
 See docs/superpowers/specs/2026-10-01-fatigue-burnout-zone-design.md.
 """
+import json
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -104,3 +105,68 @@ def compute_zone(config: dict, survey_results) -> dict | None:
         "marker": marker,
         "severityExact": severity,
     }
+
+
+def compute_trend(runs: list[dict]) -> dict:
+    """Improving / steady / worsening for the newest complete run (spec §4). `runs` oldest-first."""
+    if not runs:
+        return {"status": "none"}
+    if len(runs) == 1:
+        return {"status": "first"}
+    window = ZONE_CONFIG["trend_window"]
+    latest = runs[-1]["severityExact"]
+    previous = [r["severityExact"] for r in runs[-1 - window:-1]]
+    ref = sum(previous) / len(previous)
+    delta = latest - ref
+    dead = ZONE_CONFIG["trend_dead_zone"]
+    status = "improving" if delta <= -dead else "worsening" if delta >= dead else "steady"
+    return {"status": status, "delta": round_half_up(delta), "ref": round_half_up(ref), "compared": len(previous)}
+
+
+def _parse_results(record: dict):
+    raw = record.get("survey_results")
+    if not raw:
+        return None
+    if isinstance(raw, dict):
+        return raw or None
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        logger.warning("[Zone] unparseable survey_results for run %s — skipped", record.get("survey_run_id"))
+        return None
+    return parsed if isinstance(parsed, dict) and parsed else None
+
+
+def _public(zone: dict) -> dict:
+    return {k: v for k, v in zone.items() if k != "severityExact"}
+
+
+def build_zone_trend(records: list[dict], config: dict) -> dict:
+    """Latest zone + trend for one user's survey_records rows (any order). Spec §2–§5."""
+    validate_config(config)
+    complete = []
+    for record in records:
+        if (record.get("survey_type") or "").upper() != "PILOT":
+            continue
+        results = _parse_results(record)
+        if results is None:
+            continue
+        zone = compute_zone(config, results)
+        if zone is None:
+            continue
+        run_id = record.get("survey_run_id") or ""
+        created = record.get("created_at") or ""
+        complete.append({"key": (created, run_id), "results": results,
+                         "zone": {"surveyRunId": run_id, "date": created[:10], **zone}})
+    complete.sort(key=lambda c: c["key"])
+
+    runs = [c["zone"] for c in complete]
+    trend = compute_trend(runs)
+    trend["points"] = [
+        {k: r[k] for k in ("surveyRunId", "date", "severity", "zone", "lean")}
+        for r in runs[-ZONE_CONFIG["trend_points_max"]:]
+    ]
+    latest = None
+    if complete:
+        latest = {**_public(runs[-1]), "signals": []}
+    return {"latest": latest, "trend": trend}
