@@ -6,6 +6,7 @@ import { SurveyRecord } from "@/types";
 import { TEXT_TONE } from "@/lib/badges";
 import { GuestScoreTrend } from "./guest-score-trend";
 import { GuestChat } from "./guest-chat";
+import { ZoneCard } from "./zone-card";
 import "./guest-landing.css";
 
 interface Props {
@@ -304,6 +305,17 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                 Field operational guidance compliant with API RP 755. Data remains private.
                             </p>
                         </motion.div>
+
+                        {/* Fatigue ↔ Burnout zone — own data only (spec 2026-10-01). Separate section so the
+                            existing trend/chat grid below is untouched. */}
+                        <motion.section
+                            initial={{ opacity: 0, y: 24 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.55, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                            className="mt-4"
+                        >
+                            <ZoneCard />
+                        </motion.section>
 
                         {/* Your journey — personal trend + wellbeing assistant (own data only) */}
                         <motion.section

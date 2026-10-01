@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
-import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
+import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { blinkBandLevel, pupilBandLevel } from "@/lib/bands";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
 import { ReadinessReportView } from "@/components/ui/readiness-report-view";
+import { ZoneScale } from "@/components/ui/zone-scale";
 import {
     ResponsiveContainer,
     RadialBarChart,
@@ -73,6 +74,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     const [ssotQuery, setSsotQuery] = useState<string | null>(null);
 
     const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
+    const [zoneData, setZoneData] = useState<ZoneTrendResponse | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
 
     // On-demand AI generations (the two slow LLM calls, now triggered by buttons).
@@ -249,6 +251,25 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             handleGenerateConsultative();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [analyzeData, surveyRunId]);
+
+    // Fatigue ↔ Burnout zone (spec 2026-10-01 §6.2). Fetched only after /analyze-report has
+    // saved this run; rendered only if the newest complete run IS this run, so a failed save
+    // or an incomplete run never shows a previous session's zone as this one.
+    useEffect(() => {
+        if (!analyzeData || !surveyRunId) return;
+        let cancelled = false;
+        apiFetch("/api/zone-trend")
+            .then(r => (r.ok ? r.json() : null))
+            .then((d: ZoneTrendResponse | null) => {
+                if (!cancelled) setZoneData(d);
+            })
+            .catch(() => {
+                if (!cancelled) setZoneData(null);
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [analyzeData, surveyRunId]);
 
     // READINESS uses the SAME deterministic gauge/domain-chart/table as every other
@@ -512,6 +533,15 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                 <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{saveError}</span>
+                </div>
+            )}
+
+            {zoneData?.latest && zoneData.latest.surveyRunId === surveyRunId && (
+                <div className={`mb-4 ${cardClass}`}>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
+                        <Gauge className="h-5 w-5" /> Fatigue ↔ Burnout zone
+                    </div>
+                    <ZoneScale zone={zoneData.latest} trend={zoneData.trend} />
                 </div>
             )}
 
