@@ -6,6 +6,7 @@ See docs/superpowers/specs/2026-10-01-fatigue-burnout-zone-design.md.
 """
 import json
 import logging
+import statistics
 from decimal import ROUND_HALF_UP, Decimal
 
 from survey_loader import effective_score, get_score_bounds, options_for_question
@@ -141,6 +142,52 @@ def _public(zone: dict) -> dict:
     return {k: v for k, v in zone.items() if k != "severityExact"}
 
 
+_SIGNAL_LABELS = {
+    "blink_up": "Blink rate above your baseline",
+    "slower": "Slower responses than your recent check-ins",
+}
+
+
+def _number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v  # excludes NaN
+
+
+def _usable(results: dict, field: str, ok) -> list[float]:
+    out = []
+    for qid in _item_ids():
+        entry = results.get(qid)
+        v = entry.get(field) if isinstance(entry, dict) else None
+        if _number(v) and ok(v):
+            out.append(float(v))
+    return out
+
+
+def _blinks(results: dict) -> list[float]:
+    return _usable(results, "blinkRateChange", lambda v: v != 0)  # serializer stores missing as 0
+
+
+def _latencies(results: dict) -> list[float]:
+    return _usable(results, "responseLatencyMs", lambda v: v > 0)
+
+
+def compute_signals(latest_results: dict, previous_results: list[dict]) -> list[dict]:
+    """Supporting fatigue chips for the latest run. Never affects any score (spec §5)."""
+    need = ZONE_CONFIG["signal_min_items"]
+    signals = []
+
+    blinks = _blinks(latest_results)
+    if len(blinks) >= need and sum(blinks) / len(blinks) > ZONE_CONFIG["blink_up_pct"]:
+        signals.append("blink_up")
+
+    lats = _latencies(latest_results)
+    prev_medians = [statistics.median(l) for l in map(_latencies, previous_results) if len(l) >= need]
+    if len(lats) >= need and prev_medians:
+        if statistics.median(lats) >= ZONE_CONFIG["slower_ratio"] * statistics.median(prev_medians):
+            signals.append("slower")
+
+    return [{"key": k, "label": _SIGNAL_LABELS[k], "approximate": True} for k in signals]
+
+
 def build_zone_trend(records: list[dict], config: dict) -> dict:
     """Latest zone + trend for one user's survey_records rows (any order). Spec §2–§5."""
     validate_config(config)
@@ -168,5 +215,7 @@ def build_zone_trend(records: list[dict], config: dict) -> dict:
     ]
     latest = None
     if complete:
-        latest = {**_public(runs[-1]), "signals": []}
+        window = ZONE_CONFIG["trend_window"]
+        previous = [c["results"] for c in complete[-1 - window:-1]]
+        latest = {**_public(runs[-1]), "signals": compute_signals(complete[-1]["results"], previous)}
     return {"latest": latest, "trend": trend}
