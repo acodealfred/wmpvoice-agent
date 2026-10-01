@@ -1,8 +1,14 @@
 """Fatigue ↔ Burnout zone — scoring rules (spec 2026-10-01 §3)."""
 import pytest
 
+from ciq.zone import (
+    ZONE_CONFIG,
+    ZoneConfigError,
+    compute_zone,
+    round_half_up,
+    validate_config,
+)
 from survey_loader import load_survey
-from ciq.zone import ZONE_CONFIG, ZoneConfigError, compute_zone, round_half_up, validate_config
 
 PILOT = load_survey("PILOT")
 TEST = load_survey("TEST")

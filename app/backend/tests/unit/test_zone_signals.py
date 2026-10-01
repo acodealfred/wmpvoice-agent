@@ -1,8 +1,8 @@
 """Fatigue ↔ Burnout zone — supporting fatigue signals (spec 2026-10-01 §5)."""
 import json
 
-from survey_loader import load_survey
 from ciq.zone import build_zone_trend, compute_signals
+from survey_loader import load_survey
 
 PILOT = load_survey("PILOT")
 IDS = ["bat_q1", "bat_q2", "bat_q3", "bat_q4", "cbi_q1", "cbi_q2", "cbi_q3"]
@@ -13,8 +13,8 @@ def blob(blinks=None, lats=None, scores=EXAMPLE):
     """blinks / lats: list of 7 per-item values (or None → serializer defaults 0 / None)."""
     blinks = blinks or [0] * 7
     lats = lats or [None] * 7
-    return {q: {"score": scores[q], "blinkRateChange": b, "responseLatencyMs": l}
-            for q, b, l in zip(IDS, blinks, lats)}
+    return {q: {"score": scores[q], "blinkRateChange": b, "responseLatencyMs": lat}
+            for q, b, lat in zip(IDS, blinks, lats)}
 
 
 def keys(signals):
@@ -39,6 +39,10 @@ def test_blink_zero_and_bool_are_missing():
 
 def test_blink_five_usable_is_enough():
     assert keys(compute_signals(blob(blinks=[30, 30, 30, 30, 30, 0, 0]), [])) == ["blink_up"]
+
+
+def test_blink_four_usable_is_hidden():
+    assert keys(compute_signals(blob(blinks=[30, 30, 30, 30, 0, 0, 0]), [])) == []
 
 
 def test_blink_below_baseline_is_not_a_signal():
@@ -101,6 +105,8 @@ def test_signals_never_change_the_score_or_trend():
     busy = [_rec("b", "2026-09-02T00:00:00", blob(blinks=[90] * 7, lats=[9000] * 7)),
             _rec("a", "2026-09-01T00:00:00", blob(lats=[1000] * 7))]
     c, b = build_zone_trend(calm, PILOT), build_zone_trend(busy, PILOT)
-    strip = lambda o: {**o["latest"], "signals": None}
+    def strip(o):
+        return {**o["latest"], "signals": None}
+
     assert strip(c) == strip(b)
     assert c["trend"] == b["trend"]

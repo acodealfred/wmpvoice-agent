@@ -1,7 +1,6 @@
 """Fatigue ↔ Burnout zone — personal chat tool (spec 2026-10-01 §6.3)."""
-# pytest (rootdir-relative "prepend" import mode, no __init__.py) puts tests/integration on
-# sys.path, so the sibling test module imports by its basename. Test basenames are unique.
-from test_zone_trend import EXAMPLE, HIGH, insert_run, user_id
+# tests/integration is on sys.path under pytest's default prepend import mode.
+from zone_helpers import EXAMPLE, HIGH, insert_run, user_id
 
 
 def test_guest_schemas_include_zone_tool():

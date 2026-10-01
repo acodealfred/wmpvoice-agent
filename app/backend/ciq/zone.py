@@ -180,7 +180,7 @@ def compute_signals(latest_results: dict, previous_results: list[dict]) -> list[
         signals.append("blink_up")
 
     lats = _latencies(latest_results)
-    prev_medians = [statistics.median(l) for l in map(_latencies, previous_results) if len(l) >= need]
+    prev_medians = [statistics.median(lats) for lats in map(_latencies, previous_results) if len(lats) >= need]
     if len(lats) >= need and prev_medians:
         if statistics.median(lats) >= ZONE_CONFIG["slower_ratio"] * statistics.median(prev_medians):
             signals.append("slower")

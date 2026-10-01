@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from survey_loader import load_survey
 from ciq.zone import ZoneConfigError, build_zone_trend, compute_trend
+from survey_loader import load_survey
 
 PILOT = load_survey("PILOT")
 TEST = load_survey("TEST")
@@ -119,6 +119,19 @@ def test_points_capped_at_20_most_recent():
     pts = build_zone_trend(recs, PILOT)["trend"]["points"]
     assert len(pts) == 20
     assert pts[0]["surveyRunId"] == "r06" and pts[-1]["surveyRunId"] == "r25"
+
+
+@pytest.mark.parametrize("changes,status", [
+    ({"bat_q2": 3}, "steady"),                    # one burnout answer step
+    ({"bat_q2": 3, "bat_q4": 3}, "worsening"),    # two burnout answer steps
+    ({"bat_q1": 5}, "steady"),                    # one fatigue answer step
+    ({"bat_q1": 5, "bat_q3": 4}, "worsening"),    # two fatigue answer steps
+])
+def test_real_answer_granularity_through_build(changes, status):
+    # Spec 2026-10-01 §9: end-to-end through build_zone_trend with real survey answers.
+    recs = [rec("a", "2026-09-01T00:00:00", EXAMPLE),
+            rec("b", "2026-09-02T00:00:00", {**EXAMPLE, **changes})]
+    assert build_zone_trend(recs, PILOT)["trend"]["status"] == status
 
 
 def test_output_shape_has_no_internal_keys():

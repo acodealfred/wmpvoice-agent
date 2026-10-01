@@ -101,6 +101,7 @@ queries.
 | `get_my_assessments` | `get_user_survey_records(user_id)` | Their scores, risk, dates, domains (most recent first) |
 | `get_my_score_trend` | same | Their score over time — one point per assessment |
 | `get_my_latest_report` | same | Their latest score/risk/interpretation + behavioural analysis / consultative summary text |
+| `get_my_zone_trend` | `build_zone_trend` over their own records | Their own Fatigue ↔ Burnout zone and trend (personal scope; not a diagnosis) |
 | `search_research` | `call_mithra_kb_chat()` | Evidence snippets + `citations[]` |
 
 Design notes:

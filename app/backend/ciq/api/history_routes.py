@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
 from ciq.eeg.combine import EEG_COLUMNS, compute_unified_columns
+from ciq.zone import ZoneConfigError, build_zone_trend
 from db import (
     get_all_users_with_session_info,
     get_eeg_session,
@@ -24,7 +25,6 @@ from db import (
 )
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
 from survey_loader import compute_survey_summary, effective_score, load_survey
-from ciq.zone import ZoneConfigError, build_zone_trend
 
 logger = logging.getLogger("voicerag")
 

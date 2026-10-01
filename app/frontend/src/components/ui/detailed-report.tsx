@@ -257,7 +257,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // saved this run; rendered only if the newest complete run IS this run, so a failed save
     // or an incomplete run never shows a previous session's zone as this one.
     useEffect(() => {
-        if (!analyzeData || !surveyRunId) return;
+        if (!analyzeData || !surveyRunId || (surveyType ?? "").toUpperCase() !== "PILOT") return;
         let cancelled = false;
         apiFetch("/api/zone-trend")
             .then(r => (r.ok ? r.json() : null))
@@ -270,7 +270,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         return () => {
             cancelled = true;
         };
-    }, [analyzeData, surveyRunId]);
+    }, [analyzeData, surveyRunId, surveyType]);
 
     // READINESS uses the SAME deterministic gauge/domain-chart/table as every other
     // survey type (see analyze_report — its questions carry a Low/Medium/High-mapped
