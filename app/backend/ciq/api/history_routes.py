@@ -3,6 +3,7 @@ import asyncio
 import csv
 import io
 import json
+import logging
 
 from aiohttp import web
 from openpyxl import Workbook
@@ -23,6 +24,9 @@ from db import (
 )
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
 from survey_loader import compute_survey_summary, effective_score, load_survey
+from ciq.zone import ZoneConfigError, build_zone_trend
+
+logger = logging.getLogger("voicerag")
 
 _TIMELINE_EXPORT_HEADERS = [
     "frame_index", "elapsed_seconds", "timestamp", "turn_state",
@@ -312,3 +316,18 @@ async def user_sessions_history(request: web.Request) -> web.Response:
                 except Exception:
                     pass
     return web.json_response({"records": records})
+
+
+async def user_zone_trend(request: web.Request) -> web.Response:
+    """GET /api/zone-trend — the logged-in user's Fatigue ↔ Burnout zone and trend.
+
+    Identity comes from the auth session only; nothing in the request selects the user.
+    """
+    user_id = request["auth_session"]["user_id"]
+    records = await get_user_survey_records(user_id)
+    try:
+        result = build_zone_trend(records, load_survey("PILOT"))
+    except ZoneConfigError:
+        logger.exception("[Zone] PILOT survey config unavailable")
+        return web.json_response({"error": "zone unavailable"}, status=500)
+    return web.json_response(result)

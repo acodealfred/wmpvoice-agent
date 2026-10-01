@@ -22,6 +22,7 @@ from ciq.api.history_routes import (
     manager_score_trend,
     set_demo_data,
     user_sessions_history,
+    user_zone_trend,
 )
 from ciq.api.meta_routes import get_config, get_version
 from ciq.biometrics.routes import analyze_face
@@ -146,6 +147,7 @@ async def create_app():
 
     # ── History / baseline ────────────────────────────────────────────────
     app.router.add_get("/api/history", user_sessions_history)
+    app.router.add_get("/api/zone-trend", user_zone_trend)
     app.router.add_get("/baseline", get_baseline)
     app.router.add_post("/baseline", save_baseline)
     app.router.add_delete("/baseline", clear_baseline)
