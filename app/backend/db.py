@@ -9,11 +9,6 @@ from survey_loader import effective_score
 
 DB_PATH = Path(__file__).parent / "data" / "ciq.db"
 
-# A stored baseline is considered valid for this long after it was recorded.
-# Enforced at the DB level (see get_user_baseline) so an expired baseline is
-# indistinguishable from a missing one and forces a fresh 30s recording.
-BASELINE_TTL_HOURS = 12
-
 
 @asynccontextmanager
 async def _open_db():
@@ -244,18 +239,21 @@ async def get_user_survey_records(user_id: str) -> list[dict]:
 
 
 async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
-    """Lightweight per-run list (id/type/date, no JSON blobs) for admin run-pickers
-    like the survey-timeline export UI. Same "has recorded data" filter as
-    get_user_survey_records, so only runs that actually produced a report (and
-    therefore may have timeline frames) show up as pickable. `has_eeg_session`
-    tells the run-picker whether an EEG/combined export is even possible for
-    that run, without fetching the (potentially large) eeg_sessions.file_json.
-    `eeg_segments` lists the run's recorded EEG segments (a legacy single-file
-    recording is [0]) so the panel can offer a per-segment download.
+    """Lightweight per-run list (id/type/date/status, no JSON blobs) for admin
+    run-pickers like the survey-timeline export UI.
+
+    Lists every run that recorded something — a report, answers, timeline frames
+    or EEG — whatever its status, so partial (closed / paused / abandoned) runs can
+    be exported too; `status` lets the panel label them. Runs that captured nothing
+    at all are left out. `has_eeg_session` tells the run-picker whether an
+    EEG/combined export is even possible for that run, without fetching the
+    (potentially large) eeg_sessions.file_json. `eeg_segments` lists the run's
+    recorded EEG segments (a legacy single-file recording is [0]) so the panel can
+    offer a per-segment download.
     """
     async with _open_db() as db:
         async with db.execute("""
-            SELECT sr.survey_run_id, sr.survey_type, sr.created_at,
+            SELECT sr.survey_run_id, sr.survey_type, sr.created_at, sr.status,
                    CASE WHEN es.survey_run_id IS NOT NULL
                           OR EXISTS (SELECT 1 FROM eeg_session_segments seg
                                      WHERE seg.survey_run_id = sr.survey_run_id)
@@ -266,8 +264,11 @@ async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
             FROM survey_records sr
             LEFT JOIN eeg_sessions es ON es.survey_run_id = sr.survey_run_id
             WHERE sr.user_id = ?
-              AND sr.status = 'completed'
-              AND (sr.survey_results IS NOT NULL OR sr.prompt_info IS NOT NULL)
+              AND (sr.survey_results IS NOT NULL OR sr.prompt_info IS NOT NULL
+                   OR es.survey_run_id IS NOT NULL
+                   OR EXISTS (SELECT 1 FROM survey_item_responses r WHERE r.survey_run_id = sr.survey_run_id)
+                   OR EXISTS (SELECT 1 FROM survey_timeline_frames f WHERE f.survey_run_id = sr.survey_run_id)
+                   OR EXISTS (SELECT 1 FROM eeg_session_segments seg WHERE seg.survey_run_id = sr.survey_run_id))
             ORDER BY sr.created_at DESC
         """, (user_id,)) as cursor:
             rows = await cursor.fetchall()
@@ -280,69 +281,43 @@ async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
             return summaries
 
 
-async def get_user_baseline(user_id: str) -> dict | None:
-    """Return the user's calibrated baseline if it is still within the TTL, else None.
+async def set_run_baseline(
+    survey_run_id: str, user_id: str, blink_rate: float | None, pupil_size: float | None, segment_index: int,
+) -> bool:
+    """Record a run's completed baseline. Set-once: a run keeps the first baseline it
+    completed (a duplicate save is a no-op). Returns whether this call stored it.
 
-    Deliberately excludes eeg_baseline_json (several MB) — this runs on every new
-    realtime connection; use get_user_baseline_eeg for the EEG file.
-
-    The 12-hour TTL is enforced here (DB level) by filtering on updated_at — the
-    moment the row was last (re)recorded — so an expired baseline is returned as
-    None, indistinguishable from a missing one, forcing a fresh recording. ISO-8601
-    timestamps compare correctly as strings since they all share datetime.isoformat().
+    The baseline's per-second rows and EEG are not stored here — they are part of
+    that segment's timeline frames (stage = baseline_*) and EEG file.
     """
-    cutoff = (datetime.utcnow() - timedelta(hours=BASELINE_TTL_HOURS)).isoformat()
+    now = datetime.utcnow().isoformat()
+    async with _open_db() as db:
+        cursor = await db.execute(
+            """UPDATE survey_records
+               SET baseline_blink_rate = ?, baseline_pupil_size = ?,
+                   baseline_completed_at = ?, baseline_segment_index = ?, updated_at = ?
+               WHERE survey_run_id = ? AND user_id = ? AND baseline_completed_at IS NULL""",
+            (blink_rate, pupil_size, now, segment_index, now, survey_run_id, user_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def get_run_baseline(survey_run_id: str | None) -> dict | None:
+    """A run's completed baseline {blink_rate, pupil_size, completed_at, segment_index},
+    or None when the run has not completed one (no time limit — it belongs to the run)."""
+    if not survey_run_id:
+        return None
     async with _open_db() as db:
         async with db.execute(
-            "SELECT pupil_size, blink_rate, updated_at FROM user_baselines "
-            "WHERE user_id = ? AND updated_at > ?",
-            (user_id, cutoff),
+            """SELECT baseline_blink_rate AS blink_rate, baseline_pupil_size AS pupil_size,
+                      baseline_completed_at AS completed_at, baseline_segment_index AS segment_index
+               FROM survey_records
+               WHERE survey_run_id = ? AND baseline_completed_at IS NOT NULL""",
+            (survey_run_id,),
         ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None
-
-
-async def upsert_user_baseline(
-    user_id: str, pupil_size: float, blink_rate: float, eeg_baseline: dict | None = None
-) -> None:
-    """Insert or overwrite the user's baseline (one row per user).
-
-    Always overwrites eeg_baseline_json too — a recording made without a headband
-    stores NULL rather than keeping a stale EEG baseline from an earlier session.
-    """
-    now = datetime.utcnow().isoformat()
-    eeg_json = json.dumps(eeg_baseline) if eeg_baseline is not None else None
-    async with _open_db() as db:
-        await db.execute(
-            """INSERT INTO user_baselines
-                   (user_id, pupil_size, blink_rate, eeg_baseline_json, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(user_id) DO UPDATE SET
-                   pupil_size = excluded.pupil_size,
-                   blink_rate = excluded.blink_rate,
-                   eeg_baseline_json = excluded.eeg_baseline_json,
-                   updated_at = excluded.updated_at""",
-            (user_id, pupil_size, blink_rate, eeg_json, now, now),
-        )
-        await db.commit()
-
-
-async def get_user_baseline_eeg(user_id: str) -> dict | None:
-    """Return the user's stored baseline EEG session file (no TTL filter), or None."""
-    async with _open_db() as db:
-        async with db.execute(
-            "SELECT eeg_baseline_json FROM user_baselines WHERE user_id = ?", (user_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if not row or not row["eeg_baseline_json"]:
-                return None
-            return json.loads(row["eeg_baseline_json"])
-
-
-async def delete_user_baseline(user_id: str) -> None:
-    async with _open_db() as db:
-        await db.execute("DELETE FROM user_baselines WHERE user_id = ?", (user_id,))
-        await db.commit()
 
 
 async def get_user_consent(user_id: str, consent_type: str = "pilot_study") -> dict | None:
@@ -590,8 +565,8 @@ async def save_survey_timeline_frames(
                (survey_run_id, session_id, user_id, frame_index, segment_index, timestamp,
                 turn_state, question_id, question_index, blink_rate_bpm,
                 blink_rate_change_percent, pupil_mm_change, left_gaze_position,
-                right_gaze_position, face_emotion, voice_sentiment, stress_state, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                right_gaze_position, face_emotion, voice_sentiment, stress_state, stage, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(survey_run_id, frame_index) DO UPDATE SET
                    turn_state = excluded.turn_state,
                    question_id = excluded.question_id,
@@ -604,7 +579,7 @@ async def save_survey_timeline_frames(
                     f.get("blink_rate_bpm"), f.get("blink_rate_change_percent"),
                     f.get("pupil_mm_change"), f.get("left_gaze_position"),
                     f.get("right_gaze_position"), f.get("face_emotion"),
-                    f.get("voice_sentiment"), f.get("stress_state"), now,
+                    f.get("voice_sentiment"), f.get("stress_state"), f.get("stage"), now,
                 )
                 for f in frames
             ],
@@ -941,20 +916,25 @@ async def get_max_timeline_frame_index(survey_run_id: str) -> int:
 
 
 async def get_pilot_survey_export_rows() -> list[dict]:
-    """One row per PILOT survey run that has at least some subscale data, joining
-    its BAT-4 / CBI-WRB3 / behaviour data.
+    """One row per PILOT survey run that recorded some data, joining its BAT-4 /
+    CBI-WRB3 / behaviour data and its own baseline.
 
     Anchored on survey_records (not the subscale tables) so a run missing only
     SOME of its subscale rows (e.g. a behaviour capture window that never
     completed) still appears with NULLs in those columns rather than being
-    silently dropped — but a PILOT run with NO subscale data at all (started
-    and abandoned before /analyze-report ever ran) is excluded entirely, so the
-    export isn't padded with blank rows ahead of the real data. Used by the
-    admin pilot-survey .xlsx export.
+    silently dropped. Partial runs (closed / paused / abandoned before the report)
+    are included whenever they completed a baseline or have any subscale/behaviour
+    data — their score cells are empty (scores are computed at report time) and
+    `status` says why. A run with none of that is left out, so the export isn't
+    padded with blank rows. Used by the admin pilot-survey .xlsx export.
     """
     async with _open_db() as db:
         cursor = await db.execute(
             """SELECT
+                   sr.survey_run_id       AS survey_run_id,
+                   sr.status              AS status,
+                   sr.baseline_blink_rate AS baseline_blink_rate,
+                   sr.baseline_completed_at AS baseline_completed_at,
                    b.total_score          AS bat4_total,
                    b.average_score        AS bat4_average,
                    c.total_score          AS cbi3_total,
@@ -969,8 +949,8 @@ async def get_pilot_survey_export_rows() -> list[dict]:
                LEFT JOIN pilot_cbi3_scores c ON c.survey_run_id = sr.survey_run_id
                LEFT JOIN pilot_behaviour_snapshots v ON v.survey_run_id = sr.survey_run_id
                WHERE sr.survey_type = 'PILOT'
-                 AND sr.status = 'completed'
-                 AND (b.survey_run_id IS NOT NULL OR c.survey_run_id IS NOT NULL OR v.survey_run_id IS NOT NULL)
+                 AND (b.survey_run_id IS NOT NULL OR c.survey_run_id IS NOT NULL OR v.survey_run_id IS NOT NULL
+                      OR sr.baseline_completed_at IS NOT NULL)
                ORDER BY sr.created_at ASC""",
         )
         rows = await cursor.fetchall()

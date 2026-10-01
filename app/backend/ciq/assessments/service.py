@@ -12,6 +12,10 @@ and timeline were already persisted as they happened / on disconnect.
 
 Every function here takes the auth session's own ``session_id`` (never one from a
 request body), so a user can only ever reset or rebind their own live session.
+
+Baselines are per run (``survey_records.baseline_*``): every new run records one;
+a run paused before its baseline completed records it again on Continue; a run
+that completed one reuses it on every Continue, with no time limit.
 """
 import logging
 import uuid
@@ -23,14 +27,15 @@ from db import (
     create_active_survey_run,
     get_max_timeline_frame_index,
     get_open_survey_run,
+    get_run_baseline,
     get_survey_item_responses,
     get_survey_run_status,
-    get_user_baseline,
     link_latest_consent_to_run,
     pause_survey_run,
     resume_survey_run,
     save_survey_item_responses,
     save_survey_timeline_frames,
+    set_run_baseline,
     update_item_user_response,
 )
 from survey_loader import load_survey
@@ -187,8 +192,10 @@ async def start_run(rtmt, session_id: str, user_id: str, session_token: str | No
     await _link_consent(user_id, survey_run_id, resolved_type)
     logger.info("[Assessment] ★ Started run %s (%s) for user %s; closed %s",
                 survey_run_id[:8], resolved_type, user_id[:8], [c[:8] for c in closed])
+    # A brand-new run never has a baseline: the frontend always runs the protocol, and
+    # the next WS connect resolves the same thing from the same row ("baseline").
     return {"surveyRunId": survey_run_id, "surveyType": resolved_type, "segmentIndex": 0,
-            "closedRunIds": closed}
+            "closedRunIds": closed, "baselineRequired": True}
 
 
 async def pause_run(rtmt, session_id: str, user_id: str) -> dict:
@@ -212,11 +219,11 @@ async def pause_run(rtmt, session_id: str, user_id: str) -> dict:
 async def continue_run(rtmt, session_id: str, user_id: str, survey_run_id: str) -> dict:
     """Open run -> active on its next segment, with the live session rehydrated.
 
-    With a stored (non-expired) baseline the session goes straight to the
-    "survey" phase — the baseline is reused, no protocol. Without one (paused
-    mid-baseline, or the 12h baseline TTL lapsed while paused) it goes back to the
-    "baseline" phase and ``baselineRequired`` tells the frontend to run the
-    protocol first.
+    If this run already completed its baseline, the session goes straight to the
+    "survey" phase — that baseline is reused (no time limit) and returned as
+    ``baseline`` so the frontend can compute blink change against it. If it was
+    paused before the baseline finished, it goes back to the "baseline" phase and
+    ``baselineRequired`` tells the frontend to run the full protocol again.
 
     With at least one answer, connection_count=1, so the next WS connect counts as
     a reconnect: the agent gets reconnect_instructions ("N/M answered — continue")
@@ -233,7 +240,8 @@ async def continue_run(rtmt, session_id: str, user_id: str, survey_run_id: str) 
     if segment is None:
         raise AssessmentError("That assessment can no longer be continued", 409)
     max_frame = await get_max_timeline_frame_index(survey_run_id)
-    has_baseline = await get_user_baseline(user_id) is not None
+    baseline = await get_run_baseline(survey_run_id)
+    has_baseline = baseline is not None
 
     sess.reset_for_new_survey()
     rtmt.set_survey_type_for_session(session_id, run["survey_type"] or "TEST")
@@ -246,8 +254,8 @@ async def continue_run(rtmt, session_id: str, user_id: str, survey_run_id: str) 
         sess.connection_count = 1
     # else: nothing answered yet (paused during/right after the baseline) — leave the
     # session as a fresh start (connection_count=0), so the next WS connect resolves the
-    # phase from the stored baseline like any new assessment and the agent gives the
-    # normal opening, not "welcome back — shall we continue?".
+    # phase from this run's baseline and the agent gives the normal opening, not
+    # "welcome back — shall we continue?".
     sess.survey_run_id = survey_run_id
     sess.user_id = user_id
     sess.timeline_segment_index = segment
@@ -260,10 +268,34 @@ async def continue_run(rtmt, session_id: str, user_id: str, survey_run_id: str) 
         "surveyType": run["survey_type"],
         "segmentIndex": segment,
         "baselineRequired": not has_baseline,
+        "baseline": (
+            {"blinkRate": baseline["blink_rate"], "pupilSize": baseline["pupil_size"]}
+            if baseline else None
+        ),
         "answered": len(rows),
         "total": len(sess.survey_config.get("questions", [])),
         "snapshots": [_snapshot_from_row(r) for r in rows],
     }
+
+
+async def complete_baseline(rtmt, session_id: str, user_id: str,
+                            blink_rate: float | None, pupil_size: float | None) -> dict:
+    """Record the bound run's completed baseline (set once per run).
+
+    Bound to the live session's run and current segment — that segment's timeline
+    frames (stage = baseline_*) and EEG file hold the baseline's own seconds/markers,
+    so ``baseline_segment_index`` is what ties the summary to them. A repeat call (or
+    one after the run already has a baseline) changes nothing and reports
+    ``stored: False``.
+    """
+    sess = rtmt.get_or_create_session(session_id)
+    run_id = sess.survey_run_id
+    if not run_id or sess.user_id != user_id or await get_survey_run_status(run_id) != "active":
+        raise AssessmentError("No active assessment to record a baseline for", 409)
+    stored = await set_run_baseline(run_id, user_id, blink_rate, pupil_size, sess.timeline_segment_index)
+    logger.info("[Assessment] ★ Baseline %s for run %s (segment %d, blink %s/min)",
+                "recorded" if stored else "already set", run_id[:8], sess.timeline_segment_index, blink_rate)
+    return {"surveyRunId": run_id, "segmentIndex": sess.timeline_segment_index, "stored": stored}
 
 
 async def close_run(rtmt, session_id: str, user_id: str, survey_run_id: str) -> dict:

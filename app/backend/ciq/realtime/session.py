@@ -97,11 +97,16 @@ class SessionState:
     # only) calibration is running: the agent stays silent except for the spoken cues
     # the frontend requests via `baseline.cue`, user audio is dropped before it reaches
     # Azure, and the survey questions are NOT available to it;
-    # "survey" → the questions are unlocked. Resolved at WS connect from the user's
-    # stored baseline (see RTMiddleTier._resolve_survey_phase): a valid (non-expired)
-    # baseline means a returning user who skips recording and starts in "survey".
+    # "survey" → the questions are unlocked. Resolved at WS connect from the bound
+    # run's own baseline (see RTMiddleTier._resolve_survey_phase): a run that already
+    # completed its baseline (resumed after a pause) starts in "survey"; a new run
+    # always starts in "baseline".
     survey_phase: str = "baseline"
     is_returning_user: bool = False
+    # Which baseline step is running, for the timeline's `stage` column: set from the
+    # baseline.cue the frontend sends at each phase boundary (None = before the first
+    # cue). Ignored once survey_phase is "survey" (see timeline_stage()).
+    baseline_stage: str | None = None
 
     # Voice response latency: time between the agent finishing a turn (e.g. asking
     # a survey question) and the user starting to speak their answer.
@@ -200,6 +205,13 @@ class SessionState:
         self.survey_phase = "survey"
         logger.info("[RTMT] ★ Survey phase unlocked (session=%s)", self.session_id)
 
+    def timeline_stage(self) -> str:
+        """The `stage` a timeline frame sampled right now belongs to:
+        survey | baseline_eyes_open | baseline_eyes_closed | baseline_setup."""
+        if self.survey_phase == "survey":
+            return "survey"
+        return self.baseline_stage or "baseline_setup"
+
     def clear_conversation_state(self) -> None:
         self.conversation_state = "active"
         self.report_context = None
@@ -256,10 +268,11 @@ class SessionState:
         self.current_right_gaze_position = "Center"
         self.stress_state = "normal"
         self.connection_count = 0
-        # Back to the gated baseline phase; the next WS connect re-resolves whether
-        # this is a returning user (valid baseline) and may move it straight to "survey".
+        # Back to the gated baseline phase; the next WS connect re-resolves it from the
+        # bound run's baseline (a resumed run that completed one goes straight to "survey").
         self.survey_phase = "baseline"
         self.is_returning_user = False
+        self.baseline_stage = None
         self.pre_behaviour_snapshot = None
         self.post_behaviour_snapshot = None
         self._behaviour_task = None

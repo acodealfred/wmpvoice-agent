@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 
 from auth import auth_middleware, login, logout, me, signup
 from biometric_interpreter import analyze_stress
-from ciq.api.baseline_routes import clear_baseline, get_baseline, save_baseline
 from ciq.api.consent_routes import get_consent, save_consent
 from ciq.api.history_routes import (
     admin_export_pilot_survey,
@@ -29,6 +28,7 @@ from ciq.assessments.routes import (
     continue_assessment,
     get_assessment,
     pause_assessment,
+    save_assessment_baseline,
     start_assessment,
 )
 from ciq.biometrics.routes import analyze_face
@@ -131,6 +131,7 @@ async def create_app():
     app.router.add_post("/me/assessment/pause", pause_assessment)
     app.router.add_post("/me/assessment/continue", continue_assessment)
     app.router.add_post("/me/assessment/close", close_assessment)
+    app.router.add_post("/me/assessment/baseline", save_assessment_baseline)
 
     # ── EEG / Muse — raw recording only, uploaded per segment (Pause) and on completion ──
     app.router.add_post("/eeg-sessions", upload_eeg_session)
@@ -158,11 +159,8 @@ async def create_app():
     app.router.add_post("/report/consultative-summary", report_consultative_summary)
     app.router.add_post("/ssot-report", generate_ssot_report)
 
-    # ── History / baseline ────────────────────────────────────────────────
+    # ── History / consent (baselines are per assessment: /me/assessment/baseline) ──
     app.router.add_get("/api/history", user_sessions_history)
-    app.router.add_get("/baseline", get_baseline)
-    app.router.add_post("/baseline", save_baseline)
-    app.router.add_delete("/baseline", clear_baseline)
     app.router.add_get("/consent", get_consent)
     app.router.add_post("/consent", save_consent)
     app.router.add_get("/admin/users", admin_list_users)

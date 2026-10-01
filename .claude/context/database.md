@@ -33,6 +33,12 @@ Permanent log of completed assessment runs (multiple runs per user).
 - `survey_run_id` (TEXT PK), `user_id` (TEXT FK), `session_token` (TEXT), `session_id` (TEXT)
 - `survey_type` (TEXT), `created_at`, `updated_at` (TEXT ISO8601)
 - `survey_results`, `technical_report`, `prompt_info` (TEXT JSON blobs), `is_demo` (INTEGER)
+- Lifecycle: `status` (active | paused | closed | completed), `paused_at`, `closed_at`, `current_segment`
+- **Per-assessment baseline** (set once, when this run's baseline protocol completes; NULL = none yet):
+  `baseline_blink_rate`, `baseline_pupil_size` (REAL, nullable when the camera gave no data),
+  `baseline_completed_at` (TEXT), `baseline_segment_index` (INTEGER — the segment whose timeline
+  rows `stage = baseline_*` and EEG file hold the baseline). Pause mid-baseline → re-captured on
+  Continue; completed → reused on every Continue (no TTL); every new run records its own.
 
 ### 4. `survey_item_responses`
 Normalized per-question answer records for any survey.
@@ -46,15 +52,18 @@ Normalized per-question answer records for any survey.
 ### 5. `survey_timeline_frames`
 1-Hz per-second timeline telemetry captured across the full assessment session.
 - `id` (INTEGER PK AUTOINCREMENT), `survey_run_id` (TEXT FK), `session_id` (TEXT), `user_id` (TEXT FK)
-- `frame_index` (INTEGER NOT NULL), `timestamp` (TEXT), `turn_state` (TEXT: agent_question, agent_other, user_answer, idle)
+- `frame_index` (INTEGER NOT NULL), `segment_index` (INTEGER), `timestamp` (TEXT), `turn_state` (TEXT: agent_question, agent_other, user_answer, idle)
+- `stage` (TEXT: baseline_setup | baseline_eyes_open | baseline_eyes_closed | survey; NULL on legacy rows = survey) —
+  the sampler runs from Start, so the baseline's seconds are in the same timeline (blink change NULL during it)
 - `question_id` (TEXT), `question_index` (INTEGER)
 - `blink_rate_bpm`, `blink_rate_change_percent`, `pupil_mm_change` (REAL)
 - `left_gaze_position`, `right_gaze_position` (TEXT)
 - `face_emotion`, `voice_sentiment`, `stress_state` (TEXT)
 - `created_at` (TEXT ISO8601)
 
-### 6. `user_baselines`
-Personal calibrated resting baseline (recorded once per user).
+### 6. `user_baselines` (LEGACY — no longer read or written)
+Former per-user baseline (12h TTL). Superseded by the per-assessment `survey_records.baseline_*`
+columns; kept only for existing data / demo cleanup.
 - `user_id` (TEXT PK FK), `pupil_size` (REAL), `blink_rate` (REAL)
 - `created_at`, `updated_at` (TEXT ISO8601)
 

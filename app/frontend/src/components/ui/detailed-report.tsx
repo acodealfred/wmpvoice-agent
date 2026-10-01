@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
 import { apiFetch } from "@/lib/api";
-import { blinkBandLevel, pupilBandLevel } from "@/lib/bands";
+import { blinkBandLevel } from "@/lib/bands";
 import { answerLevel, describeDomain, describeGauge } from "@/lib/report-descriptions";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
@@ -375,7 +375,6 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // Only real readings count — a missing one is "not enough data", not 0%.
     const blinkReadings = snapshots.map(s => s.blinkRateChange).filter((x): x is number => x != null);
     const peakBlink = blinkReadings.reduce((m, v) => (Math.abs(v) > Math.abs(m) ? v : m), 0);
-    const peakPupil = snapshots.reduce((m, s) => Math.max(m, s.pupilMmChange ?? 0), 0);
     const latencies = snapshots.map(s => s.responseLatencyMs).filter((x): x is number => x != null);
     const avgLatency = latencies.length ? (latencies.reduce((a, b) => a + b, 0) / latencies.length / 1000).toFixed(1) : null;
 
@@ -396,14 +395,6 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         return level === "Elevated"
             ? { label: `Elevated ${arrow}`, color: "bg-petroleum-sodium/15 text-petroleum-sodium" }
             : { label: `High ${arrow}`, color: "bg-petroleum-flare/15 text-petroleum-flare" };
-    };
-
-    const pupilBand = (mmChange?: number | null): { label: string; color: string } => {
-        const level = pupilBandLevel(mmChange);
-        if (level === "Unknown") return { label: "—", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
-        if (level === "Low") return { label: "Low", color: "bg-petroleum-vapour/15 text-petroleum-vapour" };
-        if (level === "Medium") return { label: "Medium", color: "bg-petroleum-sodium/15 text-petroleum-sodium" };
-        return { label: "High", color: "bg-petroleum-flare/15 text-petroleum-flare" };
     };
 
     const tooltipStyle = {
@@ -628,13 +619,12 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             </div>
 
             {/* ── KPI tiles ── */}
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <KpiTile
                     icon={<Eye className="h-4 w-4" />}
                     label="Peak blink Δ"
                     value={blinkReadings.length ? `${peakBlink > 0 ? "+" : ""}${peakBlink.toFixed(0)}%` : "—"}
                 />
-                <KpiTile icon={<Eye className="h-4 w-4" />} label="Peak pupil Δ" value={`${peakPupil.toFixed(2)} mm`} />
                 <KpiTile icon={<Timer className="h-4 w-4" />} label="Avg latency" value={avgLatency != null ? `${avgLatency}s` : "—"} />
             </div>
 
@@ -645,7 +635,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <table className="w-full border-collapse text-sm">
                         <thead>
                             <tr className="bg-[color:var(--ciq-card-2)]">
-                                {["Question", "Domain", "Score", "Blink Rate", "Pupil Dilation", "Left Gaze", "Right Gaze", "Response Latency"].map(h => (
+                                {["Question", "Domain", "Score", "Blink Rate", "Left Gaze", "Right Gaze", "Response Latency"].map(h => (
                                     <th
                                         key={h}
                                         className="border border-[color:var(--ciq-line)] px-3 py-2 text-left font-semibold text-[color:var(--ciq-text-strong)]"
@@ -658,7 +648,6 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                         <tbody>
                             {snapshots.map((s, index) => {
                                 const b = blinkBand(s.blinkRateChange);
-                                const p = pupilBand(s.pupilMmChange);
                                 return (
                                     <tr key={s.questionId} className={index % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.questionId}</td>
@@ -668,9 +657,6 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>{b.label}</span>
-                                        </td>
-                                        <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
-                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${p.color}`}>{p.label}</span>
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center text-[color:var(--ciq-text-strong)]">
                                             {s.leftGazePosition}

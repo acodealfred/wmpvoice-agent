@@ -11,7 +11,6 @@ from survey_loader import (
     blink_band,
     effective_score,
     is_reverse_item,
-    pupil_band,
 )
 
 # Ground truth for analysis — biometric behavioral rules, expressed as the
@@ -25,12 +24,6 @@ Blink-rate category (relative to the person's own calibrated baseline):
 Direction matters and is encoded in the category:
 - "below baseline" (suppression) is associated with focused visual attention / engagement.
 - "above baseline" (increase) is associated with fatigue or higher arousal / non-visual load.
-
-Pupil-dilation category (change in mm vs the person's baseline):
-- "Low": ≤ +0.1 mm (includes constriction).
-- "Medium": +0.1 to +0.3 mm — moderate cognitive load.
-- "High": > +0.3 mm — high cognitive load.
-Caveat: pupil size is dominated by the light reflex; webcam estimates are coarse.
 
 Do NOT infer stress from any single signal — none of these has a validated stress threshold.
 """
@@ -54,7 +47,6 @@ def build_analysis_prompt(survey_config: dict, snapshots: list) -> str:
             "burnout_contribution": effective_score(survey_config, qid, s.get("score", 0)),
             "voice_sentiment": s.get("voiceSentiment", "neutral"),
             "blink_rate_category": blink_band(s.get("blinkRateChange")),
-            "pupil_dilation_category": pupil_band(s.get("pupilMmChange")),
             "left_gaze_position": s.get("leftGazePosition", "Center"),
             "right_gaze_position": s.get("rightGazePosition", "Center"),
         })
@@ -122,7 +114,6 @@ def build_snapshot_summary(snapshots: list) -> str:
         lines.append(
             f"Q{s.get('questionId','')}: score={s.get('score',0)}, domain={s.get('domain','')}, "
             f"voice_sentiment={s.get('voiceSentiment','')}, blink_rate={blink_band(s.get('blinkRateChange'))}, "
-            f"pupil_dilation={pupil_band(s.get('pupilMmChange'))}, "
             f"left_gaze_position={s.get('leftGazePosition','')}, right_gaze_position={s.get('rightGazePosition','')}"
         )
     return "\n".join(lines)
@@ -133,8 +124,6 @@ def build_biometric_facts(snapshots: list) -> str:
     # Missing readings are "not enough data", not 0% — left out rather than averaged in.
     blink_changes = [s["blinkRateChange"] for s in snapshots if s.get("blinkRateChange") is not None]
     avg_blink_change = sum(blink_changes) / len(blink_changes) if blink_changes else None
-    pupil_changes = [s.get("pupilMmChange") or 0 for s in snapshots]
-    avg_pupil_change = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
     # Each eye is counted independently — the two eyes can disagree (e.g. one
     # partially occluded), so collapsing them into one dominant value would hide
     # that rather than surface it.
@@ -148,14 +137,11 @@ def build_biometric_facts(snapshots: list) -> str:
     dominant_left_gaze = max(left_gaze_counts, key=left_gaze_counts.get) if left_gaze_counts else "Center"
     dominant_right_gaze = max(right_gaze_counts, key=right_gaze_counts.get) if right_gaze_counts else "Center"
     per_q_blink = ", ".join(f"{s.get('questionId','')}={blink_band(s.get('blinkRateChange'))}" for s in snapshots)
-    per_q_pupil = ", ".join(f"{s.get('questionId','')}={pupil_band(s.get('pupilMmChange'))}" for s in snapshots)
     per_q_left_gaze = ", ".join(f"{s.get('questionId','')}={s.get('leftGazePosition') or 'Center'}" for s in snapshots)
     per_q_right_gaze = ", ".join(f"{s.get('questionId','')}={s.get('rightGazePosition') or 'Center'}" for s in snapshots)
     return (
         f"- Overall blink-rate category: {blink_band(avg_blink_change)}\n"
         f"- Blink-rate category per question: {per_q_blink}\n"
-        f"- Overall pupil-dilation category: {pupil_band(avg_pupil_change)}\n"
-        f"- Pupil-dilation category per question: {per_q_pupil}\n"
         f"- Most frequent LEFT eye-gaze position: {dominant_left_gaze}\n"
         f"- LEFT eye-gaze position per question: {per_q_left_gaze}\n"
         f"- Most frequent RIGHT eye-gaze position: {dominant_right_gaze}\n"
@@ -186,8 +172,8 @@ Please provide a consultative response that:
 4. Offers actionable insights and next steps based on the burnout findings.
 5. Maintains a warm, supportive, professional tone.
 6. Ends with a SEPARATE final paragraph that begins with the word "Also" and simply
-   STATES the biometric readings above (blink-rate category, pupil-dilation category and
-   left and right eye-gaze position) as plain facts.
+   STATES the biometric readings above (blink-rate category and left and right
+   eye-gaze position) as plain facts.
 
 STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
 - Only report the biometric values exactly as given in BIOMETRIC READINGS.
@@ -234,8 +220,8 @@ Please provide a consultative response that:
 4. Offers actionable insights and next steps based on the burnout findings.
 5. Maintains a warm, supportive, professional tone.
 6. Ends with a SEPARATE final paragraph that begins with the word "Also" and simply
-   STATES the biometric readings above (blink-rate category, pupil-dilation category and
-   left and right eye-gaze position) as plain facts.
+   STATES the biometric readings above (blink-rate category and left and right
+   eye-gaze position) as plain facts.
 
 STRICT RULES FOR THE FINAL "Also" BIOMETRIC PARAGRAPH:
 - Only report the biometric values exactly as given in BIOMETRIC READINGS.
@@ -270,7 +256,6 @@ def build_readiness_analysis_prompt(survey_config: dict, snapshots: list) -> str
             "user_response": s.get("userResponse", ""),
             "voice_sentiment": s.get("voiceSentiment", "neutral"),
             "blink_rate_category": blink_band(s.get("blinkRateChange")),
-            "pupil_dilation_category": pupil_band(s.get("pupilMmChange")),
             "left_gaze_position": s.get("leftGazePosition", "Center"),
             "right_gaze_position": s.get("rightGazePosition", "Center"),
         })

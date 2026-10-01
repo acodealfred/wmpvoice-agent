@@ -140,14 +140,22 @@ export type AssessmentStarted = {
     surveyType: string;
     segmentIndex: number;
     closedRunIds: string[];
+    // Always true: every new assessment records its own baseline.
+    baselineRequired: boolean;
 };
+
+// A run's own baseline (survey_records.baseline_*), reused on every Continue. Values are
+// null when the protocol ran without usable camera data (camera off / no face).
+export type AssessmentBaseline = { blinkRate: number | null; pupilSize: number | null };
 
 export type AssessmentContinued = {
     surveyRunId: string;
     surveyType: string;
     segmentIndex: number;
-    // No stored (non-expired) baseline: run the baseline protocol before resuming.
+    // This run hasn't completed its baseline (paused mid-baseline): run the protocol again.
     baselineRequired: boolean;
+    // The baseline this run already completed (null when baselineRequired).
+    baseline: AssessmentBaseline | null;
     answered: number;
     total: number;
     snapshots: BiometricSnapshot[];
@@ -348,6 +356,8 @@ export type SurveyRunSummary = {
     survey_run_id: string;
     survey_type: string | null;
     created_at: string;
+    // completed | closed | paused | active — anything but "completed" is a partial run.
+    status: string;
     has_eeg_session: boolean;
     // Recorded EEG segments (one per Start/Continue stretch of a paused-and-continued
     // run; [0] for a single recording). More than one → per-segment downloads.

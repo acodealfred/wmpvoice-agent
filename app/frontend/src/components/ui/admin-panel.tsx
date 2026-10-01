@@ -773,8 +773,8 @@ export function AdminPanel() {
                     <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Pilot Survey Export</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
-                    Download every PILOT survey run's BAT-4 and CBI-WRB3 totals/averages, pre/post biometric capture (blink rate, pupil dilation), and response
-                    latency as a spreadsheet.
+                    Download every PILOT survey run's id, status and own baseline, BAT-4 and CBI-WRB3 totals/averages, pre/post biometric capture (blink rate),
+                    and response latency as a spreadsheet. Partial runs are included, with empty score cells.
                 </p>
                 <button
                     type="button"
@@ -793,8 +793,9 @@ export function AdminPanel() {
                     <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Survey Timeline Export</h2>
                 </div>
                 <p className="mb-4 text-sm text-[color:var(--ciq-text-muted)]">
-                    Download a per-second log of one survey run — whether the agent was asking a question or the user was answering it each second, plus the
-                    biometric snapshot (blink rate, pupil change, gaze, stress state) at that moment. Pick a user, then one of their completed survey runs.
+                    Download a per-second log of one assessment, Start to end — its baseline (eyes open / closed) included, each row tagged with its stage and
+                    segment — with whether the agent was asking a question or the user was answering it, plus the biometric snapshot (blink rate, gaze, stress
+                    state) at that moment. Pick a user, then one of their runs; partial (closed or unfinished) runs are listed too.
                 </p>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                     <div className="flex-1">
@@ -826,12 +827,13 @@ export function AdminPanel() {
                                     : !timelineUserId
                                       ? "Select a user first"
                                       : timelineRuns.length === 0
-                                        ? "No completed runs"
+                                        ? "No runs with data"
                                         : "Select a run…"}
                             </option>
                             {timelineRuns.map(r => (
                                 <option key={r.survey_run_id} value={r.survey_run_id}>
                                     {r.survey_type ?? "Survey"} — {formatServerDate(r.created_at)}
+                                    {r.status !== "completed" ? ` (partial — ${r.status})` : ""}
                                 </option>
                             ))}
                         </select>
@@ -1225,8 +1227,8 @@ export function AdminPanel() {
                             </button>
                         </div>
                         <p className="mb-5 text-sm text-[color:var(--ciq-text-muted)]">
-                            This downloads an Excel (.xlsx) file with one row per PILOT survey run — BAT-4 and CBI-WRB3 totals/averages, pre/post blink rate and
-                            pupil dilation, and response latency.
+                            This downloads an Excel (.xlsx) file with one row per PILOT survey run (partial runs included) — run id, status, baseline blink
+                            rate, BAT-4 and CBI-WRB3 totals/averages, pre/post blink rate, and response latency.
                         </p>
                         {exportError && <p className="mb-3 text-xs text-petroleum-flare">{exportError}</p>}
                         <div className="flex justify-end gap-3">

@@ -49,18 +49,15 @@ def _sleep_hours_badness(sleep_hours) -> int:
 
 
 def _biometric_elevated(biometric_signal: dict) -> bool:
-    """True if either band signal indicates elevated arousal/stress.
+    """True if the blink band indicates elevated arousal/stress.
 
     blink_band() returns strings like "Normal", "Elevated (above baseline)",
     "High (below baseline)" (see survey_loader.blink_band) — checked by
-    prefix rather than exact match. pupil_band() returns a bare
-    "Low"/"Medium"/"High"/"Unknown".
+    prefix rather than exact match. Pupil dilation is intentionally not a
+    routing input (still stored, not used).
     """
     blink = (biometric_signal.get("blink_band") or "").strip()
-    pupil = (biometric_signal.get("pupil_band") or "").strip()
-    blink_elevated = blink.startswith("Elevated") or blink.startswith("High")
-    pupil_elevated = pupil in ("Medium", "High")
-    return blink_elevated or pupil_elevated
+    return blink.startswith("Elevated") or blink.startswith("High")
 
 
 def _high_burnout(risk_signal: dict) -> bool:

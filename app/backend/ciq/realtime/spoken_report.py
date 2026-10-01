@@ -11,8 +11,9 @@ written report or any endpoint. Structure (from the approved sample):
 
 Everything is chosen deterministically in code (framing, signal wording, which
 reassurance line is allowed); the LLM only voices the result and may not add claims.
-Band categorisation reuses ``survey_loader`` (``blink_band`` / ``pupil_band``) so the
-spoken report can never categorise a reading differently from the written one.
+Band categorisation reuses ``survey_loader`` (``blink_band``) so the spoken report
+can never categorise a reading differently from the written one. Pupil dilation is
+still captured and stored but deliberately not reported.
 No I/O; unit-testable.
 """
 from survey_loader import (
@@ -20,7 +21,6 @@ from survey_loader import (
     compute_section_scores,
     effective_score,
     get_score_bounds,
-    pupil_band,
 )
 
 PILOT_SURVEY_TYPE = "PILOT"
@@ -32,7 +32,6 @@ TITLE_UNLOCKS = "What This Unlocks"
 # A trend (early vs late in the check-in) is only claimed with at least this many readings.
 _MIN_TREND_SAMPLES = 4
 _BLINK_TREND_PCT_POINTS = 10.0   # late half this much lower than early half → "dipped further"
-_PUPIL_TREND_MM = 0.1            # late half this much lower than early half → "eased"
 _PACE_SHIFT = 0.25               # ±25% change in mean answer latency between halves
 
 # Same "top quarter of the question's own range" rule as query_survey_results' stress_questions.
@@ -93,29 +92,6 @@ def _blink_signal(results: list[dict]) -> dict | None:
     return {"key": "blink_rate", "drive": False,
             "statement": (f"Blink rate ran {degree} your baseline — the kind of pattern that can go with "
                           "tiredness or a system running at a higher pitch.")}
-
-
-def _pupil_signal(results: list[dict]) -> dict | None:
-    vals = _readings(results, "pupil_mm_change")
-    if not vals:
-        return None
-    avg = _mean(vals)
-    band = pupil_band(avg)
-    if band == "Low":
-        return {"key": "pupil_dilation", "drive": False,
-                "statement": "Pupil dilation stayed close to your baseline — no extra load showing there."}
-    level = "clearly elevated" if band == "High" else "elevated"
-    if len(vals) >= _MIN_TREND_SAMPLES:
-        early, late = _halves(vals)
-        if pupil_band(_mean(late)) == "Low" or _mean(late) <= _mean(early) - _PUPIL_TREND_MM:
-            return {"key": "pupil_dilation", "drive": False,
-                    "statement": "Pupil dilation was elevated early on and eased later — you settled in as it went."}
-        return {"key": "pupil_dilation", "drive": True,
-                "statement": (f"Pupil dilation stayed {level} through the later part of the check-in — "
-                              "your system working harder to hold focus as it went on, not less.")}
-    return {"key": "pupil_dilation", "drive": True,
-            "statement": (f"Pupil dilation ran {level} across the check-in — "
-                          "your system working harder to hold focus.")}
 
 
 def _pace_signal(results: list[dict]) -> dict | None:
@@ -198,7 +174,7 @@ def build_pilot_spoken_report(survey_config: dict, survey_results: dict) -> dict
     risk_levels = [s["riskLevel"] for s in compute_section_scores(survey_config, snapshots)]
 
     ordered = list(survey_results.values())
-    signals = [s for s in (_blink_signal(ordered), _pupil_signal(ordered), _pace_signal(ordered)) if s]
+    signals = [s for s in (_blink_signal(ordered), _pace_signal(ordered)) if s]
     drive_count = sum(1 for s in signals if s["drive"])
     framing = _pick_framing(risk_levels, drive_count)
     all_low = bool(risk_levels) and all(level == "Low" for level in risk_levels)

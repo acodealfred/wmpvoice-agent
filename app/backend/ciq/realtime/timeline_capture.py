@@ -1,7 +1,8 @@
 """Per-second survey timeline log: turn-state + biometrics, one row per elapsed second.
 
-Runs as a 1Hz background task per session for the duration of the survey,
-buffering frames in memory on ``SessionState.timeline_frames`` (nothing hits the
+Runs as a 1Hz background task per session from the moment the assessment
+connects — the baseline protocol included, each frame tagged with its ``stage`` —
+until the survey ends, buffering frames in memory on ``SessionState.timeline_frames`` (nothing hits the
 DB per-second — see ``db.save_survey_timeline_frames``, called once at report
 time). Each frame records whether the agent was speaking, the user was
 speaking, or neither, plus the live biometric snapshot at that moment.
@@ -107,13 +108,17 @@ def _next_expected_question(sess: SessionState) -> tuple[dict, int] | None:
 
 def _frame_snapshot(sess: SessionState, turn_state: str, question_id: str | None,
                      question_index: int | None) -> dict:
+    stage = sess.timeline_stage()
     return {
         # Continues across Pause/Continue: timeline_frame_offset is the run's max
         # persisted frame_index + 1 on a resumed segment (0 otherwise), so frames
-        # count active survey seconds and never collide with a stored segment.
+        # count active seconds (baseline included) and never collide with a stored segment.
         "frame_index": sess.timeline_frame_offset + len(sess.timeline_frames),
         "segment_index": sess.timeline_segment_index,
         "timestamp": datetime.now(UTC).isoformat(),
+        # baseline_setup | baseline_eyes_open | baseline_eyes_closed | survey — the
+        # timeline runs from Start, so the baseline's own seconds are in it too.
+        "stage": stage,
         "turn_state": turn_state,
         "question_id": question_id,
         "question_index": question_index,
@@ -122,7 +127,8 @@ def _frame_snapshot(sess: SessionState, turn_state: str, question_id: str | None
         # captured during, so resolve_agent_turn can find it again.
         "_turn_seq": sess.current_turn_seq if sess.agent_speaking else None,
         "blink_rate_bpm": sess.current_blink_rate_bpm,
-        "blink_rate_change_percent": sess.current_blink_rate_change,
+        # No change-vs-baseline while the baseline itself is being measured.
+        "blink_rate_change_percent": sess.current_blink_rate_change if stage == "survey" else None,
         "pupil_mm_change": sess.current_pupil_mm_change,
         "left_gaze_position": sess.current_left_gaze_position,
         "right_gaze_position": sess.current_right_gaze_position,

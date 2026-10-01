@@ -52,9 +52,11 @@
 - `POST /eeg-sessions` — Upload complete Muse 2 recording JSON (`muse-web-bridge/3` format).
 - `GET /admin/eeg-sessions/export` — **(Admin only)** Export recorded EEG sessions.
 
-### History, Baseline, Consent & Analytics (`ciq/api/`)
+### History, Consent & Analytics (`ciq/api/`)
 - `GET /api/history` — Assessment history for current user.
-- `GET /baseline`, `POST /baseline`, `DELETE /baseline` — Manage user calibrated biometric baseline.
+- Baselines are per assessment: `POST /me/assessment/baseline` (`ciq/assessments/`), and the
+  `/me/assessment/start` / `/continue` responses carry `baselineRequired` (+ `baseline` on continue).
+  The old `/baseline` routes were removed.
 - `GET /consent`, `POST /consent` — Get and accept informed consent form.
 - `GET /admin/users` — **(Admin only)** List all registered users.
 - `GET /admin/demo-data`, `POST /admin/demo-data` — **(Admin only)** Manage demo dataset.

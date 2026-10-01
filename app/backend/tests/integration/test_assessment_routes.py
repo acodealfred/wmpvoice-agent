@@ -14,6 +14,7 @@ async def assessment_app(initialized_db):
         continue_assessment,
         get_assessment,
         pause_assessment,
+        save_assessment_baseline,
         start_assessment,
     )
 
@@ -25,6 +26,7 @@ async def assessment_app(initialized_db):
     app.router.add_post("/me/assessment/pause", pause_assessment)
     app.router.add_post("/me/assessment/continue", continue_assessment)
     app.router.add_post("/me/assessment/close", close_assessment)
+    app.router.add_post("/me/assessment/baseline", save_assessment_baseline)
     from ciq.api.consent_routes import save_consent
 
     app.router.add_post("/consent", save_consent)
@@ -73,6 +75,30 @@ async def test_full_lifecycle(assessment_app):
         assert (await client.post("/me/assessment/continue", json={"surveyRunId": run})).status == 409
     finally:
         await client.close()
+
+
+async def test_baseline_is_recorded_per_run_and_reused_on_continue(assessment_app):
+    owner = await _client(assessment_app, "guest1")
+    other = await _client(assessment_app, "guest2")
+    try:
+        started = await (await owner.post("/me/assessment/start", json={"surveyType": "TEST"})).json()
+        assert started["baselineRequired"] is True
+
+        assert (await owner.post("/me/assessment/baseline", json={"blinkRate": "fast"})).status == 400
+        # guest2 has no active run of its own, and can never reach guest1's.
+        assert (await other.post("/me/assessment/baseline", json={"blinkRate": 1})).status == 409
+        saved = await owner.post("/me/assessment/baseline", json={"blinkRate": 15.5, "pupilSize": 4.1})
+        assert saved.status == 200
+        assert (await saved.json())["stored"] is True
+
+        await owner.post("/me/assessment/pause")
+        resumed = await (await owner.post("/me/assessment/continue", json={"surveyRunId": started["surveyRunId"]})).json()
+        assert (resumed["baselineRequired"], resumed["baseline"]) == (False, {"blinkRate": 15.5, "pupilSize": 4.1})
+
+        assert (await (await owner.post("/me/assessment/start", json={})).json())["baselineRequired"] is True
+    finally:
+        await owner.close()
+        await other.close()
 
 
 async def test_missing_run_id_is_400(assessment_app):

@@ -127,12 +127,22 @@ The single source of truth every report depends on — **the highest-value tests
 
 ### FE-H1 — Baseline state machine (`useBiometrics.ts`, `App.tsx`) · Manual 🟠
 
-- States drive the persistent card: `idle/none → REQUIRED → RECORDING (30s) → RECORDED`.
-- **Re-record reliability**: Start Baseline after stopping mid-recording (no longer stuck on
-  `collecting`); Rerecord deletes server copy + re-records.
-- Zero-sample completion (face out of frame) → `NOT SET` + re-recordable, console warn fires.
-- Returning user with stored baseline skips the 30s recording; cleared baseline records fresh.
-- localStorage persistence vs server `/baseline` agreement.
+Baselines are **per assessment** (`survey_records.baseline_*`); there is no Re-record button.
+
+- States drive the persistent card: `NOT SET → RECORDING (eyes open / closed) → RECORDED`.
+- **Every new assessment** (Start / Start new) runs the protocol — even minutes after the last one.
+- **Pause mid-baseline → Continue**: the full protocol runs again in the next segment.
+- **Pause after the baseline → Continue**: no protocol; the run's own baseline is reused (no time limit).
+- Zero-sample completion (face out of frame / camera off): the run is still marked baseline-complete
+  (blink rate empty), so a resume does not repeat it; console warn fires.
+- **End-to-end smoke (with Muse if possible)**: Start → pause during eyes-open → Continue → full
+  baseline → answer 2 → Pause → Continue → finish. Expect:
+  - Timeline CSV: segment 0 `baseline_*` rows; segment 1 `baseline_*` then `survey`; segment 2
+    `survey`; continuous `frame_index`; BASELINE block says `baseline_segment_index = 1`.
+  - Combined CSV: EEG values on the baseline rows of segments 0 and 1.
+  - Raw EEG: one file per segment, markers `baseline_eyes_open` / `baseline_eyes_closed` / `survey_start`.
+- **Start new mid-survey**: the replaced run's current segment EEG is uploaded; that run shows in
+  the admin picker as `(partial — closed)` and exports (answers block from its answered items).
 
 ### FE-H2 — Reconnect / reset audio behavior (`useRealtime.tsx`, `App.tsx`) · Manual 🟠
 

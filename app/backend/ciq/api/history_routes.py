@@ -16,6 +16,7 @@ from db import (
     get_manager_overview,
     get_manager_score_trend,
     get_pilot_survey_export_rows,
+    get_survey_item_responses,
     get_survey_record,
     get_survey_timeline_frames,
     get_user_survey_records,
@@ -25,27 +26,60 @@ from demo_data import clear_demo_data, demo_data_status, seed_demo_data
 from survey_loader import compute_survey_summary, effective_score, load_survey
 
 _TIMELINE_EXPORT_HEADERS = [
-    "frame_index", "elapsed_seconds", "timestamp", "turn_state",
+    "frame_index", "elapsed_seconds", "timestamp", "stage", "segment_index", "turn_state",
     "is_question_frame", "is_answer_frame", "question_id", "question_index",
-    "blink_rate_bpm", "blink_rate_change_percent", "pupil_mm_change",
+    "blink_rate_bpm", "blink_rate_change_percent",
     "left_gaze_position", "right_gaze_position", "face_emotion",
     "voice_sentiment", "stress_state",
 ]
+
+
+def _timeline_row(f: dict) -> list:
+    """One per-second row in _TIMELINE_EXPORT_HEADERS order — shared by the timeline
+    and combined exports so their columns can never drift apart. Rows recorded
+    before the timeline covered the baseline have no stage: they were survey rows."""
+    return [
+        f["frame_index"], f["frame_index"], f["timestamp"], f.get("stage") or "survey",
+        f.get("segment_index") or 0, f["turn_state"],
+        f["turn_state"] == "agent_question", f["turn_state"] == "user_answer",
+        f["question_id"], f["question_index"],
+        f["blink_rate_bpm"], f["blink_rate_change_percent"],
+        f["left_gaze_position"], f["right_gaze_position"], f["face_emotion"],
+        f["voice_sentiment"], f["stress_state"],
+    ]
+
 
 _SURVEY_RESPONSES_HEADERS = [
     "question_index", "question_id", "domain", "question", "user_response",
     "raw_score", "effective_score",
 ]
 
+_BASELINE_HEADERS = [
+    "survey_run_id", "status", "baseline_blink_rate", "baseline_completed_at", "baseline_segment_index",
+]
 
-def build_survey_summary_rows(record: dict | None) -> list[list]:
-    """The SURVEY RESPONSES + SURVEY TOTAL blocks appended below the per-second
-    rows of the timeline/combined CSV exports (blank row before each block).
+
+def _results_from_item_rows(item_rows: list[dict]) -> dict:
+    """survey_results-shaped answers rebuilt from survey_item_responses — for a partial
+    run (closed / paused before its report), whose survey_results was never written."""
+    return {
+        r["question_id"]: {"score": r.get("raw_score"), "domain": r.get("domain"),
+                           "userResponse": r.get("user_response") or ""}
+        for r in item_rows
+    }
+
+
+def build_survey_summary_rows(record: dict | None, item_rows: list[dict] | None = None) -> list[list]:
+    """The SURVEY RESPONSES + SURVEY TOTAL + BASELINE blocks appended below the
+    per-second rows of the timeline/combined CSV exports (blank row before each block).
 
     Built from the run's persisted survey_results (answer text + raw score per
     question) — not from the frames' question_id tags — so every question shows
-    up regardless of how the timeline frames were labeled. Totals come from
-    survey_loader.compute_survey_summary, the same figures the report uses.
+    up regardless of how the timeline frames were labeled. A partial run has no
+    survey_results yet, so its answers come from `item_rows` (survey_item_responses)
+    instead. Totals come from survey_loader.compute_survey_summary, the same figures
+    the report uses. BASELINE ties the run to its own baseline: the segment named
+    there is the one whose stage = baseline_* rows / EEG hold it.
     Returns [] when the run has no survey record yet.
     """
     if not record:
@@ -54,6 +88,8 @@ def build_survey_summary_rows(record: dict | None) -> list[list]:
         results = json.loads(record.get("survey_results") or "{}")
     except (TypeError, ValueError):
         results = {}
+    if not results and item_rows:
+        results = _results_from_item_rows(item_rows)
 
     survey_type = (record.get("survey_type") or "TEST").upper()
     config = load_survey(survey_type)
@@ -91,19 +127,30 @@ def build_survey_summary_rows(record: dict | None) -> list[list]:
             ["survey_type", "total_score", "max_score", "risk_level"],
             [survey_type, summary["totalScore"], summary["maxScore"], summary["riskLevel"]],
         ]
+
+    rows += [[], ["BASELINE"], _BASELINE_HEADERS]
+    if record.get("baseline_completed_at"):
+        rows.append([
+            record.get("survey_run_id"), record.get("status"), record.get("baseline_blink_rate"),
+            record.get("baseline_completed_at"), record.get("baseline_segment_index"),
+        ])
+    else:
+        rows.append([record.get("survey_run_id"), record.get("status"), "no baseline recorded", "", ""])
     return rows
 
 
 _PILOT_EXPORT_HEADERS = [
     "Index",
+    "Survey Run ID",
+    "Status",
+    "Baseline Blink Rate",
+    "Baseline Completed At",
     "Total BAT-4 Score",
     "Average BAT-4 Score",
     "Total CBI-WRB3 Score",
     "Average CBI-WRB3 Score",
     "Blink Rate Before",
     "Blink Rate After",
-    "Pupil Dilation Before",
-    "Pupil Dilation After",
     "Response Latency (ms)",
 ]
 
@@ -176,10 +223,11 @@ async def set_demo_data(request: web.Request) -> web.Response:
 async def admin_export_pilot_survey(request: web.Request) -> web.Response:
     """GET /admin/pilot-survey/export — download all PILOT survey data as .xlsx.
 
-    One row per survey run: BAT-4 total/average, CBI-WRB3 total/average, and the
-    pre/post behaviour capture (blink rate, pupil dilation) + response latency —
-    pulled straight from pilot_bat4_scores / pilot_cbi3_scores /
-    pilot_behaviour_snapshots (see db.get_pilot_survey_export_rows).
+    One row per survey run (partial runs included, labelled by Status): its id and
+    own baseline, BAT-4 total/average, CBI-WRB3 total/average, and the pre/post
+    behaviour capture (blink rate) + response latency — pulled straight from
+    survey_records / pilot_bat4_scores / pilot_cbi3_scores / pilot_behaviour_snapshots
+    (see db.get_pilot_survey_export_rows).
     """
     rows = await get_pilot_survey_export_rows()
 
@@ -190,10 +238,11 @@ async def admin_export_pilot_survey(request: web.Request) -> web.Response:
     for i, row in enumerate(rows, start=1):
         ws.append([
             i,
+            row["survey_run_id"], row["status"],
+            row["baseline_blink_rate"], row["baseline_completed_at"],
             row["bat4_total"], row["bat4_average"],
             row["cbi3_total"], row["cbi3_average"],
             row["blink_rate_before"], row["blink_rate_after"],
-            row["pupil_dilation_before"], row["pupil_dilation_after"],
             row["response_latency_ms"],
         ])
     for col_idx, header in enumerate(_PILOT_EXPORT_HEADERS, start=1):
@@ -211,7 +260,8 @@ async def admin_export_pilot_survey(request: web.Request) -> web.Response:
 
 async def admin_list_user_survey_runs(request: web.Request) -> web.Response:
     """GET /admin/users/{userId}/survey-runs — lightweight run-picker list for the
-    survey-timeline export UI (one entry per completed survey run for this user)."""
+    survey-timeline export UI: every run of this user that recorded data, partial
+    (closed / paused / abandoned) ones included, each with its `status`."""
     user_id = request.match_info.get("userId", "")
     if not user_id:
         return web.json_response({"error": "userId is required"}, status=400)
@@ -219,35 +269,35 @@ async def admin_list_user_survey_runs(request: web.Request) -> web.Response:
     return web.json_response({"runs": runs})
 
 
+async def _summary_rows(survey_run_id: str) -> list[list]:
+    """The summary blocks for one run, with the answers fallback for partial runs."""
+    return build_survey_summary_rows(
+        await get_survey_record(survey_run_id), await get_survey_item_responses(survey_run_id),
+    )
+
+
 async def admin_export_survey_timeline(request: web.Request) -> web.Response:
     """GET /admin/survey-timeline/export?survey_run_id=... — per-second timeline as CSV.
 
-    One row per elapsed second of the survey (see ciq.realtime.timeline_capture /
-    db.get_survey_timeline_frames): whether the agent was asking a survey
-    question, the user was answering it, or neither, plus the live biometric
-    snapshot at that second. elapsed_seconds is always == frame_index since
-    frames are captured exactly 1s apart by construction.
+    One row per elapsed second of the whole assessment, Start to end — the
+    baseline included, each row tagged with its `stage` (baseline_setup /
+    baseline_eyes_open / baseline_eyes_closed / survey) and `segment_index`
+    (see ciq.realtime.timeline_capture / db.get_survey_timeline_frames): whether
+    the agent was asking a survey question, the user was answering it, or neither,
+    plus the live biometric snapshot at that second. elapsed_seconds is always ==
+    frame_index since frames are captured exactly 1s apart by construction.
     """
     survey_run_id = request.query.get("survey_run_id", "")
     if not survey_run_id:
         return web.json_response({"error": "survey_run_id is required"}, status=400)
 
     frames = await get_survey_timeline_frames(survey_run_id)
-    record = await get_survey_record(survey_run_id)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(_TIMELINE_EXPORT_HEADERS)
-    for f in frames:
-        writer.writerow([
-            f["frame_index"], f["frame_index"], f["timestamp"], f["turn_state"],
-            f["turn_state"] == "agent_question", f["turn_state"] == "user_answer",
-            f["question_id"], f["question_index"],
-            f["blink_rate_bpm"], f["blink_rate_change_percent"], f["pupil_mm_change"],
-            f["left_gaze_position"], f["right_gaze_position"], f["face_emotion"],
-            f["voice_sentiment"], f["stress_state"],
-        ])
-    writer.writerows(build_survey_summary_rows(record))
+    writer.writerows(_timeline_row(f) for f in frames)
+    writer.writerows(await _summary_rows(survey_run_id))
 
     return web.Response(
         body=buf.getvalue(),
@@ -262,7 +312,9 @@ async def admin_export_survey_timeline_combined(request: web.Request) -> web.Res
     EEG band power, signal quality, pulse and head-motion columns appended,
     computed on the fly from that run's stored Muse recording (nothing derived is
     persisted). Rows are joined on their own UTC timestamps — see ciq.eeg.combine.
-    A paused-and-continued run is combined per segment (ciq.eeg.combine.combine_segments)."""
+    A paused-and-continued run is combined per segment (ciq.eeg.combine.combine_segments);
+    each segment's EEG file runs from that segment's Start, so the baseline rows
+    (stage = baseline_*) line up with the baseline part of the same recording."""
     survey_run_id = request.query.get("survey_run_id", "")
     if not survey_run_id:
         return web.json_response({"error": "survey_run_id is required"}, status=400)
@@ -284,16 +336,8 @@ async def admin_export_survey_timeline_combined(request: web.Request) -> web.Res
     writer = csv.writer(buf)
     writer.writerow([*_TIMELINE_EXPORT_HEADERS, *EEG_COLUMNS])
     for f, eeg in zip(frames, eeg_rows):
-        writer.writerow([
-            f["frame_index"], f["frame_index"], f["timestamp"], f["turn_state"],
-            f["turn_state"] == "agent_question", f["turn_state"] == "user_answer",
-            f["question_id"], f["question_index"],
-            f["blink_rate_bpm"], f["blink_rate_change_percent"], f["pupil_mm_change"],
-            f["left_gaze_position"], f["right_gaze_position"], f["face_emotion"],
-            f["voice_sentiment"], f["stress_state"],
-            *(eeg[c] for c in EEG_COLUMNS),
-        ])
-    writer.writerows(build_survey_summary_rows(await get_survey_record(survey_run_id)))
+        writer.writerow([*_timeline_row(f), *(eeg[c] for c in EEG_COLUMNS)])
+    writer.writerows(await _summary_rows(survey_run_id))
 
     headers = {"Content-Disposition": f'attachment; filename="survey_timeline_combined_{survey_run_id[:8]}.csv"'}
     if warnings:

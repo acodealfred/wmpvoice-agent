@@ -56,7 +56,7 @@ The backend was refactored from legacy god-files into cohesive domain modules:
 | **EEG Sessions** | `ciq/eeg/` | Muse 2 raw headset recording upload, timeline sync (`combine.py`), admin export |
 | **Knowledge Base** | `ciq/kb/` | Mithra client HTTP proxy, research paper search, admin KB configuration |
 | **Biometrics** | `ciq/biometrics/` | AWS Rekognition facial emotion analysis (`rekognition.py`, `routes.py`) |
-| **API Endpoints** | `ciq/api/` | Baseline calibration, consent, session history, admin data exports, manager analytics |
+| **API Endpoints** | `ciq/api/` | Consent, session history, admin data exports, manager analytics (baselines: per assessment, `ciq/assessments/`) |
 | **Common** | `ciq/common/` | Resilient JSON parsing (`json_utils.py`) |
 
 > **Critical Rule**: `app/backend/app.py` and `app/backend/rtmt.py` are **thin shims**. Never put business logic in them.
@@ -94,7 +94,8 @@ Azure OpenAI Realtime API (gpt-4o-realtime-preview)
 
 1. **Client-side Eye Tracking (MediaPipe)**:
    - `useBiometrics.ts` runs MediaPipe `FaceLandmarker` in requestAnimationFrame.
-   - Calculates blinks per minute (BPM) and pupil dilation delta vs user baseline.
+   - Calculates blinks per minute (BPM) vs the current assessment's own baseline (pupil size is captured
+     and stored but not used anywhere).
    - Posts to `/analyze-stress` → `biometric_interpreter.py` evaluates relaxed/normal/stressed states.
    - Updates RTMiddleTier state via `POST /biometrics` and `POST /update-stress`.
 2. **Cloud Facial Emotion (AWS Rekognition)**:

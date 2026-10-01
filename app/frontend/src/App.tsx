@@ -42,7 +42,15 @@ import { GuestLanding } from "@/components/ui/guest-landing";
 import { Button } from "@/components/ui/button";
 import ConsentModal, { CONSENT_VERSION } from "@/components/ui/consent-modal";
 import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
-import { assessmentControls, closeAssessment, continueAssessment, fetchResumableAssessment, pauseAssessment, startAssessment } from "@/lib/assessment";
+import {
+    assessmentControls,
+    closeAssessment,
+    completeAssessmentBaseline,
+    continueAssessment,
+    fetchResumableAssessment,
+    pauseAssessment,
+    startAssessment
+} from "@/lib/assessment";
 import { applyFontScale, getFontScale } from "@/lib/fontScale";
 
 import useRealTime from "@/hooks/useRealtime";
@@ -63,6 +71,7 @@ import {
     AuthState,
     RecoveryUpdate,
     ChatTurn,
+    AssessmentBaseline,
     AssessmentContinued,
     ResumableAssessment
 } from "./types";
@@ -188,9 +197,6 @@ function App() {
         clearBaseline,
         setBaseline
     } = useBiometrics();
-    // Armed when a fresh baseline recording is started because the user had none on
-    // the server — the recording is persisted to the DB once it completes.
-    const baselineNeedsSaveRef = useRef(false);
 
     // Optional Muse EEG headband, self-paired from the assessment screen (see
     // EegConnectPanel below). Raw recording only — no derived stress/burnout
@@ -474,6 +480,7 @@ function App() {
                 // and the full report revealed once that resolves (handleReportReady).
                 setReportLoading(true);
                 setShowDetailedReport(true);
+                eegSegmentLiveRef.current = false; // this last segment is uploaded right here
                 if (eegHasRecording) {
                     const file = finishEegForUpload();
                     if (file) {
@@ -624,66 +631,46 @@ function App() {
         // the paused run's id on Continue.
     }, []);
 
-    // Resolve the user's baseline before a conversation starts. Returns true when a
-    // stored (non-expired) baseline was found, i.e. the baseline protocol is skipped:
-    //  • DB has one  → inject it and skip the baseline protocol.
-    //  • DB has none → wipe local state so the protocol runs, and arm a save so the
-    //                  fresh baseline is persisted to the DB on completion.
-    //  • fetch fails → run the protocol anyway (without saving): the backend resolves the
-    //                  phase from the DB itself, and a protocol that runs while the backend
-    //                  is already in "survey" is harmless, whereas skipping it while the
-    //                  backend is gated in "baseline" would leave the agent silent.
-    const resolveBaseline = useCallback(async (): Promise<boolean> => {
-        try {
-            const res = await apiFetch("/baseline");
-            if (res.ok) {
-                const data = await res.json();
-                if (data.baseline) {
-                    setBaseline({ pupilSize: data.baseline.pupilSize, blinkRate: data.baseline.blinkRate, timestamp: Date.now() });
-                    baselineNeedsSaveRef.current = false;
-                    return true;
-                }
+    // Loads a run's own baseline (from /me/assessment/continue) into the biometrics state,
+    // or clears it for a run that has none yet — blink change is always computed against
+    // THIS assessment's baseline, never another run's.
+    const applyRunBaseline = useCallback(
+        (baseline: AssessmentBaseline | null) => {
+            if (baseline?.blinkRate != null) {
+                setBaseline({ pupilSize: baseline.pupilSize ?? 0, blinkRate: baseline.blinkRate, timestamp: Date.now() });
+            } else {
                 clearBaseline();
-                baselineNeedsSaveRef.current = true;
-                return false;
             }
-        } catch (err) {
-            console.warn("[App] Baseline fetch failed; running the baseline protocol without saving", err);
-        }
-        baselineNeedsSaveRef.current = false;
-        return false;
-    }, [setBaseline, clearBaseline]);
+        },
+        [setBaseline, clearBaseline]
+    );
 
-    // ── Baseline protocol (new / expired baseline only) ─────────────────────────────
+    // ── Baseline protocol (every new assessment; again after a pause mid-baseline) ──
     // 3 min eyes open (camera biometrics + EEG), then — only with an EEG headband —
     // 3 min eyes closed (EEG only). The agent is silent apart from one spoken cue per
     // phase (the backend drops mic audio while the session is in the "baseline" phase).
-    // On completion the baseline is persisted, the EEG recording is split so
-    // eeg_sessions only holds the survey, and the survey phase is unlocked.
+    // The EEG recording and the 1Hz timeline both run straight through it: the segment's
+    // EEG file holds the baseline (marked baseline_eyes_open / baseline_eyes_closed) then
+    // the survey (marked from survey_start), and its timeline rows carry a matching
+    // `stage`. On completion the run's baseline is recorded and the survey phase unlocked.
     const baselineCameraRef = useRef<{ pupilSize: number; blinkRate: number } | null>(null);
     const baselinePhaseStartTMsRef = useRef(0);
-    // Set once this assessment's protocol has completed, so a stop/resume (or a failed
-    // camera capture that left nothing stored) never runs it a second time.
+    // Set once this assessment's baseline is done (completed here, or already completed
+    // before a pause), so a stop/resume never runs the protocol a second time.
     const baselineDoneRef = useRef(false);
 
     const finishBaselineProtocol = async ({ eyesClosed }: { eyesClosed: boolean }) => {
         baselineDoneRef.current = true;
-        // Everything recorded so far is the baseline; a fresh recorder captures the survey
-        // itself (uploaded to eeg_sessions when the last question is answered).
-        const eegBaseline = eegHasRecording ? splitEegRecording() : null;
-        markEegSurveyStarted();
+        const surveyStartTMs = getEegSessionTMs();
+        addEegMarker("survey_start", surveyStartTMs, surveyStartTMs);
 
+        // Recorded even without usable camera data (values null): the protocol — and the
+        // EEG baseline in this segment — happened, so a resume must not repeat it.
         const camera = baselineCameraRef.current;
-        if (baselineNeedsSaveRef.current && camera) {
-            baselineNeedsSaveRef.current = false;
-            apiFetch("/baseline", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ pupilSize: camera.pupilSize, blinkRate: camera.blinkRate, eeg: eegBaseline })
-            }).catch(err => console.warn("[App] Failed to persist baseline:", err));
-        } else if (!camera) {
-            console.warn("[App] Baseline protocol finished without usable camera data — baseline not stored");
-        }
+        if (!camera) console.warn("[App] Baseline protocol finished without usable camera data — no blink baseline");
+        completeAssessmentBaseline(camera?.blinkRate ?? null, camera?.pupilSize ?? null).catch(err =>
+            console.warn("[App] Failed to record the assessment baseline:", err)
+        );
 
         try {
             await apiFetch("/survey-phase", {
@@ -762,23 +749,21 @@ function App() {
         }
         startSession();
         resetAudioPlayer();
-        // The stored baseline decides how the conversation opens: a fresh assessment
-        // with no valid baseline runs the baseline protocol (its first cue replaces the
-        // greeting); everyone else — returning users, resumes, post-report Q&A — gets the
-        // normal greeting. Matches the phase the backend resolves from the same DB row.
-        const hasStoredBaseline = await resolveBaseline();
-        if (enableSurvey && !hasAssessment && !hasStoredBaseline && !baselineDoneRef.current) {
+        // Anchors the EEG recording's "the assessment actually started here" instant —
+        // distinct from whenever the headband happened to pair (see markSurveyStarted
+        // in useMuse.ts). No-ops if EEG isn't connected, or on a later resume (idempotent
+        // on the Recorder itself, so only this genuinely-first call takes effect). The
+        // baseline is part of the recording, so this is Start — not the protocol's end.
+        markEegSurveyStarted();
+        // This assessment's own baseline decides how the conversation opens: until it is
+        // done (e.g. stopped mid-baseline) the protocol runs (its first cue replaces the
+        // greeting); resumes and post-report Q&A get the normal greeting.
+        if (enableSurvey && !hasAssessment && !baselineDoneRef.current) {
             await startAudioRecording();
             startBaselineProtocol();
             return;
         }
         requestGreeting();
-        // Anchors the EEG recording's "the assessment actually started here" instant —
-        // distinct from whenever the headband happened to pair (see markSurveyStarted
-        // in useMuse.ts). No-ops if EEG isn't connected, or on a later resume (idempotent
-        // on the Recorder itself, so only this genuinely-first call takes effect). With a
-        // baseline protocol it is set instead when the protocol completes.
-        markEegSurveyStarted();
         await startAudioRecording();
     };
 
@@ -793,6 +778,26 @@ function App() {
         stopAudioPlayer();
         inputAudioBufferClear();
         setIsRecording(false);
+    };
+
+    // True while the current EEG recorder belongs to a live segment of a bound run — set
+    // on Start / Continue, cleared once that segment's file is uploaded (Pause, Start new
+    // over it, or completion). Whatever streams while paused is never uploaded.
+    const eegSegmentLiveRef = useRef(false);
+
+    // Finish the live segment's EEG recording, upload it as that segment's file, and keep
+    // the headband streaming into a fresh recorder (replaced on Continue / Start new).
+    const uploadLiveEegSegment = () => {
+        if (!eegSegmentLiveRef.current) return;
+        eegSegmentLiveRef.current = false;
+        if (!eegHasRecording) return;
+        const file = splitEegRecording();
+        if (!file) return;
+        apiFetch("/eeg-sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId, survey_run_id: surveyRunId, segment_index: eegSegmentRef.current, file })
+        }).catch(err => console.error("Failed to upload EEG segment:", err));
     };
 
     // Start (and "Start new"): closes any open assessment server-side and starts a fresh
@@ -836,10 +841,14 @@ function App() {
         if (surveyTypeChangeRef.current) {
             await surveyTypeChangeRef.current;
         }
+        // The run being replaced mid-way: keep its EEG — this segment's recording is
+        // uploaded like a Pause would, before the new run's fresh recorder replaces it.
+        uploadLiveEegSegment();
         let newRunId: string;
         try {
             const started = await startAssessment(surveyTypeConfig?.activeSurveyType);
             newRunId = started.surveyRunId;
+            eegSegmentLiveRef.current = true;
         } catch (err) {
             // Fall back to the pre-lifecycle flow: the report still persists the run (as
             // completed), it just can't be paused/continued.
@@ -859,12 +868,13 @@ function App() {
         // Keep the headband connected across a retake — a fresh Recorder tied to the
         // new surveyRunId, not a full reconnect (the participant already consented).
         if (eegHasRecording) beginNewEegRecording(new Date().toISOString());
+        // Anchors this run's "assessment actually started here" instant on that fresh
+        // Recorder — Start, since the baseline is now part of the same recording.
+        markEegSurveyStarted();
 
-        // Settle the baseline decision BEFORE we start recording. resolveBaseline either
-        // injects a stored baseline (the protocol is skipped) or clears it (the protocol
-        // runs) — agreeing with the phase the backend resolves from the same baseline on
-        // the fresh connection below (DB hit → returning-user "survey"; miss → "baseline").
-        const hasStoredBaseline = await resolveBaseline();
+        // Every new assessment records its own baseline — agreeing with the phase the
+        // backend resolves for the new (baseline-less) run on the fresh connection below.
+        clearBaseline();
 
         setIsRecording(true);
         reconnect();
@@ -872,14 +882,12 @@ function App() {
         resetAudioPlayer();
         // Arm the opening turn now (deferred until the reconnect's session.created, since
         // the socket is mid-reopen here) so the agent opens the fresh conversation the
-        // instant the session is ready — the baseline protocol's first cue, or a greeting.
-        if (enableSurvey && !hasStoredBaseline) {
+        // instant the session is ready — the baseline protocol's first cue (survey mode),
+        // or a greeting.
+        if (enableSurvey) {
             startBaselineProtocol();
         } else {
             requestGreeting();
-            // Anchors this retake's own "assessment actually started here" instant on the
-            // fresh Recorder created by beginNewEegRecording above — see markSurveyStarted.
-            markEegSurveyStarted();
         }
         await startAudioRecording();
     };
@@ -889,25 +897,13 @@ function App() {
     // recorded so far is uploaded as this segment's own file. After the report, the
     // run is already complete — Pause then just stops the post-report conversation.
     const onPauseAssessment = async () => {
-        // Read before onStopListening cancels the protocol.
-        const pausedDuringBaseline = baselineProtocol.isActive;
         await onStopListening();
         if (assessmentComplete) return;
-        // Mid-baseline the recorder holds a partial BASELINE recording, not survey data —
-        // discarded like the camera baseline (Continue re-runs the protocol and starts a
-        // fresh recorder), never uploaded as a survey segment.
-        if (eegHasRecording && !pausedDuringBaseline) {
-            // Finish this segment's recording and keep the headband streaming into a
-            // fresh recorder (discarded/replaced on Continue).
-            const file = splitEegRecording();
-            if (file) {
-                apiFetch("/eeg-sessions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ session_id: sessionId, survey_run_id: surveyRunId, segment_index: eegSegmentRef.current, file })
-                }).catch(err => console.error("Failed to upload EEG segment:", err));
-            }
-        }
+        // Upload this segment's recording as it is — paused mid-baseline included: that
+        // partial baseline is real data (marked baseline_eyes_open in the file, stage =
+        // baseline_* in the timeline); Continue then records a full baseline in the next
+        // segment.
+        uploadLiveEegSegment();
         try {
             await pauseAssessment();
         } catch (err) {
@@ -920,7 +916,7 @@ function App() {
 
     // Continue: resume the open run where the user left off. The backend rehydrates the
     // live session (answered questions, next timeline segment) and the agent picks up via
-    // its reconnect instructions; the stored baseline is reused when there is one.
+    // its reconnect instructions; the run's own baseline is reused when it has one.
     const onContinueAssessment = async () => {
         if (!resumable) {
             // Nothing paused — Continue after a finished report resumes the conversation.
@@ -959,9 +955,15 @@ function App() {
         // A fresh recorder for this segment — whatever streamed while paused is dropped.
         eegSegmentRef.current = run.segmentIndex;
         if (eegHasRecording) beginNewEegRecording(new Date().toISOString());
+        eegSegmentLiveRef.current = true;
+        // This segment's recording starts here (a re-run baseline included).
+        markEegSurveyStarted();
 
-        const hasStoredBaseline = await resolveBaseline();
-        const runBaseline = enableSurvey && run.baselineRequired && !hasStoredBaseline;
+        // This run's own baseline: reused when it was completed before the pause (no time
+        // limit); recorded again in this segment when the pause came mid-baseline. Agrees
+        // with the phase the backend resolves from the same row.
+        applyRunBaseline(run.baseline);
+        const runBaseline = enableSurvey && run.baselineRequired;
         baselineDoneRef.current = !runBaseline;
 
         setIsRecording(true);
@@ -972,7 +974,6 @@ function App() {
             startBaselineProtocol();
         } else {
             requestGreeting();
-            markEegSurveyStarted();
         }
         await startAudioRecording();
     };
@@ -1018,20 +1019,6 @@ function App() {
         setReportLoading(false);
         pendingGuardrailResetRef.current = true;
     }, []);
-
-    const handleRerecordBaseline = useCallback(async () => {
-        // Drop the server copy too, and arm a save so the new recording replaces it. Awaited
-        // so the delete is durable before any subsequent Start-New-Survey reads the baseline
-        // (both the frontend resolveBaseline GET and the backend phase resolution) — otherwise
-        // a stale baseline would be read and the fresh baseline protocol skipped.
-        try {
-            await apiFetch("/baseline", { method: "DELETE" });
-        } catch (err) {
-            console.warn("[App] Failed to clear server baseline:", err);
-        }
-        baselineNeedsSaveRef.current = true;
-        clearBaseline();
-    }, [clearBaseline]);
 
     const getHeadPoseLabel = (degrees: number): string => {
         if (degrees < -15) return "Turned Left";
@@ -1555,32 +1542,16 @@ function App() {
                                                 </span>
                                             </div>
 
-                                            {/* Recorded — show captured values + rerecord */}
+                                            {/* Recorded — this assessment's own baseline values */}
                                             {baselineState === "recorded" && baselineData && (
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <div className="flex items-center gap-4 text-[11px]">
-                                                        <div className="flex items-center gap-1">
-                                                            <span className="text-[color:var(--ciq-text-68)]">Pupil:</span>
-                                                            <span className="font-data font-semibold text-[color:var(--ciq-text-strong)]">
-                                                                {baselineData.pupilSize.toFixed(1)} mm
-                                                            </span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <span className="text-[color:var(--ciq-text-68)]">Blink:</span>
-                                                            <span className="font-data font-semibold text-[color:var(--ciq-text-strong)]">
-                                                                {baselineData.blinkRate.toFixed(1)}/min
-                                                            </span>
-                                                        </div>
+                                                <div className="flex items-center gap-4 text-[11px]">
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="text-[color:var(--ciq-text-68)]">Blink:</span>
+                                                        <span className="font-data font-semibold text-[color:var(--ciq-text-strong)]">
+                                                            {baselineData.blinkRate.toFixed(1)}/min
+                                                        </span>
                                                     </div>
-                                                    <Button
-                                                        onClick={handleRerecordBaseline}
-                                                        size="sm"
-                                                        variant="outline"
-                                                        className="h-6 shrink-0 px-2 text-[10px]"
-                                                    >
-                                                        <RotateCcw className="mr-1 h-3 w-3" />
-                                                        Rerecord
-                                                    </Button>
+                                                    <span className="text-[color:var(--ciq-text-60)]">for this assessment</span>
                                                 </div>
                                             )}
 
@@ -1619,8 +1590,8 @@ function App() {
                                             {/* None — idle, no baseline yet */}
                                             {baselineState === "none" && (
                                                 <p className="text-xs text-[color:var(--ciq-text-60)]">
-                                                    No baseline recorded yet. When you start, a 3-minute eyes-open baseline is recorded (plus 3 minutes eyes
-                                                    closed if an EEG headband is connected) before the questions begin.
+                                                    Every assessment records its own baseline. When you start, a 3-minute eyes-open baseline is recorded (plus 3
+                                                    minutes eyes closed if an EEG headband is connected) before the questions begin.
                                                 </p>
                                             )}
                                         </div>
@@ -1689,17 +1660,6 @@ function App() {
                                                         label="Head Pose"
                                                         accent="var(--ciq-accent-purple)"
                                                         value={<span className="text-base">{getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}</span>}
-                                                    />
-                                                    <MetricCell
-                                                        label="Pupil Size"
-                                                        accent="var(--ciq-accent-amber)"
-                                                        value={
-                                                            <>
-                                                                {currentBiometrics.metrics.pupilSizeMm.toFixed(1)}
-                                                                <span className="ml-0.5 text-[12px] font-medium text-[color:var(--ciq-text-60)]">mm</span>
-                                                            </>
-                                                        }
-                                                        sub={`base ${baselineData?.pupilSize.toFixed(1) || "--"}`}
                                                     />
                                                     <MetricCell
                                                         label="Blink Count"

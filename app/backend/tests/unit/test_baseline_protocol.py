@@ -1,4 +1,4 @@
-"""Baseline protocol: user_baselines EEG column, audio gate, spoken cues, timeline start."""
+"""Baseline protocol: migrations, audio gate, spoken cues + timeline stage, timeline start."""
 import asyncio
 import json
 from types import SimpleNamespace
@@ -11,43 +11,11 @@ from ciq.realtime.middle_tier import RTMiddleTier
 from ciq.realtime.session import reset_active_session, set_active_session
 
 
-async def _user_id(name: str = "system1") -> str:
-    from db import get_user_by_name
-
-    return (await get_user_by_name(name))["user_id"]
-
-
 @pytest.mark.asyncio
-async def test_eeg_column_migration_is_idempotent(initialized_db):
+async def test_baseline_column_migrations_are_idempotent(initialized_db):
     from db_init import init_db
 
-    await init_db()  # second run must not fail on the existing column
-
-
-@pytest.mark.asyncio
-async def test_baseline_eeg_is_stored_but_not_returned_by_the_ttl_lookup(initialized_db):
-    from db import get_user_baseline, get_user_baseline_eeg, upsert_user_baseline
-
-    uid = await _user_id()
-    eeg = {"schema": "muse-web-bridge/3", "markers": [{"label": "baseline_eyes_open", "t_ms_start": 0, "t_ms_end": 180000}]}
-    await upsert_user_baseline(uid, 4.2, 17.0, eeg)
-
-    row = await get_user_baseline(uid)
-    assert row["pupil_size"] == 4.2 and row["blink_rate"] == 17.0
-    assert "eeg_baseline_json" not in row
-    assert await get_user_baseline_eeg(uid) == eeg
-
-
-@pytest.mark.asyncio
-async def test_baseline_overwrite_without_eeg_clears_the_old_eeg(initialized_db):
-    from db import get_user_baseline, get_user_baseline_eeg, upsert_user_baseline
-
-    uid = await _user_id()
-    await upsert_user_baseline(uid, 4.2, 17.0, {"schema": "muse-web-bridge/3"})
-    await upsert_user_baseline(uid, 3.9, 15.0)
-
-    assert (await get_user_baseline(uid))["pupil_size"] == 3.9
-    assert await get_user_baseline_eeg(uid) is None
+    await init_db()  # second run must not fail on the existing baseline_* / stage columns
 
 
 def test_every_cue_has_instructions():
@@ -92,6 +60,23 @@ async def test_baseline_cue_becomes_a_response_create(rtmt):
     assert out["response"]["tool_choice"] == "none"
 
     assert await _to_server(rtmt, sess, {"type": "baseline.cue", "cue": "bogus"}) is None
+
+
+@pytest.mark.asyncio
+async def test_baseline_cues_set_the_timeline_stage(rtmt):
+    sess = rtmt.get_or_create_session("s1")
+    sess.survey_phase = "baseline"
+    assert sess.timeline_stage() == "baseline_setup"
+
+    await _to_server(rtmt, sess, {"type": "baseline.cue", "cue": "eyes_open_start"})
+    assert sess.timeline_stage() == "baseline_eyes_open"
+    await _to_server(rtmt, sess, {"type": "baseline.cue", "cue": "eyes_closed_start"})
+    assert sess.timeline_stage() == "baseline_eyes_closed"
+
+    sess.unlock_survey()
+    assert sess.timeline_stage() == "survey"
+    sess.reset_for_new_survey()
+    assert (sess.baseline_stage, sess.timeline_stage()) == (None, "baseline_setup")
 
 
 @pytest.mark.asyncio

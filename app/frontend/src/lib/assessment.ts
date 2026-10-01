@@ -1,4 +1,4 @@
-// Assessment lifecycle client — Start / Pause / Continue / Close.
+// Assessment lifecycle client — Start / Pause / Continue / Close, plus the run's baseline.
 //
 // The backend (ciq/assessments/) owns the state machine and mints the
 // surveyRunId; it identifies the user and live session from the auth cookie,
@@ -35,6 +35,10 @@ export const pauseAssessment = () => postJson<{ surveyRunId: string; status: "pa
 export const continueAssessment = (surveyRunId: string) => postJson<AssessmentContinued>("/me/assessment/continue", { surveyRunId });
 
 export const closeAssessment = (surveyRunId: string) => postJson<{ surveyRunId: string; status: "closed" }>("/me/assessment/close", { surveyRunId });
+
+/** Records the active run's completed baseline (set once per run, server-side). */
+export const completeAssessmentBaseline = (blinkRate: number | null, pupilSize: number | null) =>
+    postJson<{ surveyRunId: string; segmentIndex: number; stored: boolean }>("/me/assessment/baseline", { blinkRate, pupilSize });
 
 export type AssessmentControls = {
     /** Start the first assessment (nothing open, nothing on screen). */

@@ -59,9 +59,8 @@ def test_driving_forward_follows_the_sample_when_signals_line_up():
     assert [p["title"] for p in r["parts"]] == [TITLE_CAPACITY, TITLE_OPPORTUNITY, TITLE_UNLOCKS]
     capacity = r["parts"][0]["say"]
     assert "someone in motion" in capacity[0]
-    assert capacity[1] == "That drive shows up across a few signals:"
+    assert capacity[1] == "That drive shows up across two signals:"
     assert any(s.startswith("Blink rate ran below your baseline") for s in capacity)
-    assert any(s.startswith("Pupil dilation stayed elevated through the later part") for s in capacity)
     assert any("shorter pauses" in s for s in capacity)
     assert "None of this is a warning sign." in capacity[-1]
     assert "same drive, with more behind it" in r["parts"][1]["say"][0]
@@ -108,12 +107,12 @@ def test_blink_above_baseline_is_not_described_as_focus():
     assert "sustained attention" not in _text(r)
 
 
-def test_eased_pupil_is_not_reported_as_elevated_into_the_later_part():
-    pupil = [0.3, 0.3, 0.3, 0.0, 0.0, 0.0, 0.0]  # zeros = no reading, so use small real values
-    pupil = [0.32, 0.32, 0.32, 0.05, 0.05, 0.05, 0.05]
-    r = build_pilot_spoken_report(PILOT, _results(LOW_BAT, LOW_CBI, pupil=pupil))
-    assert "eased later" in _text(r)
-    assert "later part of the check-in" not in _text(r)
+def test_pupil_dilation_is_stored_but_never_reported_or_counted_as_a_drive():
+    # Elevated pupil + focused blink used to be two drives (driving_forward); pupil is
+    # no longer a signal, so only blink drives and the framing stays steady.
+    r = build_pilot_spoken_report(PILOT, _results(LOW_BAT, LOW_CBI, FOCUSED_BLINK, ELEVATED_PUPIL))
+    assert r["framing"] == FRAMING_STEADY
+    assert "pupil" not in _text(r).lower()
 
 
 def test_pace_slowing_and_steady_are_distinguished():

@@ -5,6 +5,7 @@ from conftest import seed_user_id
 from ciq.assessments.service import (
     AssessmentError,
     close_run,
+    complete_baseline,
     continue_run,
     get_resumable,
     pause_run,
@@ -12,15 +13,17 @@ from ciq.assessments.service import (
     start_run,
 )
 from ciq.prompts.builder import reconnect_instructions
+from ciq.realtime.middle_tier import RTMiddleTier
 from db import (
     get_open_survey_run,
+    get_run_baseline,
     get_survey_item_responses,
     get_survey_run_status,
     get_survey_timeline_frames,
     get_user_survey_records,
+    get_user_survey_run_summaries,
     mark_survey_run_completed,
     save_survey_record_results,
-    upsert_user_baseline,
 )
 
 SESSION = "sess-guest1"
@@ -116,22 +119,96 @@ async def test_continue_rehydrates_session_on_next_segment(live_rtmt, user):
     assert sess.timeline_frame_offset == 4
     assert sess.timeline_frames == []
     assert await get_survey_run_status(run) == "active"
-    # guest1 has no stored baseline -> the protocol must run before the survey resumes.
-    assert (result["baselineRequired"], sess.survey_phase) == (True, "baseline")
+    # This run never completed a baseline -> the protocol must run before the survey resumes.
+    assert (result["baselineRequired"], result["baseline"], sess.survey_phase) == (True, None, "baseline")
 
     # The next WS connect counts as a reconnect -> the agent is told where it left off.
     sess.connection_count += 1
     assert "2/5 questions answered" in reconnect_instructions(sess, sess.survey_config)
 
 
-async def test_continue_reuses_a_stored_baseline(live_rtmt, user):
-    await upsert_user_baseline(user, 4.2, 15.0)
+async def test_continue_reuses_the_runs_own_baseline(live_rtmt, user):
     run = (await start_run(live_rtmt, SESSION, user, None, "TEST"))["surveyRunId"]
+    await complete_baseline(live_rtmt, SESSION, user, 15.0, 4.2)
     await _answer(live_rtmt, "q1", 4)
     await pause_run(live_rtmt, SESSION, user)
     result = await continue_run(live_rtmt, SESSION, user, run)
     sess = live_rtmt.get_or_create_session(SESSION)
     assert (result["baselineRequired"], sess.survey_phase, sess.is_returning_user) == (False, "survey", True)
+    assert result["baseline"] == {"blinkRate": 15.0, "pupilSize": 4.2}
+
+
+# ── Per-assessment baseline ──────────────────────────────────────────────────
+async def test_every_new_run_requires_its_own_baseline(live_rtmt, user):
+    first = await start_run(live_rtmt, SESSION, user, None, "TEST")
+    assert first["baselineRequired"] is True
+    await complete_baseline(live_rtmt, SESSION, user, 15.0, None)
+
+    second = await start_run(live_rtmt, SESSION, user, None, "TEST")
+    assert second["baselineRequired"] is True
+    assert await get_run_baseline(second["surveyRunId"]) is None
+    # ...while the first run keeps the baseline it used.
+    assert (await get_run_baseline(first["surveyRunId"]))["blink_rate"] == 15.0
+
+
+async def test_baseline_is_set_once_and_tied_to_its_segment(live_rtmt, user):
+    run = (await start_run(live_rtmt, SESSION, user, None, "TEST"))["surveyRunId"]
+    assert (await complete_baseline(live_rtmt, SESSION, user, 15.0, 4.2))["stored"] is True
+    assert (await complete_baseline(live_rtmt, SESSION, user, 99.0, 1.0))["stored"] is False
+    baseline = await get_run_baseline(run)
+    assert (baseline["blink_rate"], baseline["pupil_size"], baseline["segment_index"]) == (15.0, 4.2, 0)
+    assert baseline["completed_at"]
+
+
+async def test_pause_mid_baseline_recaptures_it_in_the_next_segment(live_rtmt, user):
+    run = (await start_run(live_rtmt, SESSION, user, None, "TEST"))["surveyRunId"]
+    sess = live_rtmt.get_or_create_session(SESSION)
+    sess.timeline_frames = [
+        {"frame_index": i, "segment_index": 0, "timestamp": f"2026-01-01T00:00:0{i}+00:00",
+         "turn_state": "idle", "stage": "baseline_eyes_open"} for i in range(3)
+    ]
+    await pause_run(live_rtmt, SESSION, user)  # before the protocol finished
+
+    result = await continue_run(live_rtmt, SESSION, user, run)
+    assert result["baselineRequired"] is True
+    # The abandoned attempt's seconds are kept, tagged, in segment 0.
+    assert [(f["segment_index"], f["stage"]) for f in await get_survey_timeline_frames(run)] == [
+        (0, "baseline_eyes_open")] * 3
+
+    await complete_baseline(live_rtmt, SESSION, user, 16.0, None)
+    assert (await get_run_baseline(run))["segment_index"] == 1  # the segment that holds it
+
+
+async def test_baseline_needs_an_active_bound_run(live_rtmt, user):
+    with pytest.raises(AssessmentError):
+        await complete_baseline(live_rtmt, SESSION, user, 15.0, None)
+    await start_run(live_rtmt, SESSION, user, None, "TEST")
+    await pause_run(live_rtmt, SESSION, user)
+    with pytest.raises(AssessmentError):
+        await complete_baseline(live_rtmt, SESSION, user, 15.0, None)
+
+
+async def test_phase_resolution_reads_the_bound_runs_baseline(live_rtmt, user):
+    await start_run(live_rtmt, SESSION, user, None, "TEST")
+    sess = live_rtmt.get_or_create_session(SESSION)
+    await RTMiddleTier._resolve_survey_phase(live_rtmt, sess, None)
+    assert (sess.survey_phase, sess.is_returning_user) == ("baseline", False)
+
+    await complete_baseline(live_rtmt, SESSION, user, 15.0, None)
+    await RTMiddleTier._resolve_survey_phase(live_rtmt, sess, None)
+    assert (sess.survey_phase, sess.is_returning_user) == ("survey", True)
+
+
+async def test_admin_run_list_includes_partial_runs_with_status(live_rtmt, user):
+    empty = (await start_run(live_rtmt, SESSION, user, None, "TEST"))["surveyRunId"]
+    partial = (await start_run(live_rtmt, SESSION, user, None, "TEST"))["surveyRunId"]
+    await _answer(live_rtmt, "q1", 4)
+    await pause_run(live_rtmt, SESSION, user)
+    await close_run(live_rtmt, SESSION, user, partial)
+
+    runs = {r["survey_run_id"]: r for r in await get_user_survey_run_summaries(user)}
+    assert runs[partial]["status"] == "closed"
+    assert empty not in runs  # recorded nothing at all
 
 
 async def test_close_discards_the_paused_run(live_rtmt, user):

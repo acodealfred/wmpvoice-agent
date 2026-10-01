@@ -68,6 +68,12 @@ from survey_loader import options_for_question
 
 logger = logging.getLogger("voicerag")
 
+# Baseline cue -> the timeline `stage` it starts (see SessionState.timeline_stage).
+_BASELINE_CUE_STAGES = {
+    "eyes_open_start": "baseline_eyes_open",
+    "eyes_closed_start": "baseline_eyes_closed",
+}
+
 # Every recovery-tool name — used by _process_message_to_client to generically
 # forward each handler's embedded "client_message" payload (see
 # ciq.realtime.tools.recovery_handlers' module docstring) without needing a
@@ -171,8 +177,9 @@ class RTMiddleTier:
     def unlock_survey_for_session(self, session_id: str) -> None:
         """Open the baseline → survey gate (called when the baseline protocol completes).
 
-        Also starts the per-second timeline here, so survey_timeline_frames covers the
-        survey itself and not the ~6 min of baseline calibration before it.
+        The per-second timeline normally already runs from connect (baseline included,
+        tagged by `stage`); starting it here is a no-op then, and only a safety net for
+        a session that reached this point without a bound run.
         """
         sess = self._store.get_or_create(session_id)
         sess.unlock_survey()
@@ -872,6 +879,12 @@ class RTMiddleTier:
                         logger.warning("[RTMT] Unknown baseline cue: %s", message.get("cue"))
                         return None
                     logger.info("[RTMT] ★ Baseline cue: %s", message["cue"])
+                    # The phase-start cues also tell the timeline which baseline step
+                    # its frames belong to (the survey_start_* cues need nothing here —
+                    # POST /survey-phase has already switched the stage to "survey").
+                    stage = _BASELINE_CUE_STAGES.get(message["cue"])
+                    if stage:
+                        self._sess.baseline_stage = stage
                     return json.dumps({
                         "type": "response.create",
                         "response": {"instructions": instructions, "tool_choice": "none"},
@@ -1030,21 +1043,22 @@ class RTMiddleTier:
                 )
 
     async def _resolve_survey_phase(self, sess, request: web.Request) -> None:
-        """Decide the starting survey phase for a fresh connection from the stored baseline.
+        """Decide the starting survey phase for a fresh connection from the bound run's baseline.
 
-        A valid (non-expired, TTL enforced in db.get_user_baseline) baseline means a
-        returning user: skip the 30s recording and start unlocked in the "survey" phase
-        with a brief welcome-back warm-up. Otherwise start gated in "baseline" so the agent
-        stays silent while the eyes-open / eyes-closed baseline records. Only called on the first
+        Baselines belong to an assessment (survey_records.baseline_*), not the user: a
+        run that already completed its baseline (resumed after a pause) skips the
+        recording and starts unlocked in the "survey" phase with a brief welcome-back
+        warm-up. A new run — or one paused before its baseline finished — starts gated
+        in "baseline" so the agent stays silent while the eyes-open / eyes-closed
+        baseline records. The frontend makes the same decision from the same row (the
+        /me/assessment/start and /continue responses). Only called on the first
         connection of a session — reconnects must keep whatever phase was reached.
         """
-        auth = request.get("auth_session")
-        user_id = auth.get("user_id") if auth else None
         baseline = None
-        if user_id:
+        if sess.survey_run_id:
             try:
-                from db import get_user_baseline
-                baseline = await get_user_baseline(user_id)
+                from db import get_run_baseline
+                baseline = await get_run_baseline(sess.survey_run_id)
             except Exception as e:
                 logger.warning("[RTMT] Baseline lookup failed for phase resolution: %s", e)
         if baseline:
@@ -1087,18 +1101,18 @@ class RTMiddleTier:
         # Start the per-second timeline sampler (see ciq.realtime.timeline_capture).
         # Guarded by timeline_active so a reconnect never spawns a second sampler
         # for the same session — it just keeps appending to the same buffer.
-        # Only once the survey phase is open: returning users start there at connect;
-        # everyone else starts it from unlock_survey_for_session when the baseline ends.
+        # A bound assessment run records from Start, its baseline included (each frame
+        # carries its `stage`); an unbound session only once the survey phase is open.
         if (
             self.enable_survey_mode
             and sess.survey_config
-            and sess.survey_phase == "survey"
+            and (sess.survey_phase == "survey" or sess.survey_run_id)
             and not sess.timeline_active
         ):
             start_timeline_capture(sess)
 
-        # Returning users skip the 30s baseline recording and start straight in the
-        # "survey" phase (set in _resolve_survey_phase above), so POST /survey-phase —
+        # A resumed run whose baseline is already done skips the baseline recording and
+        # starts straight in the "survey" phase (set in _resolve_survey_phase above), so POST /survey-phase —
         # which is what starts the PILOT "pre" capture window for everyone else — is
         # never called for them. Start it here instead so they still get one.
         if (

@@ -19,7 +19,7 @@ from db import (
     update_recovery_session_preliminary,
     update_recovery_session_recommendation,
 )
-from survey_loader import blink_band, pupil_band
+from survey_loader import blink_band
 
 logger = logging.getLogger("voicerag")
 
@@ -50,27 +50,20 @@ def _blink_severity(band: str) -> int:
     return 0  # "Normal" or "Unknown"
 
 
-def _pupil_severity(band: str) -> int:
-    return {"High": 2, "Medium": 1}.get(band, 0)
-
-
 async def derive_biometric_signal(survey_run_id: str | None) -> dict:
-    """{blink_band, pupil_band} — the most severe band across the run's answered
-    questions, reusing survey_loader's existing blink_band()/pupil_band()
-    categorizers rather than re-deriving thresholds."""
+    """{blink_band} — the most severe blink band across the run's answered
+    questions, reusing survey_loader's existing blink_band() categorizer rather
+    than re-deriving thresholds. Pupil dilation is still stored per answer but
+    deliberately not used for recovery routing."""
     if not survey_run_id:
-        return {"blink_band": "Unknown", "pupil_band": "Unknown"}
+        return {"blink_band": "Unknown"}
     rows = await get_survey_item_responses(survey_run_id)
     worst_blink, worst_blink_severity = "Unknown", -1
-    worst_pupil, worst_pupil_severity = "Unknown", -1
     for row in rows:
         blink = blink_band(row.get("blink_rate_change_percent"))
-        pupil = pupil_band(row.get("pupil_mm_change"))
         if _blink_severity(blink) > worst_blink_severity:
             worst_blink_severity, worst_blink = _blink_severity(blink), blink
-        if _pupil_severity(pupil) > worst_pupil_severity:
-            worst_pupil_severity, worst_pupil = _pupil_severity(pupil), pupil
-    return {"blink_band": worst_blink, "pupil_band": worst_pupil}
+    return {"blink_band": worst_blink}
 
 
 _NUMERIC_INTAKE_FIELDS = (

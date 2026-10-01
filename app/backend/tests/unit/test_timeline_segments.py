@@ -24,6 +24,18 @@ def test_fresh_session_numbers_from_zero_in_segment_zero():
     assert (frame["frame_index"], frame["segment_index"]) == (0, 0)
 
 
+def test_baseline_frames_carry_their_stage_and_no_blink_change():
+    sess = SessionState(session_id="s")
+    sess.current_blink_rate_change = 12.0
+    sess.survey_phase, sess.baseline_stage = "baseline", "baseline_eyes_open"
+    baseline = _frame_snapshot(sess, "idle", None, None)
+    assert (baseline["stage"], baseline["blink_rate_change_percent"]) == ("baseline_eyes_open", None)
+
+    sess.unlock_survey()
+    survey = _frame_snapshot(sess, "idle", None, None)
+    assert (survey["stage"], survey["blink_rate_change_percent"]) == ("survey", 12.0)
+
+
 def test_reset_for_new_survey_unbinds_the_run():
     sess = SessionState(session_id="s")
     sess.survey_run_id, sess.user_id = "run", "user"

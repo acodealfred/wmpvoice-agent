@@ -161,7 +161,7 @@ During frontend dev (`npm run dev`), `vite.config.ts` proxies `/realtime` to `ws
 
 | File | Purpose |
 |---|---|
-| `app/backend/ciq/server.py` | `create_app()` — composition root + full route table (43 routes) |
+| `app/backend/ciq/server.py` | `create_app()` — composition root + full route table |
 | `app/backend/ciq/realtime/middle_tier.py` | RTMiddleTier — WebSocket proxy + tool interception + biometric state |
 | `app/backend/ciq/reports/routes.py` | Report endpoints — `/analyze-report`, scoring |
 | `app/backend/ciq/chat/` | Wellbeing Assistant chat engine (`rbac`, `tools`, `prompts`, `guardrails`, `orchestrator`, `routes`) — see `docs/manager-chat.md` |

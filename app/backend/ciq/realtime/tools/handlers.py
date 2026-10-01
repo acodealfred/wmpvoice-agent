@@ -24,7 +24,6 @@ from survey_loader import (
     compute_section_scores,
     effective_score,
     get_score_bounds,
-    pupil_band,
 )
 
 logger = logging.getLogger("voicerag")
@@ -174,8 +173,6 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
         # no readings at all -> None -> "Unknown" (not enough data), never "Normal".
         blink_changes = [r["blink_rate_change_percent"] for r in results.values() if r.get("blink_rate_change_percent") is not None]
         avg_blink = sum(blink_changes) / len(blink_changes) if blink_changes else None
-        pupil_changes = [r.get("pupil_mm_change") or 0 for r in results.values()]
-        avg_pupil = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
         # Each eye's dominant position is voted independently — the two eyes can
         # disagree (e.g. one partially occluded), so collapsing them into one count
         # would hide that rather than surface it.
@@ -190,7 +187,6 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
         dominant_right_gaze = max(right_gaze_counts, key=right_gaze_counts.get) if right_gaze_counts else "Center"
         response_data["biometrics"] = {
             "overall_blink_rate_category": blink_band(avg_blink),
-            "overall_pupil_dilation_category": pupil_band(avg_pupil),
             "dominant_left_gaze_position": dominant_left_gaze,
             "dominant_right_gaze_position": dominant_right_gaze,
             "per_question": [
@@ -199,7 +195,6 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
                     "domain": get_question_domain(qid, survey_config),
                     "voice_sentiment": r.get("voice_sentiment"),
                     "blink_rate_category": blink_band(r.get("blink_rate_change_percent")),
-                    "pupil_dilation_category": pupil_band(r.get("pupil_mm_change")),
                     "left_gaze_position": r.get("left_gaze_position"),
                     "right_gaze_position": r.get("right_gaze_position"),
                 }

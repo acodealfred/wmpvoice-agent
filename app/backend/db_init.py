@@ -122,6 +122,15 @@ async def init_db() -> None:
             "ALTER TABLE survey_records ADD COLUMN paused_at TEXT",
             "ALTER TABLE survey_records ADD COLUMN closed_at TEXT",
             "ALTER TABLE survey_records ADD COLUMN current_segment INTEGER NOT NULL DEFAULT 0",
+            # Per-assessment baseline (see ciq.assessments.service.complete_baseline):
+            # set once, when this run's baseline protocol completes. NULL = no completed
+            # baseline yet (a new run, or one paused mid-baseline). The baseline's own
+            # seconds / EEG live in that segment's timeline frames (stage = baseline_*)
+            # and EEG file — baseline_segment_index says which segment holds them.
+            "ALTER TABLE survey_records ADD COLUMN baseline_blink_rate REAL",
+            "ALTER TABLE survey_records ADD COLUMN baseline_pupil_size REAL",
+            "ALTER TABLE survey_records ADD COLUMN baseline_completed_at TEXT",
+            "ALTER TABLE survey_records ADD COLUMN baseline_segment_index INTEGER",
         ):
             try:
                 await db.execute(ddl)
@@ -217,7 +226,16 @@ async def init_db() -> None:
             )
         except aiosqlite.OperationalError:
             pass  # column already present
+        # Which part of the assessment a frame belongs to: baseline_setup |
+        # baseline_eyes_open | baseline_eyes_closed | survey. NULL on rows recorded
+        # before the timeline covered the baseline (exported as "survey").
+        try:
+            await db.execute("ALTER TABLE survey_timeline_frames ADD COLUMN stage TEXT")
+        except aiosqlite.OperationalError:
+            pass  # column already present
 
+        # LEGACY (no longer read or written — baselines are per assessment now, on
+        # survey_records.baseline_*). Kept so existing data and demo cleanup still work.
         # One calibrated baseline per user: camera biometrics (pupil size + blink
         # rate, averaged over the eyes-open phase) plus, when a Muse headband was
         # connected, the raw eyes-open/eyes-closed EEG session file as JSON
