@@ -173,3 +173,26 @@ async def test_continue_with_no_answers_is_a_fresh_start(live_rtmt, user):
     assert sess.survey_run_id == run
     sess.connection_count += 1  # the first WS connect
     assert reconnect_instructions(sess, sess.survey_config) == ""
+
+
+# ── Consent shown on every visit: each acceptance logged and tied to its run ──
+async def test_every_consent_acceptance_is_kept_and_linked_to_its_pilot_run(live_rtmt, user):
+    from db import get_consent_events, record_consent_event
+
+    await record_consent_event(user, "v1", "PILOT")
+    first = (await start_run(live_rtmt, SESSION, user, None, "PILOT"))["surveyRunId"]
+    await pause_run(live_rtmt, SESSION, user)
+    await record_consent_event(user, "v1", "PILOT")        # re-entered the page
+    await continue_run(live_rtmt, SESSION, user, first)
+    await record_consent_event(user, "v1", "PILOT")        # entered again, then left
+    events = await get_consent_events(user)
+    assert [e["survey_run_id"] for e in events] == [first, first, None]
+    assert all(e["consent_version"] == "v1" for e in events)
+
+
+async def test_consent_is_not_linked_to_non_pilot_runs(live_rtmt, user):
+    from db import get_consent_events, record_consent_event
+
+    await record_consent_event(user, "v1", "PILOT")
+    await start_run(live_rtmt, SESSION, user, None, "TEST")
+    assert [e["survey_run_id"] for e in await get_consent_events(user)] == [None]

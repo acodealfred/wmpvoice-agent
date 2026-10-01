@@ -40,7 +40,7 @@ import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
 import { GuestLanding } from "@/components/ui/guest-landing";
 import { Button } from "@/components/ui/button";
-import ConsentModal from "@/components/ui/consent-modal";
+import ConsentModal, { CONSENT_VERSION } from "@/components/ui/consent-modal";
 import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
 import { assessmentControls, closeAssessment, continueAssessment, fetchResumableAssessment, pauseAssessment, startAssessment } from "@/lib/assessment";
 import { applyFontScale, getFontScale } from "@/lib/fontScale";
@@ -155,10 +155,10 @@ function App() {
     const suppressAgentAudioRef = useRef(false);
     const [enableSurvey, setEnableSurvey] = useState(false);
     const [surveyTypeConfig, setSurveyTypeConfig] = useState<SurveyTypeConfig | null>(null);
-    // Informed-consent gate for the pilot study. Recorded server-side in the
-    // `user_consents` table (see GET/POST /consent) so a user who has ever accepted
-    // is never re-prompted again — across devices, logins, and survey re-runs — until
-    // they explicitly ask to review it again. `null` means "not yet checked".
+    // Informed-consent gate for the pilot study, asked on EVERY visit to the assessment
+    // page (Home's start buttons, the Assessment tab, landing there after login). True
+    // only for the current visit — reset on leaving the page. Each acceptance is logged
+    // server-side (POST /consent -> consent_events) with the wording version.
     const [showConsent, setShowConsent] = useState(false);
     const [consentGiven, setConsentGiven] = useState<boolean | null>(null);
     // Holds whichever start action (onStartListening / onStartNewSurvey) triggered the
@@ -312,19 +312,20 @@ function App() {
         };
     }, [authState, activeTab, isRecording]);
 
-    // Look up whether this user has already accepted the pilot-study consent form
-    // (see GET /consent) — a one-time, durable acceptance stored in `user_consents`,
-    // so returning users are never re-prompted.
+    // Show the consent form each time the user lands on the assessment page (PILOT
+    // only). Leaving the page forgets this visit's acceptance, so the next entry asks
+    // again. Never interrupts an assessment that is already recording. Also fires once
+    // /config resolves to PILOT while the user is already on the page.
     useEffect(() => {
         if (authState !== "authenticated") return;
-        apiFetch("/consent")
-            .then(res => res.json())
-            .then(data => setConsentGiven(Boolean(data.accepted)))
-            .catch(err => {
-                console.error("Failed to fetch consent status:", err);
-                setConsentGiven(false);
-            });
-    }, [authState]);
+        if (activeTab !== "assessment") {
+            setConsentGiven(false);
+            setShowConsent(false);
+            return;
+        }
+        if (requiresConsent && consentGiven !== true && !isRecording) setShowConsent(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [authState, activeTab, requiresConsent]);
 
     // Tracks the in-flight POST /survey-type request so Start can await it (see below) —
     // otherwise the very first thing onStartListening/onStartNewSurvey do is send
@@ -720,10 +721,9 @@ function App() {
         baselineProtocol.start(eegHasRecording);
     };
 
-    // Gates a start action (Start/Continue or Restart) behind informed consent for the
-    // pilot survey. Consent is a one-time, durable acceptance recorded server-side
-    // (GET /consent) — once given, it is never asked for again, including on
-    // "Start New Survey". If it hasn't been given (or is still being checked), the
+    // Gates a start action (Start / Start new / Continue) behind this visit's consent
+    // for the pilot survey (normally already given on entering the page — this catches
+    // e.g. a survey-type switch to PILOT after landing). If it hasn't been given, the
     // action is stashed and the modal is shown instead; ConsentModal's onAgree resumes it.
     const runWithConsent = useCallback(
         (action: () => void) => {
@@ -1988,15 +1988,21 @@ function App() {
                 onAgree={() => {
                     setConsentGiven(true);
                     setShowConsent(false);
-                    apiFetch("/consent", { method: "POST" }).catch(err => console.error("Failed to record consent:", err));
+                    apiFetch("/consent", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ version: CONSENT_VERSION, surveyType: surveyTypeConfig?.activeSurveyType })
+                    }).catch(err => console.error("Failed to record consent:", err));
                     pendingStartActionRef.current?.();
                     pendingStartActionRef.current = null;
                 }}
                 onDecline={() => {
+                    // Didn't agree: leave the assessment page for the user's own landing
+                    // page (Home for employees; managers/admins have no Home tab).
                     setShowConsent(false);
                     pendingStartActionRef.current = null;
+                    setActiveTab(isGuest ? "home" : isManager ? "dashboard" : "admin");
                 }}
-                studyName="Burnout Assessment — Pilot Study"
             />
         </div>
     );

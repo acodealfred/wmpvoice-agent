@@ -249,6 +249,25 @@ async def init_db() -> None:
                 PRIMARY KEY (user_id, consent_type)
             )
         """)
+        # Every individual acceptance (user_consents above only keeps the latest):
+        # the consent form is shown each time a user enters the assessment page, so
+        # this is the audit trail of who agreed to WHICH wording (consent_version)
+        # and, once they start/continue, which survey run it covered.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS consent_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         TEXT NOT NULL REFERENCES users(user_id),
+                consent_type    TEXT NOT NULL,
+                consent_version TEXT,
+                survey_type     TEXT,
+                survey_run_id   TEXT,
+                accepted_at     TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_consent_events_user
+            ON consent_events(user_id, accepted_at DESC)
+        """)
 
         # PILOT-survey-only subscale tables. One row per survey run (not per question),
         # written alongside (not instead of) the technical_report JSON blob on

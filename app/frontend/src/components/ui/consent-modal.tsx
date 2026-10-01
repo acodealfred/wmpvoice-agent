@@ -1,90 +1,49 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDown, ShieldCheck, X } from "lucide-react";
+import { ShieldCheck, X } from "lucide-react";
 
 import { Button } from "./button";
 import { cn } from "@/lib/utils";
 
-export type ConsentSection = {
-    heading: string;
-    /** A single paragraph, or several rendered as separate <p> tags. */
-    body: string | string[];
-};
+/**
+ * Identifies the exact wording below. Sent with every acceptance (POST /consent) and
+ * stored in consent_events — bump it whenever the text changes, so each recorded
+ * acceptance says which wording the participant actually agreed to.
+ */
+export const CONSENT_VERSION = "2026-10-01";
 
-export type ConsentModalProps = {
-    /** Visibility is owned by the parent — gate survey/conversation start on this. */
-    isOpen: boolean;
-    /** Fires when the user explicitly agrees. Parent should unlock the flow here. */
-    onAgree: () => void;
-    /** Fires on Decline, the X button, Escape, or a backdrop click. Keep the flow locked. */
-    onDecline: () => void;
-    title?: string;
-    studyName?: string;
-    sections?: ConsentSection[];
-    /** How close to the bottom (px) counts as "reached the end" of the scroll area. */
-    scrollThresholdPx?: number;
-};
+export const CONSENT_INTRO = "CIQ uses your camera to read physiological signals from your face. By continuing, you agree that:";
 
-export const DEFAULT_CONSENT_SECTIONS: ConsentSection[] = [
-    {
-        heading: "Purpose of this study",
-        body: "This pilot survey is part of a research study evaluating workplace burnout using the Burnout Assessment Tool (BAT), voice interaction, and optional biometric signals (e.g. blink rate, facial expression) captured through your device's camera. Your participation helps us validate and improve this assessment before wider release."
-    },
-    {
-        heading: "What you will be asked to do",
-        body: "You will have a short spoken conversation with an AI voice agent that asks a series of standardized questions about your work-related wellbeing. If you opt in to biometric capture, your webcam is used locally to estimate signals like blink rate and facial expression during the conversation."
-    },
-    {
-        heading: "Data privacy & confidentiality",
-        body: [
-            "Your responses and any biometric readings are stored securely and used only for the purposes of this research study and generating your personal report.",
-            "Audio is processed to generate your responses and is not retained beyond what is required to complete the assessment and produce your report, unless you are separately notified otherwise.",
-            "We do not sell your data or share it with third parties outside the research and product team without your explicit consent."
-        ]
-    },
-    {
-        heading: "Anonymity & data use",
-        body: "Where results are used for aggregate research or reporting, your data is de-identified so individual responses cannot be attributed to you by name. Your organization may see aggregate, de-identified trends but not your individual answers, unless you choose to share your report directly."
-    },
-    {
-        heading: "Voluntary participation & withdrawal",
-        body: "Your participation is entirely voluntary. You may decline to participate, skip questions, or withdraw at any time, for any reason, without penalty or effect on your employment or standing. If you withdraw mid-survey, your partial data will be discarded on request."
-    },
-    {
-        heading: "Risks & support",
-        body: "This assessment is not a medical or diagnostic tool. Some questions touch on stress and burnout, which may bring up difficult feelings. If you experience distress, please consider reaching out to your HR team, an Employee Assistance Program, or a mental health professional."
-    }
+export const CONSENT_POINTS: string[] = [
+    "Your biometric data will be used to train and improve CIQ's machine learning models.",
+    "Your current burnout score is based on the BAT-4 and CBI questionnaires.",
+    "Camera frames are deleted straight after processing. We never store photos or video of you.",
+    "Your data is stored under a participant code, not your name.",
+    "CIQ is in development and does not provide a medical diagnosis.",
+    "Data already used to train our models cannot be removed from them."
 ];
 
+export type ConsentModalProps = {
+    /** Visibility is owned by the parent — gate the assessment page on this. */
+    isOpen: boolean;
+    /** Fires when the user ticks the box and presses Agree & Continue. */
+    onAgree: () => void;
+    /** Fires on the X button, Escape, or a backdrop click — the user did not agree. */
+    onDecline: () => void;
+    title?: string;
+};
+
 /**
- * Blocking informed-consent modal. The primary action stays disabled until the user
- * either scrolls the consent text to its end or checks the acknowledgement box —
- * whichever comes first — so it can't be dismissed without reading (or explicitly
- * confirming they've read) the terms.
+ * Blocking consent dialog shown each time the user enters the assessment page (PILOT).
+ * "Agree & Continue" stays disabled until "I understand and agree." is ticked.
  */
-export default function ConsentModal({
-    isOpen,
-    onAgree,
-    onDecline,
-    title = "Informed Consent",
-    studyName = "Burnout Assessment Pilot Study",
-    sections = DEFAULT_CONSENT_SECTIONS,
-    scrollThresholdPx = 24
-}: ConsentModalProps) {
-    const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
+export default function ConsentModal({ isOpen, onAgree, onDecline, title = "Before we begin" }: ConsentModalProps) {
     const [checked, setChecked] = useState(false);
-    const scrollRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
 
-    const canContinue = hasScrolledToEnd || checked;
-
-    // Reset per-open so re-showing the modal (e.g. after a decline) requires reading
-    // or checking again, rather than remembering a previous session's acceptance.
+    // Reset per-open so every showing requires ticking the box again.
     useEffect(() => {
-        if (isOpen) {
-            setHasScrolledToEnd(false);
-            setChecked(false);
-        }
+        if (isOpen) setChecked(false);
     }, [isOpen]);
 
     // Lock page scroll while the modal is open.
@@ -112,23 +71,6 @@ export default function ConsentModal({
         if (isOpen) panelRef.current?.focus();
     }, [isOpen]);
 
-    const handleScroll = useCallback(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (distanceFromBottom <= scrollThresholdPx) {
-            setHasScrolledToEnd(true);
-        }
-    }, [scrollThresholdPx]);
-
-    // Covers the case where the consent text is short enough to need no scrolling at all —
-    // measure once layout has settled after the modal mounts.
-    useEffect(() => {
-        if (!isOpen) return;
-        const id = requestAnimationFrame(handleScroll);
-        return () => cancelAnimationFrame(id);
-    }, [isOpen, handleScroll]);
-
     return (
         <AnimatePresence>
             {isOpen && (
@@ -150,25 +92,22 @@ export default function ConsentModal({
                         aria-labelledby="consent-modal-title"
                         aria-describedby="consent-modal-body"
                         tabIndex={-1}
-                        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-card)] shadow-2xl outline-none"
+                        className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-card)] shadow-2xl outline-none"
                         onClick={e => e.stopPropagation()}
                     >
                         {/* Header */}
                         <div className="flex items-start justify-between gap-4 border-b border-[color:var(--ciq-divider)] px-6 py-5">
-                            <div className="flex items-start gap-3">
-                                <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-[color:var(--ciq-accent-blue)]">
+                            <div className="flex items-center gap-3">
+                                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-[color:var(--ciq-accent-blue)]">
                                     <ShieldCheck className="h-5 w-5 text-[#0a0c0e]" />
                                 </span>
-                                <div>
-                                    <h2 id="consent-modal-title" className="text-lg font-semibold text-[color:var(--ciq-text-strong)]">
-                                        {title}
-                                    </h2>
-                                    <p className="text-sm text-[color:var(--ciq-text-60)]">{studyName}</p>
-                                </div>
+                                <h2 id="consent-modal-title" className="text-lg font-semibold text-[color:var(--ciq-text-strong)]">
+                                    {title}
+                                </h2>
                             </div>
                             <button
                                 type="button"
-                                aria-label="Close and decline"
+                                aria-label="Close without agreeing"
                                 onClick={onDecline}
                                 className="rounded-md p-1 text-[color:var(--ciq-text-muted)] transition-colors hover:bg-[color:var(--ciq-hover)] hover:text-[color:var(--ciq-text-body)]"
                             >
@@ -176,67 +115,32 @@ export default function ConsentModal({
                             </button>
                         </div>
 
-                        {/* Scrollable consent body */}
-                        <div
-                            ref={scrollRef}
-                            onScroll={handleScroll}
-                            id="consent-modal-body"
-                            className="flex-1 space-y-5 overflow-y-auto px-6 py-5 text-sm leading-relaxed"
-                        >
-                            {sections.map((section, i) => (
-                                <section key={i}>
-                                    <h3 className="mb-1.5 font-medium text-[color:var(--ciq-text-strong)]">{section.heading}</h3>
-                                    {(Array.isArray(section.body) ? section.body : [section.body]).map((para, j) => (
-                                        <p key={j} className="mb-2 text-[color:var(--ciq-text-68)] last:mb-0">
-                                            {para}
-                                        </p>
-                                    ))}
-                                </section>
-                            ))}
-                            <p className="pt-1 text-xs italic text-[color:var(--ciq-text-faint)]">— End of consent statement —</p>
+                        {/* Consent text */}
+                        <div id="consent-modal-body" className="flex-1 overflow-y-auto px-6 py-5 text-sm leading-relaxed">
+                            <p className="mb-3 text-[color:var(--ciq-text-body)]">{CONSENT_INTRO}</p>
+                            <ul className="list-disc space-y-1.5 pl-5 text-[color:var(--ciq-text-68)]">
+                                {CONSENT_POINTS.map(point => (
+                                    <li key={point}>{point}</li>
+                                ))}
+                            </ul>
                         </div>
 
-                        {/* Scroll hint — disappears once the user has reached the bottom */}
-                        {!hasScrolledToEnd && (
-                            <div className="pointer-events-none -mt-9 flex justify-center pb-1">
-                                <span className="flex items-center gap-1 rounded-full bg-[color:var(--ciq-tile-strong)] px-2.5 py-1 text-[11px] text-[color:var(--ciq-text-muted)] shadow">
-                                    <ArrowDown className="h-3 w-3 animate-bounce" />
-                                    Scroll to read all terms
-                                </span>
-                            </div>
-                        )}
-
-                        {/* Footer: acknowledgement + actions */}
+                        {/* Acknowledgement + action */}
                         <div className="space-y-4 border-t border-[color:var(--ciq-divider)] px-6 py-5">
-                            <label className="flex cursor-pointer items-start gap-2.5 text-sm text-[color:var(--ciq-text-body)]">
+                            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-[color:var(--ciq-text-body)]">
                                 <input
                                     type="checkbox"
                                     checked={checked}
                                     onChange={e => setChecked(e.target.checked)}
-                                    className="mt-0.5 h-4 w-4 flex-none rounded border-[color:var(--ciq-border)] accent-[color:var(--ciq-accent-purple)]"
+                                    className="h-4 w-4 flex-none rounded border-[color:var(--ciq-border)] accent-[color:var(--ciq-accent-purple)]"
                                 />
-                                <span>I have read and accept the terms of this consent form.</span>
+                                <span>I understand and agree.</span>
                             </label>
-
-                            <div className="flex justify-end gap-3">
-                                <Button type="button" variant="ghost" onClick={onDecline}>
-                                    Decline
-                                </Button>
-                                <Button
-                                    type="button"
-                                    onClick={onAgree}
-                                    disabled={!canContinue}
-                                    className={cn("ciq-btn-primary ciq-touch", "disabled:opacity-40")}
-                                >
+                            <div className="flex justify-end">
+                                <Button type="button" onClick={onAgree} disabled={!checked} className={cn("ciq-btn-primary ciq-touch", "disabled:opacity-40")}>
                                     Agree & Continue
                                 </Button>
                             </div>
-
-                            {!canContinue && (
-                                <p className="text-xs text-[color:var(--ciq-text-faint)]">
-                                    Scroll to the end of the consent text or check the box above to continue.
-                                </p>
-                            )}
                         </div>
                     </motion.div>
                 </motion.div>
@@ -244,24 +148,3 @@ export default function ConsentModal({
         </AnimatePresence>
     );
 }
-
-// ── Usage (in the parent that gates the survey/conversation) ────────────────────
-//
-// const [consentGiven, setConsentGiven] = useState(false);
-// const [showConsent, setShowConsent] = useState(false);
-//
-// <ConsentModal
-//     isOpen={showConsent}
-//     onAgree={() => {
-//         setConsentGiven(true);
-//         setShowConsent(false);
-//         onStartListening(); // unlock the gated action
-//     }}
-//     onDecline={() => setShowConsent(false)}
-// />
-//
-// <Button
-//     onClick={() => (consentGiven ? onStartListening() : setShowConsent(true))}
-// >
-//     Start Assessment
-// </Button>

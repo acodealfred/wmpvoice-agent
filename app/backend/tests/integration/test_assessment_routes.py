@@ -25,6 +25,9 @@ async def assessment_app(initialized_db):
     app.router.add_post("/me/assessment/pause", pause_assessment)
     app.router.add_post("/me/assessment/continue", continue_assessment)
     app.router.add_post("/me/assessment/close", close_assessment)
+    from ciq.api.consent_routes import save_consent
+
+    app.router.add_post("/consent", save_consent)
     return app
 
 
@@ -93,3 +96,21 @@ async def test_other_user_cannot_touch_the_run(assessment_app):
     finally:
         await owner.close()
         await other.close()
+
+
+async def test_each_consent_acceptance_is_logged_with_its_version(assessment_app):
+    from conftest import seed_user_id
+
+    from db import get_consent_events
+
+    client = await _client(assessment_app, "guest1")
+    try:
+        body = {"version": "2026-10-01", "surveyType": "PILOT"}
+        assert (await client.post("/consent", json=body)).status == 200
+        assert (await client.post("/consent", json=body)).status == 200
+        assert (await client.post("/consent")).status == 200  # older client: no body
+        events = await get_consent_events(await seed_user_id("guest1"))
+        assert [e["consent_version"] for e in events] == ["2026-10-01", "2026-10-01", None]
+        assert events[0]["survey_type"] == "PILOT"
+    finally:
+        await client.close()

@@ -369,6 +369,49 @@ async def record_user_consent(user_id: str, consent_type: str = "pilot_study") -
         await db.commit()
 
 
+async def record_consent_event(
+    user_id: str,
+    consent_version: str | None,
+    survey_type: str | None,
+    consent_type: str = "pilot_study",
+) -> None:
+    """Log one acceptance (every time, never overwritten) — see consent_events."""
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT INTO consent_events
+               (user_id, consent_type, consent_version, survey_type, accepted_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, consent_type, consent_version, survey_type, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+
+
+async def link_latest_consent_to_run(user_id: str, survey_run_id: str) -> None:
+    """Tie the user's most recent acceptance to the run it led to (Start or Continue).
+
+    Consent is given on entering the assessment page, before a run exists, so the
+    run id is filled in afterwards. Only the newest event is touched; one already
+    linked to a run is re-linked only by a new acceptance.
+    """
+    async with _open_db() as db:
+        await db.execute(
+            """UPDATE consent_events SET survey_run_id = ?
+               WHERE id = (SELECT id FROM consent_events WHERE user_id = ?
+                           ORDER BY id DESC LIMIT 1)
+                 AND survey_run_id IS NULL""",
+            (survey_run_id, user_id),
+        )
+        await db.commit()
+
+
+async def get_consent_events(user_id: str) -> list[dict]:
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM consent_events WHERE user_id = ? ORDER BY id", (user_id,)
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+
 async def save_bat4_scores(
     survey_run_id: str,
     user_id: str,

@@ -26,6 +26,7 @@ from db import (
     get_survey_item_responses,
     get_survey_run_status,
     get_user_baseline,
+    link_latest_consent_to_run,
     pause_survey_run,
     resume_survey_run,
     save_survey_item_responses,
@@ -136,6 +137,18 @@ async def _retire_live_state(sess: SessionState) -> None:
     await flush_timeline(sess)
 
 
+async def _link_consent(user_id: str, survey_run_id: str, survey_type: str | None) -> None:
+    """Record which run the user's latest consent acceptance covered (PILOT only —
+    the only survey type that asks for consent, so an older unused acceptance never
+    gets attached to some other run)."""
+    if (survey_type or "").upper() != "PILOT":
+        return
+    try:
+        await link_latest_consent_to_run(user_id, survey_run_id)
+    except Exception as e:
+        logger.error("[Assessment] Linking consent to run %s failed: %s", survey_run_id[:8], e)
+
+
 # ── transitions ───────────────────────────────────────────────────────────────
 async def get_resumable(user_id: str) -> dict | None:
     """The user's open run in the shape the assessment page needs, or None."""
@@ -171,6 +184,7 @@ async def start_run(rtmt, session_id: str, user_id: str, session_token: str | No
     closed = await create_active_survey_run(survey_run_id, user_id, session_token, session_id, resolved_type)
     sess.survey_run_id = survey_run_id
     sess.user_id = user_id
+    await _link_consent(user_id, survey_run_id, resolved_type)
     logger.info("[Assessment] ★ Started run %s (%s) for user %s; closed %s",
                 survey_run_id[:8], resolved_type, user_id[:8], [c[:8] for c in closed])
     return {"surveyRunId": survey_run_id, "surveyType": resolved_type, "segmentIndex": 0,
@@ -238,6 +252,7 @@ async def continue_run(rtmt, session_id: str, user_id: str, survey_run_id: str) 
     sess.user_id = user_id
     sess.timeline_segment_index = segment
     sess.timeline_frame_offset = max_frame + 1
+    await _link_consent(user_id, survey_run_id, run["survey_type"])
     logger.info("[Assessment] ★ Continued run %s at segment %d (%d answered, frames from %d)",
                 survey_run_id[:8], segment, len(rows), max_frame + 1)
     return {
