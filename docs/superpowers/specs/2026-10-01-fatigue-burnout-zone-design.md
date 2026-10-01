@@ -1,6 +1,6 @@
 # Fatigue ↔ Burnout Zone: Design
 
-- **Status:** Draft for owner review (revised after adversarial review, see §12)
+- **Status:** Approved by owner 2026-10-01 (revised after adversarial review, see §12 and §13)
 - **Date:** 2026-10-01
 - **Branch:** `feature/fatigue-burnout-zone` (from `feat/biometrics-bugs` @ `597b662`)
 
@@ -24,6 +24,8 @@ The picture has three parts:
 | Biometrics | Supporting "fatigue signals" only. They never move the marker, the severity or the trend. |
 | Audience | The person's own data only, on their home screen, their session report and their chat assistant. No manager or team view. |
 | Improvement rule | Latest severity vs the average of the previous up to 3 complete runs, with a ±5 dead zone |
+| Severity weighting | Mean of all 7 item strains, so every answer moves severity equally (owner, 2026-10-01) |
+| Chat prompt line | Approved (§6.3 point 4) |
 | Architecture | Calculate on demand from stored answers (approach A). Nothing new is persisted. |
 | Survey scope | PILOT survey only (BAT-4 + CBI-WRB3). Other survey types are ignored. |
 
@@ -92,13 +94,15 @@ Otherwise it raises `ZoneConfigError`, which becomes a logged `500` (§7).
    - `strain = (eff − lo) / (hi − lo) × 100`
 3. **Fatigue** = the mean strain of the Fatigue group. **Burnout** = the mean strain of the Burnout
    group. Both are kept as floats internally.
-4. **Severity** = (Fatigue + Burnout) / 2. The groups are weighted equally even though they have 5
-   and 2 items, so the 2 burnout items aren't drowned out.
+4. **Severity** = the mean strain of **all 7 items**. Each item counts equally, so one answer step
+   (25 strain) moves severity by 25/7 ≈ 3.57, whichever item it is. Fatigue and Burnout are still
+   reported separately and drive the lean.
 5. **Rounding.** Every number returned is rounded half-up to an integer:
    `int(Decimal(x).quantize(0, ROUND_HALF_UP))`. This applies to `fatigue`, `burnout`, `severity`,
    `leanValue`, `marker`, `delta` and `ref`. Zone and lean decisions use the **unrounded** values.
-   Fatigue moves in steps of 5 and Burnout in steps of 12.5, so severity is always a multiple of
-   1.25. That means 24.5, 49.5 and 74.5 can't occur, and rounding never changes a zone.
+   Severity is always a multiple of 25/7, so it never lands on x.5, and the zone edges 25, 50 and
+   75 are hit exactly (at 7, 14 and 21 steps). Rounding therefore never changes a zone. Burnout
+   (steps of 12.5) and the marker (steps of 1.25) can land on x.5, which is where half-up matters.
 6. **Severity zone** (based on unrounded severity):
 
    | Severity | Zone key | Label |
@@ -118,15 +122,16 @@ Otherwise it raises `ZoneConfigError`, which becomes a logged `500` (§7).
    always within 0–100 by construction, so no clamping is needed.
 
 **Example** (reachable):
-- Answers: `bat_q1=4`, `bat_q3=3`, `cbi_q1=75`, `cbi_q2=50`, `cbi_q3=50` (reversed to 50),
+- Answers: `bat_q1=4`, `bat_q3=3`, `cbi_q1=50`, `cbi_q2=50`, `cbi_q3=75` (reversed to 25),
   `bat_q2=2`, `bat_q4=2`.
-- Fatigue = mean(75, 50, 75, 50, 50) = 60. Burnout = mean(25, 25) = 25.
-- Severity = 42.5, which reports as **43**, zone `mild`.
-- Lean = −35, so `fatigue`. Marker = 32.5, which reports as **33**.
+- Strains: 75, 50, 50, 50, 25 (fatigue group) and 25, 25 (burnout group).
+- Fatigue = 250 / 5 = 50. Burnout = 50 / 2 = 25.
+- Severity = 300 / 7 = 42.857…, which reports as **43**, zone `mild`.
+- Lean = −25, so `fatigue`. Marker = 37.5, which reports as **38**.
 
 ```json
-{ "surveyRunId": "…", "date": "2026-10-01", "fatigue": 60, "burnout": 25, "severity": 43,
-  "zone": "mild", "lean": "fatigue", "leanValue": -35, "marker": 33,
+{ "surveyRunId": "…", "date": "2026-10-01", "fatigue": 50, "burnout": 25, "severity": 43,
+  "zone": "mild", "lean": "fatigue", "leanValue": -25, "marker": 38,
   "signals": [ { "key": "blink_up", "label": "Blink rate above your baseline", "approximate": true } ] }
 ```
 
@@ -151,10 +156,10 @@ ignored.
   `points`: an `[{surveyRunId, date, severity, zone, lean}]` list, oldest first, capped at the 20
   most recent, for the chart.
 
-**Granularity note for the owner.** One answer step moves severity by **6.25** on a burnout-group
-item (`bat_q2`, `bat_q4`) but only **2.5** on a fatigue-group item. So against a single previous run,
-one changed burnout answer always crosses the ±5 dead zone, while one changed fatigue answer never
-does. This is accepted for v1. The thresholds can be changed in `ZONE_CONFIG`.
+**Granularity.** Every answer step moves severity by 25/7 ≈ 3.57. Against a single previous run,
+one changed answer stays inside the ±5 dead zone (Steady), and two answers changing in the same
+direction (≈ 7.14) register as Improving or Worsening. This holds whichever items change.
+Thresholds live in `ZONE_CONFIG`.
 
 ## 5. Fatigue signals (supporting only)
 
@@ -228,13 +233,12 @@ There are four touch points, all in existing files:
    - Note: `_PERSONAL` allows the roles employee, manager and admin on the personal surface
      (`rbac.py:24`). Managers and admins chatting on `/me/chat` would get their **own** zone. No
      other person's data is reachable.
-4. **⚠ Needs owner sign-off: one prompt line.** `GUEST_SYSTEM_PROMPT` lists the personal tools
+4. **One prompt line (approved by owner 2026-10-01).** `GUEST_SYSTEM_PROMPT` lists the personal tools
    and sends trend questions to `get_my_score_trend` (`ciq/chat/prompts.py:28-29`), which is empty
    for PILOT users. Without a prompt change the model will rarely call the new tool.
    - Proposed change: add `get_my_zone_trend` to the tool list in that line, and append one sentence:
      *"For 'am I improving' or 'fatigue vs burnout' questions, call get_my_zone_trend; it is a
      wellbeing guide, not a diagnosis."*
-   - If the owner declines, the chat part is dropped from v1 and touch points 1–3 are not made either.
 
 ### 6.4 Frontend
 - **`app/frontend/src/lib/zone.ts` (new).** Pure helpers for zone and lean labels and colours,
@@ -294,11 +298,13 @@ fixtures). `initialized_db` seeds only admin users, so tests create employee use
 - **Validity:** each of these makes a run incomplete:
   - `cbi_q1=3`, `bat_q1=25`, `bat_q1=True`, `bat_q1=None`, `bat_q1="4"`
   - a missing item
-- **Severity:** equal group weighting; the worked example in §3 gives exactly 60 / 25 / 43 /
-  `mild` / `fatigue` / −35 / 33.
-- **Rounding:** half-up at x.5 (12.5 → 13).
-- **Zone boundaries:** unrounded severity at 23.75 / 25.0 / 48.75 / 50.0 / 73.75 / 75.0, plus 0 and 100
-  (all reachable, as multiples of 1.25).
+- **Severity:** the mean of all 7 strains (not the mean of the two groups); the worked example in §3
+  gives exactly 50 / 25 / 43 / `mild` / `fatigue` / −25 / 38.
+- **Granularity:** one changed answer vs one previous run → `steady`; two same-direction changes →
+  `improving` / `worsening`, tested once with burnout items and once with fatigue items.
+- **Rounding:** half-up at x.5 (burnout 12.5 → 13; marker 37.5 → 38).
+- **Zone boundaries:** severity at 6 vs 7 steps (21.43 / 25.0), 13 vs 14 (46.43 / 50.0) and 20 vs 21
+  (71.43 / 75.0), plus 0 and 100.
 - **Lean boundaries:** −15 / −12.5 / +12.5 / +15. When the zone is `well`: `lean = none` and
   `marker = null`.
 - **Trend:**
@@ -326,7 +332,7 @@ fixtures). `initialized_db` seeds only admin users, so tests create employee use
   - `dispatch_tool("get_my_zone_trend", {}, ChatAuth(role="employee", scope="personal", user_id=…))`
     returns only that caller's data
   - the tool is denied on the `manager` scope
-  - (only if §6.3 point 4 is approved) the prompt mentions `get_my_zone_trend`
+  - the prompt mentions `get_my_zone_trend`
 - **Regression:** the existing `tests/integration/test_analyze_report.py` and
   `get_my_score_trend` tests still pass unchanged.
 
@@ -344,16 +350,18 @@ the greyed-out state when `marker` is null.
 ## 10. Open risks
 - **The scores come from the LLM.** The voice model maps speech to numbers. Membership validation
   catches wrong-scale values, but not a plausible wrong value (for example "3" for "Often").
-- **The burnout group is small.** It has 2 items, so one answer moves the lean by 12.5 and severity
-  by 6.25 (§4 granularity note).
+- **The burnout group is small.** It has 2 items, so one answer moves the **lean** by 12.5. Severity
+  is unaffected by this, since it is item-weighted. With 5 of 7 items in the fatigue group,
+  severity mostly reflects exhaustion.
 - **Two bandings can disagree.** The report already shows BAT/CBI Low/Moderate/High. This zone is
   labelled "strain" so it reads as a different, combined measure.
 
-## 11. Pre-existing issue found during review (not fixed here)
+## 11. Pre-existing issue found during review (fixed on a separate branch)
 `/analyze-report` updates `survey_records` by a client-supplied `survey_run_id` with no ownership
 check (`ciq/reports/routes.py:109-114` → `db.py:125-147`). A user holding another user's run UUID
 could overwrite that user's answers, and therefore their zone history. UUIDv4 makes this
-impractical, but the owner should decide whether to fix it separately.
+impractical. The owner approved a fix on its own branch, `fix/analyze-report-ownership`, with a
+separate review. It is not part of this feature.
 
 ## 12. Revision log: adversarial review (2026-10-01)
 Accepted findings and their changes:
@@ -384,3 +392,9 @@ Rejected or partly accepted:
   in the single endpoint path with no extra DB plumbing, so it is kept.
 - **"Tie-break test adds nothing":** the deterministic sort is kept, but its dedicated test is
   dropped in favour of a DESC-input sort test.
+
+## 13. Owner decisions (2026-10-01, after review)
+1. **Chat prompt line approved** (§6.3 point 4).
+2. **Run-ownership gap** (§11) is to be fixed on the separate branch `fix/analyze-report-ownership`.
+3. **Severity is item-weighted** (the mean of all 7 strains) instead of group-weighted, so no single
+   answer flips the trend. Lean is unchanged.
