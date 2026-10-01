@@ -33,6 +33,7 @@ TOOL_ACCESS: dict[str, dict] = {
     "get_my_assessments": _PERSONAL,
     "get_my_score_trend": _PERSONAL,
     "get_my_latest_report": _PERSONAL,
+    "get_my_zone_trend": _PERSONAL,
     # Research is safe for everyone.
     "search_research": _BOTH,
 }

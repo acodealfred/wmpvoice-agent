@@ -22,6 +22,8 @@ from db import (
 
 from ciq.chat.rbac import ChatAuth, is_authorized
 from ciq.kb.mithra_client import call_mithra_kb_chat
+from ciq.zone import ZoneConfigError, build_zone_trend
+from survey_loader import load_survey
 
 logger = logging.getLogger("voicerag")
 
@@ -131,6 +133,20 @@ GUEST_TOOL_SCHEMAS = [
             "description": (
                 "The person's most recent assessment report: score, risk, interpretation, "
                 "per-domain totals, and any behavioural analysis / consultative summary text."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_zone_trend",
+            "description": (
+                "The person's own Fatigue ↔ Burnout zone from their PILOT check-ins: latest "
+                "strain zone, whether they lean towards fatigue or burnout, Improving / Steady / "
+                "Worsening against their previous check-ins, and approximate fatigue signals. "
+                "Use for 'am I improving' or 'fatigue vs burnout' questions. It is a wellbeing "
+                "guide, not a diagnosis."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -248,6 +264,14 @@ async def dispatch_tool(name: str, args: dict, auth: ChatAuth) -> tuple[dict, li
                 points.append({"date": row["date"], "score": row["totalScore"], "risk": row["riskLevel"]})
         points.sort(key=lambda p: p["date"])  # oldest → newest
         return {"points": points}, []
+
+    if name == "get_my_zone_trend":
+        recs = await get_user_survey_records(auth.user_id)
+        try:
+            return build_zone_trend(recs, load_survey("PILOT")), []
+        except ZoneConfigError:
+            logger.exception("[Chat] zone config unavailable")
+            return {"error": "zone unavailable"}, []
 
     if name == "get_my_latest_report":
         recs = await get_user_survey_records(auth.user_id)
