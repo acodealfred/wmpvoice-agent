@@ -203,12 +203,18 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                                                     {r.voiceSentiment}
                                                 </td>
                                                 <td className="hidden px-3 py-2 md:table-cell">
-                                                    <span
-                                                        className={`font-data ${r.blinkRateChange >= 0 ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-accent-green)]"}`}
-                                                    >
-                                                        {r.blinkRateChange >= 0 ? "+" : ""}
-                                                        {r.blinkRateChange.toFixed(1)}%
-                                                    </span>
+                                                    {r.blinkRateChange == null ? (
+                                                        <span className="text-[color:var(--ciq-text-muted)]" title="Not enough data">
+                                                            —
+                                                        </span>
+                                                    ) : (
+                                                        <span
+                                                            className={`font-data ${r.blinkRateChange >= 0 ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-accent-green)]"}`}
+                                                        >
+                                                            {r.blinkRateChange >= 0 ? "+" : ""}
+                                                            {r.blinkRateChange.toFixed(1)}%
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="hidden px-3 py-2 text-[color:var(--ciq-text-body)] md:table-cell">
                                                     {r.leftGazePosition || "—"}

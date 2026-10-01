@@ -113,7 +113,8 @@ export interface BiometricSnapshot {
     score?: number;
     userResponse?: string;
     voiceSentiment: "positive" | "neutral" | "negative";
-    blinkRateChange: number;
+    // null = not enough data (no baseline / too little face-visible time) — never a real 0%.
+    blinkRateChange: number | null;
     pupilMmChange?: number;
     leftGazePosition: string;
     rightGazePosition: string;
@@ -365,7 +366,7 @@ export type SurveyRecord = {
             score: number;
             domain: string;
             voiceSentiment: string;
-            blinkRateChange: number;
+            blinkRateChange: number | null;
             leftGazePosition: string;
             rightGazePosition: string;
             responseLatencyMs?: number | null;

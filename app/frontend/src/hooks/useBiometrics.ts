@@ -3,6 +3,7 @@ import { FaceLandmarker, FilesetResolver, FaceLandmarkerResult } from "@mediapip
 import { BiometricResult, BiometricMetrics } from "@/types";
 import { gazeLabel } from "@/components/ui/gaze-indicator";
 import { BlinkDetector, BlinkTotals, computeEAR, isPoseUsable, rateBetween } from "@/lib/blink";
+import { LEFT_EYE_LANDMARKS, RIGHT_EYE_LANDMARKS } from "@/lib/eye-landmarks";
 
 interface UseBiometricsProps {
     onBiometricsDetected?: (biometrics: BiometricResult) => void;
@@ -28,15 +29,17 @@ const calculateDistance = (p1: { x: number; y: number }, p2: { x: number; y: num
 };
 
 const getIrisPosition = (landmarks: { x: number; y: number }[]): { x: number; y: number } => {
-    const leftIris = landmarks[468];
-    const leftEyeLeft = landmarks[362];
-    const leftEyeRight = landmarks[263];
+    // All points from the subject's LEFT eye (see LEFT_EYE_LANDMARKS): iris 473 with
+    // that eye's own corners 362/263 and lids 386/374 — never mixed with the other eye.
+    const leftIris = landmarks[LEFT_EYE_LANDMARKS.iris];
+    const leftEyeLeft = landmarks[LEFT_EYE_LANDMARKS.innerCorner];
+    const leftEyeRight = landmarks[LEFT_EYE_LANDMARKS.outerCorner];
 
     const eyeWidth = calculateDistance(leftEyeLeft, leftEyeRight);
     const irisOffset = (leftIris.x - leftEyeLeft.x) / eyeWidth;
 
-    const upperEye = landmarks[386];
-    const lowerEye = landmarks[374];
+    const upperEye = landmarks[LEFT_EYE_LANDMARKS.upperLid];
+    const lowerEye = landmarks[LEFT_EYE_LANDMARKS.lowerLid];
     const eyeHeight = calculateDistance(upperEye, lowerEye);
     const verticalOffset = (leftIris.y - lowerEye.y) / eyeHeight;
 
@@ -111,11 +114,6 @@ const computeGazeAxis = (
 // Vertical gaze uses each eye's own upper/lower eyelid landmarks via computeGazeAxis.
 // Horizontal gaze uses each eye's raw iris.x with its own adaptive baseline, computed
 // inside extractMetrics via computeHorizontalGaze — see that function for details.
-
-// MediaPipe iris/eyelid landmark indices — one set per eye (subject's own left/right,
-// per MediaPipe's canonical face-mesh numbering, not the viewer's left/right).
-const LEFT_EYE_LANDMARKS = { iris: 468, upperLid: 386, lowerLid: 374 };
-const RIGHT_EYE_LANDMARKS = { iris: 473, upperLid: 159, lowerLid: 145 };
 
 const GAZE_H_AMPLIFICATION = 35; // a 0.01 (1%) deviation from baseline -> ±0.35 output swing
 const GAZE_BASELINE_ALPHA = 0.001; // α≈0.001 → ~30s to adapt 25%; stable for held gaze
@@ -439,7 +437,11 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 15, base
             const blinkRateReady = liveBlinkRate !== null;
             const blinkRate = liveBlinkRate ?? 0;
 
-            if (baselineSessionStatus === "collecting" && !baselineBlinkSettledRef.current && Date.now() - baselineStartTimeRef.current >= BASELINE_BLINK_SETTLE_MS) {
+            if (
+                baselineSessionStatus === "collecting" &&
+                !baselineBlinkSettledRef.current &&
+                Date.now() - baselineStartTimeRef.current >= BASELINE_BLINK_SETTLE_MS
+            ) {
                 baselineBlinkSettledRef.current = blinkDetector.totals();
             }
 
@@ -506,12 +508,22 @@ export function useBiometrics({ onBiometricsDetected, analyzeInterval = 15, base
 
             if (shouldLog) {
                 console.log(
-                    "[Gaze] L irisX:", leftIrisRawX.toFixed(4),
-                    "baseline:", (leftGazeBaselineXRef.current ?? 0).toFixed(4),
-                    "out:", leftGazeX.toFixed(3), leftGazeY.toFixed(3), leftGaze.label,
-                    "| R irisX:", rightIrisRawX.toFixed(4),
-                    "baseline:", (rightGazeBaselineXRef.current ?? 0).toFixed(4),
-                    "out:", rightGazeX.toFixed(3), rightGazeY.toFixed(3), rightGaze.label
+                    "[Gaze] L irisX:",
+                    leftIrisRawX.toFixed(4),
+                    "baseline:",
+                    (leftGazeBaselineXRef.current ?? 0).toFixed(4),
+                    "out:",
+                    leftGazeX.toFixed(3),
+                    leftGazeY.toFixed(3),
+                    leftGaze.label,
+                    "| R irisX:",
+                    rightIrisRawX.toFixed(4),
+                    "baseline:",
+                    (rightGazeBaselineXRef.current ?? 0).toFixed(4),
+                    "out:",
+                    rightGazeX.toFixed(3),
+                    rightGazeY.toFixed(3),
+                    rightGaze.label
                 );
             }
             const normalizedIrisSize = calculateIrisSize(faceLandmarks);

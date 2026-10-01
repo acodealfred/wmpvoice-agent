@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { blinkBandLevel, pupilBandLevel } from "@/lib/bands";
+import { answerLevel, describeDomain, describeGauge } from "@/lib/report-descriptions";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
 import { ReadinessReportView } from "@/components/ui/readiness-report-view";
@@ -299,6 +300,15 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         const { label, score, lo, hi, riskLevel: level, riskText: text, height = 240 } = opts;
         const pct = hi > lo ? Math.round(((score - lo) / (hi - lo)) * 100) : 0;
         const hex = riskHexFor(level);
+        // Hover: what this score measures, where it sits on its range, and the risk band.
+        const gaugeTip = () =>
+            renderChartTip(label === "Overall" ? (isReadiness ? "Overall readiness" : "Overall burnout score") : label, [
+                describeGauge(label, isReadiness),
+                `Your score: ${score} on a ${lo}–${hi} range (${pct}% of the way up).`,
+                <span key="risk" style={{ color: hex, fontWeight: 600 }}>
+                    {level} risk — {text}
+                </span>
+            ]);
         return (
             <div key={label}>
                 <div className="relative">
@@ -306,6 +316,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                         <RadialBarChart innerRadius="68%" outerRadius="100%" data={[{ value: pct, fill: hex }]} startAngle={180} endAngle={0}>
                             <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
                             <RadialBar background={{ fill: tok.card }} dataKey="value" cornerRadius={14} angleAxisId={0} />
+                            <Tooltip content={gaugeTip} cursor={false} />
                         </RadialBarChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end pb-7">
@@ -355,12 +366,15 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     });
     const domainData = Array.from(domainMap.entries()).map(([domain, v]) => ({
         domain,
-        score: Number((v.sum / v.n).toFixed(2))
+        score: Number((v.sum / v.n).toFixed(2)),
+        n: v.n
     }));
     const useRadar = domainData.length >= 3;
 
     // KPI tiles.
-    const peakBlink = snapshots.reduce((m, s) => (Math.abs(s.blinkRateChange) > Math.abs(m) ? s.blinkRateChange : m), 0);
+    // Only real readings count — a missing one is "not enough data", not 0%.
+    const blinkReadings = snapshots.map(s => s.blinkRateChange).filter((x): x is number => x != null);
+    const peakBlink = blinkReadings.reduce((m, v) => (Math.abs(v) > Math.abs(m) ? v : m), 0);
     const peakPupil = snapshots.reduce((m, s) => Math.max(m, s.pupilMmChange ?? 0), 0);
     const latencies = snapshots.map(s => s.responseLatencyMs).filter((x): x is number => x != null);
     const avgLatency = latencies.length ? (latencies.reduce((a, b) => a + b, 0) / latencies.length / 1000).toFixed(1) : null;
@@ -372,8 +386,11 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
               ? "bg-petroleum-sodium/15 text-petroleum-sodium"
               : "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-body)]";
 
-    const blinkBand = (changePct: number): { label: string; color: string } => {
+    const blinkBand = (changePct: number | null): { label: string; color: string } => {
         const level = blinkBandLevel(changePct);
+        // No reading: say so — previously this fell through to "High".
+        if (changePct == null || level === "Unknown")
+            return { label: "Not enough data", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
         if (level === "Normal") return { label: "Normal", color: "bg-petroleum-vapour/15 text-petroleum-vapour" };
         const arrow = changePct > 0 ? "↑" : "↓";
         return level === "Elevated"
@@ -383,8 +400,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
     const pupilBand = (mmChange?: number | null): { label: string; color: string } => {
         const level = pupilBandLevel(mmChange);
-        if (level === "Unknown")
-            return { label: "—", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
+        if (level === "Unknown") return { label: "—", color: "bg-[color:var(--ciq-card-2)] text-[color:var(--ciq-text-muted)]" };
         if (level === "Low") return { label: "Low", color: "bg-petroleum-vapour/15 text-petroleum-vapour" };
         if (level === "Medium") return { label: "Medium", color: "bg-petroleum-sodium/15 text-petroleum-sodium" };
         return { label: "High", color: "bg-petroleum-flare/15 text-petroleum-flare" };
@@ -398,6 +414,34 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         fontSize: 12,
         boxShadow: "0 8px 30px rgba(0,0,0,0.18)"
     } as const;
+
+    // Hover card shared by the report's charts: a title plus a few short lines.
+    const renderChartTip = (title: string, lines: ReactNode[]) => (
+        <div style={{ ...tooltipStyle, padding: "10px 12px", maxWidth: 300 }}>
+            <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{title}</p>
+            {lines.map((line, i) => (
+                <p key={i} style={{ color: i === 0 ? tok.strong : tok.muted, lineHeight: 1.45, marginTop: i === 0 ? 0 : 4 }}>
+                    {line}
+                </p>
+            ))}
+        </div>
+    );
+
+    // Domain Profile hover (radar and bar variants): what the domain measures + how
+    // this person's average answer compares with the scale's maximum.
+    const domainTip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload?: (typeof domainData)[number] }> }) => {
+        const d = active ? payload?.[0]?.payload : undefined;
+        if (!d) return null;
+        const level = answerLevel(d.score);
+        const questions = `${d.n} ${d.n === 1 ? "question" : "questions"}`;
+        return renderChartTip(d.domain, [
+            describeDomain(d.domain) ?? "Average of your answers in this area.",
+            `Average answer: ${Math.round(d.score)}% of the scale's maximum (${questions}).`,
+            <span key="level" style={{ color: scoreHex(d.score), fontWeight: 600 }}>
+                {level} level
+            </span>
+        ]);
+    };
 
     const renderInsightGroup = (title: string, items: AnalysisInsight[] | undefined, accent: string) => {
         if (!items || items.length === 0) return null;
@@ -552,7 +596,10 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
                     {/* Enlarged domain profile (radar, or bars when <3 domains) */}
                     <div className="md:col-span-3">
-                        <p className="mb-1 text-center text-sm font-medium text-[color:var(--ciq-text-body)]">Domain Profile · avg score</p>
+                        <p className="mb-1 text-center text-sm font-medium text-[color:var(--ciq-text-body)]">
+                            Domain Profile · avg score
+                            <span className="ml-1 text-xs font-normal text-[color:var(--ciq-text-muted)]">(hover a domain for details)</span>
+                        </p>
                         <ResponsiveContainer width="100%" height={360}>
                             {useRadar ? (
                                 <RadarChart data={domainData} outerRadius="78%">
@@ -560,14 +607,14 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                     <PolarAngleAxis dataKey="domain" tick={{ fill: tok.strong, fontSize: 14 }} />
                                     <PolarRadiusAxis domain={[0, 100]} tick={{ fill: tok.muted, fontSize: 12 }} axisLine={false} />
                                     <Radar dataKey="score" stroke={tok.purple} fill={tok.purple} fillOpacity={0.35} strokeWidth={2} />
-                                    <Tooltip contentStyle={tooltipStyle} />
+                                    <Tooltip content={domainTip} />
                                 </RadarChart>
                             ) : (
                                 <BarChart data={domainData} layout="vertical" margin={{ left: 10, right: 16 }}>
                                     <CartesianGrid stroke={tok.line} horizontal={false} />
                                     <XAxis type="number" domain={[0, 100]} tick={{ fill: tok.muted, fontSize: 13 }} />
                                     <YAxis type="category" dataKey="domain" width={150} tick={{ fill: tok.strong, fontSize: 13 }} />
-                                    <Tooltip contentStyle={tooltipStyle} cursor={{ fill: `${tok.muted}18` }} />
+                                    <Tooltip content={domainTip} cursor={{ fill: `${tok.muted}18` }} />
                                     <Bar dataKey="score" radius={[0, 6, 6, 0]}>
                                         {domainData.map((d, i) => (
                                             <Cell key={i} fill={scoreHex(d.score)} />
@@ -582,7 +629,11 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
             {/* ── KPI tiles ── */}
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <KpiTile icon={<Eye className="h-4 w-4" />} label="Peak blink Δ" value={`${peakBlink > 0 ? "+" : ""}${peakBlink.toFixed(0)}%`} />
+                <KpiTile
+                    icon={<Eye className="h-4 w-4" />}
+                    label="Peak blink Δ"
+                    value={blinkReadings.length ? `${peakBlink > 0 ? "+" : ""}${peakBlink.toFixed(0)}%` : "—"}
+                />
                 <KpiTile icon={<Eye className="h-4 w-4" />} label="Peak pupil Δ" value={`${peakPupil.toFixed(2)} mm`} />
                 <KpiTile icon={<Timer className="h-4 w-4" />} label="Avg latency" value={avgLatency != null ? `${avgLatency}s` : "—"} />
             </div>
@@ -798,7 +849,7 @@ function ReportTabButton({
             disabled={disabled}
             aria-current={active ? "page" : undefined}
             className={`relative -mb-px flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50 ${
-                special ? "rounded-t-lg bg-[color:var(--ciq-accent-blue)]/10" : ""
+                special ? "bg-[color:var(--ciq-accent-blue)]/10 rounded-t-lg" : ""
             } ${
                 active
                     ? `font-bold text-[color:var(--ciq-text-strong)] ${special ? "border-[color:var(--ciq-accent-blue)]" : "border-[color:var(--ciq-accent-purple)]"}`
@@ -806,9 +857,7 @@ function ReportTabButton({
             }`}
         >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className={special ? "text-[color:var(--ciq-accent-blue)]" : ""}>{icon}</span>}
-            <span className={special && !active ? "font-semibold text-[color:var(--ciq-accent-blue)]" : ""}>
-                {label}
-            </span>
+            <span className={special && !active ? "font-semibold text-[color:var(--ciq-accent-blue)]" : ""}>{label}</span>
         </button>
     );
 }

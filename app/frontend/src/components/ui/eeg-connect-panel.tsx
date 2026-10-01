@@ -124,7 +124,7 @@ export function EegConnectPanel({
                     )}
                     {isConnected && !assessmentStarted && (
                         <p className="rounded-lg bg-black/20 px-3 py-4 text-center text-[11px] text-[color:var(--ciq-text-60)]">
-                            Headband paired — waveform appears once the assessment starts.
+                            Headband paired — waveform appears once the baseline or assessment starts.
                         </p>
                     )}
                 </div>

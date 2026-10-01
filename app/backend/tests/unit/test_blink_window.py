@@ -92,3 +92,40 @@ def test_interpreter_uses_baseline_when_set():
     result = interp.analyze_blink_rate(14)
     assert result.state == "stressed"
     assert round(result.blink_rate_change_percent) == 40
+
+
+# ── "Not enough data" is never reported as Normal (R1) ─────────────────────────
+def test_no_blink_readings_is_none_not_zero():
+    assert SessionState(session_id="s1").average_blink_rate_change() is None
+
+
+def test_survey_tool_stores_none_without_any_blink_data():
+    # No baseline and no history (e.g. a zero-blink baseline): nothing to compare.
+    sess = _survey_session()
+    config = {"questions": [{"id": "q1"}, {"id": "q2"}]}
+    asyncio.run(survey_tool(sess, config, {"question_id": "q1", "score": 3}))
+    assert sess.survey_results["q1"]["blink_rate_change_percent"] is None
+
+
+def test_query_tool_reports_unknown_not_normal_without_blink_data():
+    from ciq.realtime.tools.handlers import query_survey_tool
+    from survey_loader import load_survey
+
+    sess = _survey_session()
+    config = load_survey("TEST")
+    for q in config["questions"]:
+        asyncio.run(survey_tool(sess, config, {"question_id": q["id"], "score": 3}))
+    result = asyncio.run(query_survey_tool(sess, config, {"query_type": "summary"}))
+    assert json.loads(result.text)["biometrics"]["overall_blink_rate_category"] == "Unknown"
+
+
+def test_report_facts_skip_missing_blink_readings():
+    from ciq.reports.prompts import build_biometric_facts
+
+    facts = build_biometric_facts([
+        {"questionId": "q1", "blinkRateChange": None},
+        {"questionId": "q2", "blinkRateChange": 50.0},
+    ])
+    # Averaged over the one real reading (50% -> High), not dragged to 25% by a fake 0.
+    assert "Overall blink-rate category: High (above baseline)" in facts
+    assert "q1=Unknown" in facts

@@ -349,12 +349,17 @@ class SessionState:
         )
         return change
 
-    def average_blink_rate_change(self) -> float:
-        """Average blink rate change over the recent history (real 0% readings included)."""
+    def average_blink_rate_change(self) -> float | None:
+        """Average blink rate change over the recent history (real 0% readings included).
+
+        None when there is no reading at all (no baseline, too little face-visible
+        time): that is "not enough data", never a genuine 0% — which blink_band would
+        otherwise label "Normal".
+        """
         valid_changes = list(self.blink_rate_history)
         if not valid_changes:
             logger.warning("[RTMT] ★ average_blink_rate_change: no valid changes, history: %s", self.blink_rate_history[-10:])
-            return 0.0
+            return None
         avg = sum(valid_changes) / len(valid_changes)
         logger.info("[RTMT] ★ average_blink_rate_change: %s%% (from %d valid readings)", avg, len(valid_changes))
         return avg

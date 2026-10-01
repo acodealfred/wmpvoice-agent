@@ -130,8 +130,9 @@ def build_snapshot_summary(snapshots: list) -> str:
 
 def build_biometric_facts(snapshots: list) -> str:
     """Aggregate biometric readings stated factually (no interpretation)."""
-    blink_changes = [s.get("blinkRateChange") or 0 for s in snapshots]
-    avg_blink_change = sum(blink_changes) / len(blink_changes) if blink_changes else 0
+    # Missing readings are "not enough data", not 0% — left out rather than averaged in.
+    blink_changes = [s["blinkRateChange"] for s in snapshots if s.get("blinkRateChange") is not None]
+    avg_blink_change = sum(blink_changes) / len(blink_changes) if blink_changes else None
     pupil_changes = [s.get("pupilMmChange") or 0 for s in snapshots]
     avg_pupil_change = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
     # Each eye is counted independently — the two eyes can disagree (e.g. one

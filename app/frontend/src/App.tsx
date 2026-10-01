@@ -1071,6 +1071,14 @@ function App() {
 
     // There is an assessment on screen worth discarding/resetting.
     const hasAssessment = surveyCompleted > 0 || assessmentComplete;
+    // Live "Blink Change" needs both a baseline rate and enough face-visible time —
+    // otherwise it's "not enough data", never a real +0.0%.
+    const liveBlinkChangeReady = !!currentBiometrics?.metrics.blinkRateReady && (currentBiometrics?.metrics.baselineRateForChange ?? 0) > 0;
+    // Face-visible time behind the blink count, as m:ss.
+    const formatValidTime = (ms: number) => {
+        const total = Math.floor(ms / 1000);
+        return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+    };
     // Which Start / Pause / Continue / Close buttons are shown (see lib/assessment.ts).
     const controls = assessmentControls({ isRecording, hasResumable: resumable !== null, assessmentComplete });
     const controlCount = Object.values(controls).filter(Boolean).length;
@@ -1623,7 +1631,10 @@ function App() {
                                             error={eegError}
                                             available={eegAvailable}
                                             hasRecording={eegHasRecording}
-                                            assessmentStarted={eegSurveyStarted}
+                                            // The baseline protocol records EEG too (eyes open / closed), so the
+                                            // live waveform shows from the baseline onwards, not only once the
+                                            // questions begin.
+                                            assessmentStarted={eegSurveyStarted || baselineProtocol.isActive}
                                             channels={eegChannels}
                                             getChannelSamples={getEegChannelSamples}
                                             onConnect={connectEeg}
@@ -1691,18 +1702,33 @@ function App() {
                                                         sub={`base ${baselineData?.pupilSize.toFixed(1) || "--"}`}
                                                     />
                                                     <MetricCell
+                                                        label="Blink Count"
+                                                        accent="var(--ciq-accent-blue)"
+                                                        value={currentBiometrics.metrics.blinkCount}
+                                                        sub={`in ${formatValidTime(currentBiometrics.metrics.blinkValidMs)} face time`}
+                                                    />
+                                                    <MetricCell
                                                         label="Blink Change"
                                                         accent={
-                                                            currentBiometrics.metrics.blinkRateChangePercent >= 0
-                                                                ? "var(--ciq-accent-red)"
-                                                                : "var(--ciq-accent-green)"
+                                                            !liveBlinkChangeReady
+                                                                ? "var(--ciq-text-60)"
+                                                                : currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                                  ? "var(--ciq-accent-red)"
+                                                                  : "var(--ciq-accent-green)"
                                                         }
                                                         valueClassName={
-                                                            currentBiometrics.metrics.blinkRateChangePercent >= 0
-                                                                ? "text-[color:var(--ciq-accent-red)]"
-                                                                : "text-[color:var(--ciq-accent-green)]"
+                                                            !liveBlinkChangeReady
+                                                                ? "text-[color:var(--ciq-text-60)]"
+                                                                : currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                                  ? "text-[color:var(--ciq-accent-red)]"
+                                                                  : "text-[color:var(--ciq-accent-green)]"
                                                         }
-                                                        value={`${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}${currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%`}
+                                                        value={
+                                                            liveBlinkChangeReady
+                                                                ? `${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}${currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%`
+                                                                : "—"
+                                                        }
+                                                        sub={liveBlinkChangeReady ? undefined : "not enough data"}
                                                     />
                                                     <div
                                                         className="ciq-metric"

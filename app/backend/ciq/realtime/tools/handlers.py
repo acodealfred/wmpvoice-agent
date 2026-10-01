@@ -170,8 +170,10 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
 
         # Biometric readings as CATEGORIES so the agent can state them when asked.
         # State only — no clinical interpretation or link to burnout.
-        blink_changes = [r.get("blink_rate_change_percent") or 0 for r in results.values()]
-        avg_blink = sum(blink_changes) / len(blink_changes) if blink_changes else 0
+        # Questions with no blink reading are left out (not averaged in as a fake 0%);
+        # no readings at all -> None -> "Unknown" (not enough data), never "Normal".
+        blink_changes = [r["blink_rate_change_percent"] for r in results.values() if r.get("blink_rate_change_percent") is not None]
+        avg_blink = sum(blink_changes) / len(blink_changes) if blink_changes else None
         pupil_changes = [r.get("pupil_mm_change") or 0 for r in results.values()]
         avg_pupil = sum(pupil_changes) / len(pupil_changes) if pupil_changes else 0
         # Each eye's dominant position is voted independently — the two eyes can
