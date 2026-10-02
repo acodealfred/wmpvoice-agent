@@ -7,6 +7,7 @@ import { TEXT_TONE } from "@/lib/badges";
 import { formatServerDate } from "@/lib/datetime";
 import { GuestScoreTrend } from "./guest-score-trend";
 import { GuestChat } from "./guest-chat";
+import { ZoneHomeCard } from "./zone-trend";
 import "./guest-landing.css";
 
 interface Props {
@@ -301,6 +302,16 @@ export function GuestLanding({ userName, onStartAssessment }: Props) {
                                 Field operational guidance compliant with API RP 755. Data remains private.
                             </p>
                         </motion.div>
+
+                        {/* Fatigue ↔ Burnout zone — own PILOT check-ins only; separate section so the cards below don't reflow */}
+                        <motion.section
+                            initial={{ opacity: 0, y: 24 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.55, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                            className="mt-4"
+                        >
+                            <ZoneHomeCard />
+                        </motion.section>
 
                         {/* Your journey — personal trend + wellbeing assistant (own data only) */}
                         <motion.section

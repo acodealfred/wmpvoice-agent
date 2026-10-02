@@ -65,6 +65,25 @@ def test_failed_or_empty_transcription_falls_back_to_the_model_text():
     assert user_response_for(sess, "q1", "Sometimes.") == "Sometimes."
 
 
+def test_scored_answer_uses_its_option_label_not_whisper():
+    sess = _sess()
+    note_user_item(sess, "item-1")
+    assign_items_to_question(sess, "q1")
+    record_transcript(sess, "item-1", "Some don't.")   # Whisper mishearing "Sometimes"
+    assert user_response_for(sess, "q1", "Sometimes.", "Sometimes") == "Sometimes"
+
+
+def test_option_label_maps_each_scale():
+    from survey_loader import load_survey, option_label
+
+    pilot = load_survey("PILOT")
+    assert option_label(pilot, "bat_q3", 3) == "Sometimes"
+    assert option_label(pilot, "cbi_q3", 50) == "Sometimes"
+    assert option_label(pilot, "cbi_q1", 3) is None        # BAT value on a CBI item
+    assert option_label(pilot, "bat_q1", None) is None     # open-ended / unscored
+    assert option_label(pilot, "bat_q1", True) is None
+
+
 def test_unknown_items_are_ignored():
     sess = _sess()
     assert record_transcript(sess, "post-report-question", "what does that mean?") is None

@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo, type ReactNode } from "react";
-import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight } from "@/types";
+import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse } from "@/types";
 import { apiFetch } from "@/lib/api";
+import { fetchZoneTrend } from "@/lib/zone";
 import { blinkBandLevel } from "@/lib/bands";
 import { answerLevel, describeDomain, describeGauge } from "@/lib/report-descriptions";
 import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
 import { ReadinessReportView } from "@/components/ui/readiness-report-view";
+import { ZoneScale } from "@/components/ui/zone-scale";
 import {
     ResponsiveContainer,
     RadialBarChart,
@@ -32,6 +34,49 @@ interface DetailedReportProps {
     onClose?: () => void;
     onAgentSpeaking?: (text: string) => void;
     onReportDelivered?: () => void;
+    /**
+     * Narrow-container layout (the PILOT report screen panel): the domain radar first at
+     * full width, then each subscale gauge + explanation one under another — instead of
+     * the side-by-side layout, which clips the radar's labels in a narrow panel.
+     */
+    compact?: boolean;
+}
+
+// Radar axis label wrapped onto several short lines, so long domain names
+// ("Work-Related Burnout (Item 11)") are never clipped by the chart edge.
+function wrapLabel(text: string, maxChars: number): string[] {
+    const lines: string[] = [];
+    let line = "";
+    for (const word of text.split(" ")) {
+        if (line && (line + " " + word).length > maxChars) {
+            lines.push(line);
+            line = word;
+        } else {
+            line = line ? `${line} ${word}` : word;
+        }
+    }
+    if (line) lines.push(line);
+    return lines;
+}
+
+function RadarTick(props: { x?: number; y?: number; textAnchor?: string; payload?: { value: string }; fill: string; fontSize: number; maxChars: number }) {
+    const { x = 0, y = 0, textAnchor = "middle", payload, fill, fontSize, maxChars } = props;
+    const lines = wrapLabel(String(payload?.value ?? ""), maxChars);
+    // Labels above the centre grow upwards, labels below grow downwards, so they never
+    // run into the chart itself.
+    const cy = (props as { cy?: number }).cy;
+    const above = cy !== undefined ? y < cy - 1 : false;
+    const lineHeight = fontSize * 1.15;
+    const startDy = above ? -(lines.length - 1) * lineHeight : 0;
+    return (
+        <text x={x} y={y} textAnchor={textAnchor as "start" | "middle" | "end"} fill={fill} fontSize={fontSize} dominantBaseline="central">
+            {lines.map((l, i) => (
+                <tspan key={i} x={x} dy={i === 0 ? startDy : lineHeight}>
+                    {l}
+                </tspan>
+            ))}
+        </text>
+    );
 }
 
 // ── Theme tokens resolved to concrete colors for Recharts (which needs real
@@ -65,7 +110,7 @@ function useThemeTokens(): Tokens {
 
 type ReportTab = "analysis" | "kb" | "consultative";
 
-export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onClose, onReportDelivered }: DetailedReportProps) {
+export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onClose, onReportDelivered, compact = false }: DetailedReportProps) {
     const tok = useThemeTokens();
 
     const [ssotLoading, setSsotLoading] = useState(false);
@@ -75,6 +120,8 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
     const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
+    // Fatigue ↔ Burnout zone, fetched once the run is saved. Any failure just hides the scale.
+    const [zoneData, setZoneData] = useState<ZoneTrendResponse | null>(null);
 
     // On-demand AI generations (the two slow LLM calls, now triggered by buttons).
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
@@ -221,6 +268,12 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     setAnalyzeData(data);
                     setSaveError(null);
                     onReportDelivered?.();
+                    // The run is now saved and completed, so the zone endpoint can see it.
+                    if (surveyRunId) {
+                        fetchZoneTrend()
+                            .then(z => !cancelled && setZoneData(z))
+                            .catch(() => {});
+                    }
                     return;
                 } catch (err) {
                     if (cancelled) return;
@@ -557,12 +610,13 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
                     <Gauge className="h-5 w-5" /> {isReadiness ? "Overall Readiness" : "Overall Burnout"}
                 </div>
-                <div className="grid items-center gap-4 md:grid-cols-5">
+                <div className={`grid items-center gap-4 ${compact ? "grid-cols-1" : "md:grid-cols-5"}`}>
                     {/* Risk gauge(s) — two independent subscales for a scoringSections
-                        survey (e.g. PILOT's BAT-4/CBI-WRB3), or one combined gauge otherwise. */}
-                    <div className="md:col-span-2">
+                        survey (e.g. PILOT's BAT-4/CBI-WRB3), or one combined gauge otherwise.
+                        Compact: below the radar, one under another. */}
+                    <div className={compact ? "order-2" : "md:col-span-2"}>
                         {sections ? (
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className={`grid grid-cols-1 gap-4 ${compact ? "" : "sm:grid-cols-2"}`}>
                                 {sections.map(s =>
                                     renderScoreGauge({
                                         label: s.label,
@@ -586,16 +640,19 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     </div>
 
                     {/* Enlarged domain profile (radar, or bars when <3 domains) */}
-                    <div className="md:col-span-3">
+                    <div className={compact ? "order-1" : "md:col-span-3"}>
                         <p className="mb-1 text-center text-sm font-medium text-[color:var(--ciq-text-body)]">
                             Domain Profile · avg score
                             <span className="ml-1 text-xs font-normal text-[color:var(--ciq-text-muted)]">(hover a domain for details)</span>
                         </p>
-                        <ResponsiveContainer width="100%" height={360}>
+                        <ResponsiveContainer width="100%" height={compact ? 400 : 360}>
                             {useRadar ? (
-                                <RadarChart data={domainData} outerRadius="78%">
+                                <RadarChart data={domainData} outerRadius={compact ? "52%" : "70%"}>
                                     <PolarGrid stroke={tok.line} />
-                                    <PolarAngleAxis dataKey="domain" tick={{ fill: tok.strong, fontSize: 14 }} />
+                                    <PolarAngleAxis
+                                        dataKey="domain"
+                                        tick={props => <RadarTick {...props} fill={tok.strong} fontSize={compact ? 12 : 13} maxChars={compact ? 14 : 18} />}
+                                    />
                                     <PolarRadiusAxis domain={[0, 100]} tick={{ fill: tok.muted, fontSize: 12 }} axisLine={false} />
                                     <Radar dataKey="score" stroke={tok.purple} fill={tok.purple} fillOpacity={0.35} strokeWidth={2} />
                                     <Tooltip content={domainTip} />
@@ -617,6 +674,16 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     </div>
                 </div>
             </div>
+
+            {/* ── Fatigue ↔ Burnout zone — only when /api/zone-trend's latest run IS this report's run ── */}
+            {zoneData?.latest && zoneData.latest.surveyRunId === surveyRunId && (
+                <div className={`mb-4 ${cardClass}`}>
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
+                        <Gauge className="h-5 w-5" /> Fatigue ↔ Burnout Zone
+                    </div>
+                    <ZoneScale latest={zoneData.latest} trend={zoneData.trend} />
+                </div>
+            )}
 
             {/* ── KPI tiles ── */}
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">

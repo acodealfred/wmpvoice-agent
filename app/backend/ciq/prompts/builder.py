@@ -388,6 +388,63 @@ def baseline_cue_instructions(cue: str) -> str | None:
     )
 
 
+# PILOT report explanation, triggered from the report screen (client `report.cue`).
+# `report` is query_survey_tool's burnout_score result, computed server-side at cue time:
+# {"sections": [{"label", "interpretation", ...}], "spoken_report": {"parts": [...]}}.
+REPORT_CUE_NAMES = frozenset({"report_explain", "report_continue"})
+
+_REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
+- STEP 1 — YOUR RESULTS: tell the user EVERY interpretation below, word for word, one at a
+  time. They are independent results — never blend or average them. Do not say numbers.
+- STEP 2 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
+  spoken piece, in order, part by part: begin each part with its title as a short spoken
+  lead-in, then say that part's lines in order, each as its own short sentence.
+- Speak warmly and naturally, like a person talking — never as a list. No bullets, no
+  markdown, no asterisks, no numbers.
+- You may smooth the wording so it flows, but keep every line's meaning. Do NOT add, drop
+  or reorder signals, and do NOT add any claim, cause, advice, diagnosis or reassurance
+  that is not below. If a line says something is not a warning sign, that is the only
+  reassurance you give.
+- These lines are pre-approved. The BIOMETRIC GUARDRAIL applies to questions the user asks
+  afterwards — it does not stop you from speaking these lines.
+- End with one short sentence inviting questions about their results, then stop."""
+
+
+def _report_content(report: dict) -> str:
+    lines = ["INTERPRETATIONS (STEP 1):"]
+    for s in report.get("sections") or []:
+        lines.append(f"- {s.get('label', '')}: {s.get('interpretation', '')}")
+    parts = (report.get("spoken_report") or {}).get("parts") or []
+    if parts:
+        lines.append("SPOKEN REPORT (STEP 2):")
+        for part in parts:
+            lines.append(f"* {part.get('title', '')}")
+            lines.extend(f"  - {line}" for line in part.get("say") or [])
+    else:
+        lines.append("SPOKEN REPORT (STEP 2): none — after STEP 1, go straight to the closing invitation.")
+    return "\n".join(lines)
+
+
+def report_cue_instructions(cue: str, report: dict) -> str | None:
+    """Per-response instructions to explain (or resume explaining) the PILOT report, or
+    None for an unknown cue or a report without sections."""
+    if cue not in REPORT_CUE_NAMES or not report.get("sections"):
+        return None
+    if cue == "report_explain":
+        lead = (
+            "The user has pressed Start on their report screen. Explain their assessment "
+            "report now, from the beginning."
+        )
+    else:
+        lead = (
+            "You were explaining the user's report and they paused you; they have just pressed "
+            "Continue. Your previous message was cut off exactly where they stopped hearing it. "
+            "Carry on from that exact point — do NOT repeat anything you already said and do NOT "
+            "start over. You may begin with a brief 'As I was saying,'."
+        )
+    return f"{lead}\n\n{_REPORT_DELIVERY_RULES}\n\n{_report_content(report)}"
+
+
 def readiness_conversation_instructions(questions: list, is_returning_user: bool = False) -> str:
     """Build the natural-conversation script for a qualitative survey (e.g. READINESS).
 
@@ -589,29 +646,19 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
         prev_style = style
     questions_script = "\n\n".join(question_blocks)
 
-    if config.get("type") == "PILOT":
+    is_pilot = config.get("type") == "PILOT"
+    if is_pilot:
+        # PILOT: the report is explained on the report screen, only once the user presses
+        # Start (a client report.cue — see report_cue_instructions). Here the agent just
+        # closes the survey.
         after_all_answers = f"""AFTER ALL {len(questions)} ANSWERS:
-- Do NOT calculate anything yourself. Call query_survey_results with query_type="burnout_score".
-- The result has "sections" (one "interpretation" per subscale) and a "spoken_report".
-- STEP 1 — YOUR RESULTS: tell the user EVERY interpretation in "sections", word for word, one
-  at a time. They are independent results — never blend or average them. Do not say numbers.
-- STEP 2 — THE SPOKEN REPORT: then deliver "spoken_report" as ONE continuous, natural spoken
-  piece, in order, part by part:
-  * Begin each part with its "title" as a short spoken lead-in (e.g. "Where your capacity is
-    going." / "The opportunity." / "What this unlocks."), then say that part's "say" lines
-    in order. Each signal line is its own short sentence — speak them one after another.
-  * Speak it warmly and naturally, like a person talking — never as a list. No bullets, no
-    markdown, no asterisks, no "bullet point", no numbers.
-  * You may smooth the wording so it flows, but keep every line's meaning. Do NOT add, drop
-    or reorder signals, and do NOT add any claim, cause, advice, diagnosis or reassurance
-    that is not in "spoken_report". If a line says something is not a warning sign, that is
-    the only reassurance you give.
-  * These lines are pre-approved. The BIOMETRIC GUARDRAIL applies to questions the user asks
-    afterwards — it does not stop you from speaking these lines.
-  * You may end with one short sentence inviting questions about their results.
-- If "spoken_report" is missing, just tell the user the interpretations from STEP 1.
-- The result is authoritative — it applies reverse-scoring and the correct thresholds, so
-  never override it with your own estimate."""
+- Do NOT call query_survey_results, and do NOT tell the user any result, score or
+  interpretation yet — not even a hint.
+- Say ONE short, warm closing line, then stop: thank them, tell them the check-in is
+  complete and their report is now on the screen, and that you'll walk them through it
+  when they press Start.
+- If they ask for their results before pressing Start, gently ask them to press Start on
+  the report screen."""
     else:
         after_all_answers = f"""AFTER ALL {len(questions)} ANSWERS:
 - Do NOT calculate the score yourself. Call query_survey_results with query_type="burnout_score".
@@ -621,18 +668,24 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
   they are independent results, never blend or average them together. Do not show numbers.
 - This is the authoritative result — it applies reverse-scoring and the correct thresholds,
   so never override it with your own estimate."""
-    tool_rules = """TOOL RULES (silent, never tell the user):
+    query_rule = (
+        "never call it during the survey or for the closing line; use it only for follow-up "
+        "questions after the report has been explained."
+        if is_pilot
+        else 'call with "burnout_score" to deliver the final result, and use it\n'
+        "  again for any follow-up questions after the survey is complete."
+    )
+    tool_rules = f"""TOOL RULES (silent, never tell the user):
 - record_survey_response: call ONLY after the user has answered that step's question.
   Required fields: question_id (as shown per step), score (matching the scale explained
   for that step — see the tool's own description for the exact value mapping),
   voice_sentiment, face_emotion.
 - DO NOT call record_survey_response for a question_id that you have already recorded.
-- query_survey_results: call with "burnout_score" to deliver the final result, and use it
-  again for any follow-up questions after the survey is complete."""
+- query_survey_results: {query_rule}"""
 
     return f"""SURVEY SCRIPT — FOLLOW THIS EXACTLY
 
-Your only job is to deliver this {len(questions)}-question check-in, then share the result.
+Your only job is to deliver this {len(questions)}-question check-in, then {"close it (the report is explained later, on the report screen)" if is_pilot else "share the result"}.
 
 {opening}
 

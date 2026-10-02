@@ -30,9 +30,9 @@ describe("BaselineProtocol", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
-    it("runs eyes open then eyes closed when a headband is connected", () => {
+    it("always runs eyes open then eyes closed (no headband needed)", () => {
         const { protocol, events } = setup();
-        protocol.start(true);
+        protocol.start();
         cueSpoken(protocol);
         vi.advanceTimersByTime(500);
         expect(protocol.getState()).toMatchObject({ stage: "recording", phase: "eyes_open" });
@@ -46,17 +46,9 @@ describe("BaselineProtocol", () => {
         expect(protocol.getState().stage).toBe("done");
     });
 
-    it("falls back to the eyes-open phase only without a headband", () => {
-        const { protocol, events } = setup();
-        protocol.start(false);
-        cueSpoken(protocol);
-        vi.advanceTimersByTime(500 + 180_000);
-        expect(events).toEqual(["cue:eyes_open_start", "start:eyes_open", "end:eyes_open", "complete:open"]);
-    });
-
     it("waits for the cue's audio to finish playing before recording", () => {
         const { protocol } = setup();
-        protocol.start(false);
+        protocol.start();
         for (let i = 0; i < 4; i++) protocol.notifyAudioDelta(ONE_SECOND_OF_AUDIO);
         protocol.notifyResponseDone();
         vi.advanceTimersByTime(4_000);
@@ -67,14 +59,24 @@ describe("BaselineProtocol", () => {
 
     it("starts the phase anyway if response.done never arrives", () => {
         const { protocol } = setup();
-        protocol.start(true);
+        protocol.start();
         vi.advanceTimersByTime(CUE_FALLBACK_MS);
         expect(protocol.getState()).toMatchObject({ stage: "recording", phase: "eyes_open" });
     });
 
+    it("skip during eyes open completes as eyes-open without the eyes-closed phase", () => {
+        const { protocol, events } = setup();
+        protocol.start();
+        cueSpoken(protocol);
+        vi.advanceTimersByTime(500 + 60_000);
+        protocol.skip();
+        expect(events).toEqual(["cue:eyes_open_start", "start:eyes_open", "end:eyes_open", "complete:open:skipped"]);
+        expect(protocol.getState().stage).toBe("done");
+    });
+
     it("skip during eyes closed ends the phase and completes as eyes-closed", () => {
         const { protocol, events } = setup();
-        protocol.start(true);
+        protocol.start();
         cueSpoken(protocol);
         vi.advanceTimersByTime(500 + 180_000);
         cueSpoken(protocol);
@@ -87,7 +89,7 @@ describe("BaselineProtocol", () => {
 
     it("cancel stops everything without callbacks", () => {
         const { protocol, events } = setup();
-        protocol.start(true);
+        protocol.start();
         cueSpoken(protocol);
         vi.advanceTimersByTime(500);
         protocol.cancel();
@@ -98,7 +100,7 @@ describe("BaselineProtocol", () => {
 
     it("ignores a response.done with no audio (e.g. a tool call) during a cue", () => {
         const { protocol } = setup();
-        protocol.start(true);
+        protocol.start();
         protocol.notifyResponseDone();
         vi.advanceTimersByTime(5_000);
         expect(protocol.getState().stage).toBe("cue");
@@ -109,7 +111,7 @@ describe("BaselineProtocol", () => {
 
     it("ignores response.done for unrelated agent turns while recording", () => {
         const { protocol } = setup();
-        protocol.start(false);
+        protocol.start();
         cueSpoken(protocol);
         vi.advanceTimersByTime(500);
         const endsAt = protocol.getState().phaseEndsAt;

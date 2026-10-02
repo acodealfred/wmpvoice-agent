@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { AnimatePresence } from "framer-motion";
 
 import { LoginScreen } from "@/components/ui/login-screen";
 import { SignupScreen } from "@/components/ui/signup-screen";
@@ -39,6 +40,7 @@ import { EegConnectPanel } from "@/components/ui/eeg-connect-panel";
 import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
 import { GuestLanding } from "@/components/ui/guest-landing";
+import { ReportScreen } from "@/components/ui/report-screen";
 import { Button } from "@/components/ui/button";
 import ConsentModal, { CONSENT_VERSION } from "@/components/ui/consent-modal";
 import { apiFetch, setAuthExpiredHandler } from "@/lib/api";
@@ -56,6 +58,8 @@ import { applyFontScale, getFontScale } from "@/lib/fontScale";
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
+import { MicGate } from "@/lib/mic-gate";
+import { ReportSpeech, type ReportSpeechState } from "@/lib/report-speech";
 import { useBiometrics } from "@/hooks/useBiometrics";
 import { useMuse } from "@/hooks/useMuse";
 import { useBaselineProtocol } from "@/hooks/useBaselineProtocol";
@@ -73,6 +77,7 @@ import {
     ChatTurn,
     AssessmentBaseline,
     AssessmentContinued,
+    ReportCue,
     ResumableAssessment
 } from "./types";
 
@@ -96,7 +101,11 @@ const NAV_TABS = [
 const BASELINE_EYES_OPEN_SECONDS = 180;
 const BASELINE_EYES_CLOSED_SECONDS = 180;
 
-const formatCountdown = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+const FINISH_CONFIRM = "Finish this assessment? Your report stays saved in History.";
+
+// Recovery Window launcher on the report — hidden in the UI for now (the feature itself
+// is untouched; flip back to true to show the button again).
+const SHOW_RECOVERY_WINDOW_LAUNCHER = false;
 
 function App() {
     const [authState, setAuthState] = useState<AuthState>("checking");
@@ -368,7 +377,46 @@ function App() {
 
     // Baseline is loaded from localStorage by useBiometrics hook itself
 
-    const { startSession, requestGreeting, sendBaselineCue, reconnect, refreshSession, addUserAudio, inputAudioBufferClear } = useRealTime({
+    // Half-duplex mic (lib/mic-gate.ts): the user's mic audio isn't sent while the agent
+    // is speaking, so it can't hear its own voice or be interrupted. On reopening, the
+    // server's input buffer is cleared so no leftover echo becomes a user turn.
+    const [micPaused, setMicPaused] = useState(false);
+    const inputAudioBufferClearRef = useRef<() => void>(() => {});
+    const micGateRef = useRef<MicGate | null>(null);
+    if (micGateRef.current === null) {
+        micGateRef.current = new MicGate(open => {
+            setMicPaused(!open);
+            if (open) inputAudioBufferClearRef.current();
+        });
+    }
+    const micGate = micGateRef.current;
+
+    // PILOT report screen (components/ui/report-screen.tsx): after the last answer the
+    // agent only closes the survey; the report is explained when the user presses Start,
+    // and Pause / Continue resume it from where it stopped (lib/report-speech.ts).
+    const isPilot = surveyTypeConfig?.activeSurveyType === "PILOT";
+    const isPilotRef = useRef(isPilot);
+    isPilotRef.current = isPilot;
+    const [reportSpeechState, setReportSpeechState] = useState<ReportSpeechState>("idle");
+    const reportSpeechRef = useRef<ReportSpeech | null>(null);
+    if (reportSpeechRef.current === null) reportSpeechRef.current = new ReportSpeech(setReportSpeechState);
+    const reportSpeech = reportSpeechRef.current;
+    // Set once the PILOT report is saved: the strict report-only reconnect is done when
+    // Start is pressed (before the explanation), not on the next response.done.
+    const reportResetPendingRef = useRef(false);
+
+    const {
+        startSession,
+        requestGreeting,
+        sendBaselineCue,
+        sendReportCue,
+        truncateItem,
+        cancelResponse,
+        reconnect,
+        refreshSession,
+        addUserAudio,
+        inputAudioBufferClear
+    } = useRealTime({
         sessionId,
         // Belt-and-suspenders: also carried on the WS connect URL itself so the survey
         // type is known ATOMICALLY with connection setup, not dependent on the
@@ -390,6 +438,8 @@ function App() {
             agentTurnIdRef.current = null;
             // A baseline cue just finished generating → start its phase once it has played.
             baselineProtocol.notifyResponseDone();
+            micGate.responseDone();
+            reportSpeech.responseDone();
             // The report was just saved — perform the strict report-only hard reset now
             // that the agent has finished its current turn (so we don't cut off speech).
             if (pendingGuardrailResetRef.current) {
@@ -402,12 +452,18 @@ function App() {
         onReceivedResponseAudioDelta: message => {
             // Ignore audio from the old session while a reset reconnect is settling.
             if (suppressAgentAudioRef.current) return;
-            isRecording && playAudio(message.delta);
+            if (isRecording) {
+                playAudio(message.delta, message.item_id);
+                micGate.agentAudio();
+                reportSpeech.agentAudio(message.item_id);
+            }
             baselineProtocol.notifyAudioDelta(message.delta);
         },
         onReceivedSessionReady: () => {
             // Fresh session is live — let the new agent be heard again.
             suppressAgentAudioRef.current = false;
+            // A new Azure session has no memory of a paused explanation's item.
+            reportSpeech.sessionReset();
         },
         onReceivedInputAudioBufferSpeechStarted: () => {
             stopAudioPlayer();
@@ -608,8 +664,34 @@ function App() {
         }
     }, [isRecording, enableBiometrics, startBiometricAnalysis, stopBiometricAnalysis]);
 
-    const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer, getAnalyser: getAudioAnalyser } = useAudioPlayer();
-    const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
+    inputAudioBufferClearRef.current = inputAudioBufferClear;
+    const {
+        reset: resetPlayer,
+        play: playAudio,
+        stop: stopPlayer,
+        getAnalyser: getAudioAnalyser
+    } = useAudioPlayer({
+        onDrained: () => {
+            micGate.drained();
+            reportSpeech.drained();
+        }
+    });
+    // Any stop/reset of agent playback (stop, pause, new survey, reconnect, barge-in)
+    // also reopens the mic straight away.
+    const stopAudioPlayer = () => {
+        const position = stopPlayer();
+        micGate.reset();
+        return position;
+    };
+    const resetAudioPlayer = () => {
+        resetPlayer();
+        micGate.reset();
+    };
+    const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({
+        onAudioRecorded: chunk => {
+            if (micGateRef.current?.isOpen()) addUserAudio(chunk);
+        }
+    });
 
     // Clear all per-assessment UI state so a new run starts from a clean slate.
     // Crucially re-enables biometrics, which is switched off when a survey completes.
@@ -627,6 +709,8 @@ function App() {
         setSentiment(null);
         setStressResult(null);
         setEnableBiometrics(true);
+        reportSpeech.reset();
+        reportResetPendingRef.current = false;
         // The run id itself is set by the caller: minted by the backend on Start, or
         // the paused run's id on Continue.
     }, []);
@@ -646,8 +730,9 @@ function App() {
     );
 
     // ── Baseline protocol (every new assessment; again after a pause mid-baseline) ──
-    // 3 min eyes open (camera biometrics + EEG), then — only with an EEG headband —
-    // 3 min eyes closed (EEG only). The agent is silent apart from one spoken cue per
+    // 3 min eyes open (camera biometrics + EEG), then 3 min eyes closed (EEG when a
+    // headband is recording) — both phases always run, with or without a headband.
+    // The agent is silent apart from one spoken cue per
     // phase (the backend drops mic audio while the session is in the "baseline" phase).
     // The EEG recording and the 1Hz timeline both run straight through it: the segment's
     // EEG file holds the baseline (marked baseline_eyes_open / baseline_eyes_closed) then
@@ -705,7 +790,7 @@ function App() {
 
     const startBaselineProtocol = () => {
         baselineCameraRef.current = null;
-        baselineProtocol.start(eegHasRecording);
+        baselineProtocol.start();
     };
 
     // Gates a start action (Start / Start new / Continue) behind this visit's consent
@@ -982,8 +1067,11 @@ function App() {
     // state. The report is already saved (History); the run's status isn't touched.
     // Resets the server session too, so the post-report Q&A context doesn't linger.
     const onFinishAssessment = async () => {
-        if (!window.confirm("Finish this assessment? Your report stays saved in History.")) return;
-        stopAudioPlayer();
+        if (!window.confirm(FINISH_CONFIRM)) return;
+        await finishAssessment();
+    };
+    const finishAssessment = async () => {
+        void stopAudioPlayer();
         pendingGuardrailResetRef.current = false;
         try {
             await apiFetch("/clear-conversation", {
@@ -998,6 +1086,61 @@ function App() {
         setAssessmentComplete(false);
         setRecoveryWindowOpen(false);
         setResumable(await fetchResumableAssessment().catch(() => null));
+    };
+
+    // ── PILOT report screen controls ──
+    // Turn the mic + agent audio back on for the report conversation without the usual
+    // greeting turn, then send the report cue (if any). The cue waits for a live session,
+    // so it also fires correctly right after the report-only reconnect.
+    const listenForReport = async (cue: ReportCue | null) => {
+        if (!isRecording) {
+            setIsRecording(true);
+            startSession();
+            resetAudioPlayer();
+            await startAudioRecording();
+        }
+        if (cue) {
+            // Keep the mic closed until the explanation has played: otherwise any sound
+            // (a word, echo, background noise) lets server VAD start its own reply first —
+            // a generic "ask me anything" turn — and Azure then rejects the cue's
+            // response.create because a response is already active.
+            micGate.hold();
+            sendReportCue(cue);
+        }
+    };
+
+    // Start: switch to the strict report-only session first (once the report is saved),
+    // then ask the agent to explain the report from the beginning.
+    const onReportStart = async () => {
+        const cue = reportSpeech.start();
+        if (reportResetPendingRef.current) {
+            reportResetPendingRef.current = false;
+            void stopAudioPlayer(); // cut the closing line if it's still playing
+            suppressAgentAudioRef.current = true;
+            reconnect();
+        }
+        await listenForReport(cue);
+    };
+
+    // Pause: stop the agent mid-sentence and tell the model exactly how much was heard,
+    // so Continue resumes from there instead of skipping ahead.
+    const onReportPause = async () => {
+        cancelResponse();
+        const cut = reportSpeech.pause(await stopAudioPlayer());
+        if (cut) truncateItem(cut.itemId, cut.playedMs);
+        await onStopListening();
+    };
+
+    // Continue: resume the explanation where it stopped, or (once it's done) just reopen
+    // the conversation for questions about the report.
+    const onReportContinue = () => listenForReport(reportSpeech.resume());
+
+    // Finish: stop everything and return the assessment page to its Start state (no new
+    // survey is started — the user presses Start when ready).
+    const onReportFinish = async () => {
+        if (!window.confirm(FINISH_CONFIRM)) return;
+        await onStopListening();
+        await finishAssessment();
     };
 
     // Close: discard the paused run for good (it stays out of history and dashboards).
@@ -1017,7 +1160,8 @@ function App() {
     // report-only hard reset, performed on the next response.done.
     const handleReportReady = useCallback(() => {
         setReportLoading(false);
-        pendingGuardrailResetRef.current = true;
+        if (isPilotRef.current) reportResetPendingRef.current = true;
+        else pendingGuardrailResetRef.current = true;
     }, []);
 
     const getHeadPoseLabel = (degrees: number): string => {
@@ -1081,6 +1225,17 @@ function App() {
         : baselineSessionStatus === "completed" && baselineData
           ? "recorded"
           : "none";
+    // Shown in the survey card before its first question arrives (replaces a bare "No active
+    // survey", which read as an error while the assessment was actually starting up).
+    const surveyStatusNote = assessmentComplete
+        ? "Assessment complete. Your results are below."
+        : isRecording && baselineState === "recording"
+          ? "Recording your baseline. The questions start right after."
+          : isRecording
+            ? "Getting your first question ready…"
+            : resumable
+              ? "Assessment paused. Press Continue to pick up where you left off."
+              : "Press Start to begin your assessment.";
     const baselinePhaseLabel = baselineProtocol.state.phase === "eyes_closed" ? "Eyes closed" : "Eyes open";
     const baselineStepNote =
         baselineProtocol.state.stage === "cue"
@@ -1088,10 +1243,66 @@ function App() {
             : baselineProtocol.state.phase === "eyes_closed"
               ? "Keep your eyes closed and relax — you'll be told when to open them."
               : "Keep your eyes open, look at the screen and stay still.";
-    const baselinePhaseProgress =
-        baselineProtocol.state.stage === "recording" && baselineProtocol.state.phaseSeconds > 0
-            ? ((baselineProtocol.state.phaseSeconds - baselineProtocol.secondsLeft) / baselineProtocol.state.phaseSeconds) * 100
-            : 0;
+
+    // The written report (loader overlay, Recovery Window launcher, DetailedReport). Shown in
+    // ONE place only — the PILOT report screen, or the results panel for other surveys —
+    // because mounting DetailedReport fires POST /analyze-report (which saves the run).
+    const reportBody = (
+        <div className="relative mt-4">
+            {/* DetailedReport renders underneath while post-processing so Recharts
+                                                        sizes correctly; the overlay covers it until /analyze-report resolves. */}
+            {reportLoading && (
+                <div className="bg-[color:var(--ciq-card)]/90 absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
+                    <Loader2 className="h-8 w-8 animate-spin text-[color:var(--ciq-accent-purple)]" />
+                    <p className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Generating your report…</p>
+                    <p className="text-xs text-[color:var(--ciq-text-60)]">Analyzing your responses and biometrics</p>
+                </div>
+            )}
+            {SHOW_RECOVERY_WINDOW_LAUNCHER && !reportLoading && (
+                <ErrorBoundary label="recovery-window-launcher">
+                    <button
+                        type="button"
+                        onClick={() => setRecoveryWindowOpen(true)}
+                        className="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4 text-left transition-colors hover:bg-[color:var(--ciq-tile)]"
+                    >
+                        <div className="flex items-center gap-3">
+                            <HeartHandshake className="h-5 w-5 shrink-0 text-[color:var(--ciq-accent-purple)]" />
+                            <div>
+                                <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Recovery Window</p>
+                                <p className="text-xs text-[color:var(--ciq-text-muted)]">
+                                    A short, voice-guided check-in tailored to how you're doing right now.
+                                </p>
+                            </div>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--ciq-text-muted)]" />
+                    </button>
+                </ErrorBoundary>
+            )}
+            <ErrorBoundary label="report">
+                <Suspense
+                    fallback={
+                        <div className="flex items-center justify-center gap-2 py-10 text-sm text-[color:var(--ciq-text-60)]">
+                            <Loader2 className="h-4 w-4 animate-spin" /> Building your report…
+                        </div>
+                    }
+                >
+                    <DetailedReport
+                        snapshots={biometricSnapshots}
+                        sessionId={sessionId}
+                        surveyRunId={surveyRunId}
+                        surveyType={surveyTypeConfig?.activeSurveyType}
+                        onClose={() => setShowDetailedReport(false)}
+                        onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
+                        onReportDelivered={handleReportReady}
+                        compact={isPilot}
+                    />
+                </Suspense>
+            </ErrorBoundary>
+        </div>
+    );
+    const pilotReportMode = isPilot && showDetailedReport && biometricSnapshots.length > 0;
+    // PILOT's assessment page must fit the screen (no page scroll) on desktop.
+    const fitScreen = isPilot;
 
     if (authState === "checking") {
         return (
@@ -1289,12 +1500,20 @@ function App() {
 
             {/* ── Assessment Panel ── */}
             {activeTab === "assessment" && (
-                <main className="flex-1 overflow-y-auto p-4">
-                    <div className="grid w-full grid-cols-12 gap-4">
-                        {/* Centered 8-of-12 column: video → biometrics → results */}
-                        <div className="col-span-12 flex flex-col gap-4 lg:col-span-8 lg:col-start-3">
+                // PILOT on desktop: the page fits the screen and never scrolls — each card
+                // fills the available height, the video shrinks to fit, and the controls stay
+                // visible; Biometrics / Report scroll inside their own card. (Smaller screens
+                // stack the cards and scroll as before.)
+                <main className={`min-h-0 flex-1 p-4 ${fitScreen ? "overflow-y-auto lg:flex lg:flex-col lg:overflow-hidden" : "overflow-y-auto"}`}>
+                    <div className={`grid w-full grid-cols-12 gap-4 ${fitScreen ? "lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)]" : ""}`}>
+                        {/* Video with biometrics to its right (stacked below it on small screens) */}
+                        <div
+                            className={`col-span-12 grid grid-cols-1 gap-4 lg:grid-cols-12 ${fitScreen ? "items-start lg:h-full lg:min-h-0 lg:items-stretch" : "items-start"}`}
+                        >
                             {/* Camera Feed Panel */}
-                            <section className="ciq-glass-card">
+                            <section
+                                className={`ciq-glass-card lg:col-span-7 ${fitScreen ? "lg:min-h-0 lg:overflow-hidden" : ""} ${pilotReportMode ? "hidden" : ""}`}
+                            >
                                 <div className="flex h-full flex-col">
                                     <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
                                         <div className="flex items-center gap-2">
@@ -1365,29 +1584,43 @@ function App() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="relative p-4">
+                                    <div className={`relative p-4 ${fitScreen ? "lg:min-h-0 lg:flex-1" : ""}`}>
                                         {/* The camera stays mounted underneath in avatar mode so MediaPipe
                                             biometric capture is never interrupted — the avatar just overlays it. */}
                                         <VideoPanel
                                             isRecording={isRecording}
                                             expanded={videoExpanded}
+                                            fitHeight={fitScreen}
                                             onVideoReady={setVideoElement}
                                             onStreamReady={setCameraStream}
                                         />
                                         {cameraView === "avatar" && (
                                             <div className="absolute inset-0 p-4">
-                                                <div className={`mx-auto aspect-video w-full ${videoExpanded ? "max-w-none" : "max-w-xl"}`}>
+                                                <div
+                                                    className={`mx-auto aspect-video w-full ${fitScreen ? "lg:aspect-auto lg:h-full" : ""} ${videoExpanded ? "max-w-none" : "max-w-xl"}`}
+                                                >
                                                     <CyberAvatar getAnalyser={getAudioAnalyser} className="border border-[color:var(--ciq-border)]" />
                                                 </div>
                                             </div>
                                         )}
                                     </div>
-                                    <div className="border-t border-[color:var(--ciq-divider)] px-5 py-4">
+                                    <div className={`shrink-0 border-t border-[color:var(--ciq-divider)] px-5 py-4 ${pilotReportMode ? "hidden" : ""}`}>
                                         <div className="flex flex-col gap-2">
                                             {enableSurvey && (
                                                 <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
                                                     <div className="space-y-2">
-                                                        <div className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Survey Assessment</div>
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <div className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Survey Assessment</div>
+                                                            {isRecording && micPaused && (
+                                                                <span
+                                                                    className="flex items-center gap-1 text-[11px] text-[color:var(--ciq-text-60)]"
+                                                                    role="status"
+                                                                >
+                                                                    <MicOff className="h-3 w-3" aria-hidden />
+                                                                    Mic paused while the agent speaks
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         {surveyTotal && surveyTotal > 0 && surveyQuestions && surveyQuestions.length > 0 ? (
                                                             <>
                                                                 <div className="text-xs text-[color:var(--ciq-text-60)]">
@@ -1418,7 +1651,9 @@ function App() {
                                                                 </div>
                                                             </>
                                                         ) : (
-                                                            <div className="text-xs text-[color:var(--ciq-text-60)]">No active survey</div>
+                                                            <div className="text-xs text-[color:var(--ciq-text-60)]" role="status">
+                                                                {surveyStatusNote}
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>
@@ -1501,444 +1736,424 @@ function App() {
                                 </div>
                             </section>
 
-                            {/* Biometrics & Sentiment Panel - below the video */}
-                            <section className="ciq-glass-card">
-                                <div className="flex h-full flex-col">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsBiometricsPanelExpanded(prev => !prev)}
-                                        aria-expanded={isBiometricsPanelExpanded}
-                                        aria-controls="biometrics-sentiment-panel"
-                                        className={`flex w-full items-center gap-2 px-5 py-3 text-left focus:outline-none ${
-                                            isBiometricsPanelExpanded ? "border-b border-[color:var(--ciq-divider)]" : ""
-                                        }`}
-                                    >
-                                        <ChevronRight
-                                            className={`h-4 w-4 shrink-0 text-[color:var(--ciq-text-60)] transition-transform duration-200 ${
-                                                isBiometricsPanelExpanded ? "rotate-90" : ""
-                                            }`}
-                                        />
-                                        <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Biometrics &amp; Sentiment</h2>
-                                    </button>
-                                    <div
-                                        id="biometrics-sentiment-panel"
-                                        className={`flex-1 space-y-4 overflow-y-auto p-4 ${isBiometricsPanelExpanded ? "" : "hidden"}`}
-                                    >
-                                        {/* Biometric Baseline — always visible; its inner content
-                                            reflects baselineState (recorded / recording / needed / none). */}
-                                        <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
-                                            <div className="mb-2 flex items-center justify-between">
-                                                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">Baseline</p>
-                                                <span
-                                                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
-                                                        baselineState === "recorded"
-                                                            ? "text-[color:var(--ciq-accent-green)]"
-                                                            : baselineState === "recording"
-                                                              ? "text-[color:var(--ciq-accent-blue)]"
-                                                              : "text-[color:var(--ciq-text-60)]"
+                            {/* Right of the video on lg+, below it on small screens: the Biometrics &
+                                Sentiment panel during the survey, then (PILOT) the report screen. */}
+                            <AnimatePresence mode="wait" initial={false}>
+                                {pilotReportMode ? (
+                                    <ReportScreen
+                                        key="report"
+                                        report={reportBody}
+                                        reportReady={!reportLoading}
+                                        speechState={reportSpeechState}
+                                        isListening={isRecording}
+                                        onStart={() => void onReportStart()}
+                                        onPause={() => void onReportPause()}
+                                        onContinue={() => void onReportContinue()}
+                                        onFinish={() => void onReportFinish()}
+                                    />
+                                ) : (
+                                    <section key="biometrics" className={`ciq-glass-card lg:col-span-5 ${fitScreen ? "lg:min-h-0 lg:overflow-hidden" : ""}`}>
+                                        <div className="flex h-full flex-col">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsBiometricsPanelExpanded(prev => !prev)}
+                                                aria-expanded={isBiometricsPanelExpanded}
+                                                aria-controls="biometrics-sentiment-panel"
+                                                className={`flex w-full items-center gap-2 px-5 py-3 text-left focus:outline-none ${
+                                                    isBiometricsPanelExpanded ? "border-b border-[color:var(--ciq-divider)]" : ""
+                                                }`}
+                                            >
+                                                <ChevronRight
+                                                    className={`h-4 w-4 shrink-0 text-[color:var(--ciq-text-60)] transition-transform duration-200 ${
+                                                        isBiometricsPanelExpanded ? "rotate-90" : ""
                                                     }`}
-                                                >
-                                                    {baselineState === "recorded" ? "RECORDED" : baselineState === "recording" ? "RECORDING" : "NOT SET"}
-                                                </span>
-                                            </div>
-
-                                            {/* Recorded — this assessment's own baseline values */}
-                                            {baselineState === "recorded" && baselineData && (
-                                                <div className="flex items-center gap-4 text-[11px]">
-                                                    <div className="flex items-center gap-1">
-                                                        <span className="text-[color:var(--ciq-text-68)]">Blink:</span>
-                                                        <span className="font-data font-semibold text-[color:var(--ciq-text-strong)]">
-                                                            {baselineData.blinkRate.toFixed(1)}/min
+                                                />
+                                                <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">
+                                                    Biometrics &amp; Sentiment
+                                                </h2>
+                                            </button>
+                                            <div
+                                                id="biometrics-sentiment-panel"
+                                                className={`min-h-0 flex-1 space-y-4 overflow-y-auto p-4 ${isBiometricsPanelExpanded ? "" : "hidden"}`}
+                                            >
+                                                {/* Biometric Baseline — always visible; its inner content
+                                            reflects baselineState (recorded / recording / needed / none). */}
+                                                <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
+                                                    <div className="mb-2 flex items-center justify-between">
+                                                        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">
+                                                            Baseline
+                                                        </p>
+                                                        <span
+                                                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
+                                                                baselineState === "recorded"
+                                                                    ? "text-[color:var(--ciq-accent-green)]"
+                                                                    : baselineState === "recording"
+                                                                      ? "text-[color:var(--ciq-accent-blue)]"
+                                                                      : "text-[color:var(--ciq-text-60)]"
+                                                            }`}
+                                                        >
+                                                            {baselineState === "recorded"
+                                                                ? "RECORDED"
+                                                                : baselineState === "recording"
+                                                                  ? "RECORDING"
+                                                                  : "NOT SET"}
                                                         </span>
                                                     </div>
-                                                    <span className="text-[color:var(--ciq-text-60)]">for this assessment</span>
-                                                </div>
-                                            )}
 
-                                            {/* Recording — baseline protocol phase + countdown */}
-                                            {baselineState === "recording" && (
-                                                <div>
-                                                    <div className="mb-2 flex items-center gap-2">
-                                                        <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-accent-blue)]" />
-                                                        <span className="text-xs font-medium text-[color:var(--ciq-accent-blue)]">{baselinePhaseLabel}</span>
-                                                        {baselineProtocol.state.stage === "recording" && (
-                                                            <span className="font-data ml-auto text-xs text-[color:var(--ciq-text-strong)]">
-                                                                {formatCountdown(baselineProtocol.secondsLeft)} left
+                                                    {/* Recorded — this assessment's own baseline values */}
+                                                    {baselineState === "recorded" && baselineData && (
+                                                        <div className="flex items-center gap-4 text-[11px]">
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-[color:var(--ciq-text-68)]">Blink:</span>
+                                                                <span className="font-data font-semibold text-[color:var(--ciq-text-strong)]">
+                                                                    {baselineData.blinkRate.toFixed(1)}/min
+                                                                </span>
+                                                            </div>
+                                                            <span className="text-[color:var(--ciq-text-60)]">for this assessment</span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Recording — baseline protocol phase only; deliberately no countdown or
+                                                progress bar. The voice cue tells the user when each phase ends. */}
+                                                    {baselineState === "recording" && (
+                                                        <div>
+                                                            <div className="mb-2 flex items-center gap-2">
+                                                                <Loader2 className="h-4 w-4 animate-spin text-[color:var(--ciq-accent-blue)]" />
+                                                                <span className="text-xs font-medium text-[color:var(--ciq-accent-blue)]">
+                                                                    {baselinePhaseLabel}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <p className="text-[11px] text-[color:var(--ciq-text-60)]">{baselineStepNote}</p>
+                                                                <Button
+                                                                    onClick={baselineProtocol.skip}
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-6 shrink-0 px-2 text-[10px]"
+                                                                >
+                                                                    Skip
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* None — idle, no baseline yet */}
+                                                    {baselineState === "none" && (
+                                                        <p className="text-xs text-[color:var(--ciq-text-60)]">
+                                                            Every assessment records its own baseline. When you start, a 3-minute eyes-open baseline is recorded
+                                                            (plus 3 minutes eyes closed if an EEG headband is connected) before the questions begin.
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                <EegConnectPanel
+                                                    status={eegStatus}
+                                                    device={eegDevice}
+                                                    error={eegError}
+                                                    available={eegAvailable}
+                                                    hasRecording={eegHasRecording}
+                                                    // The baseline protocol records EEG too (eyes open / closed), so the
+                                                    // live waveform shows from the baseline onwards, not only once the
+                                                    // questions begin.
+                                                    assessmentStarted={eegSurveyStarted || baselineProtocol.isActive}
+                                                    channels={eegChannels}
+                                                    getChannelSamples={getEegChannelSamples}
+                                                    onConnect={connectEeg}
+                                                    onDisconnect={disconnectEeg}
+                                                    onSave={saveEeg}
+                                                />
+
+                                                {/* Idle state — keeps the panel feeling alive before signals arrive */}
+                                                {!isRecording && (
+                                                    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[color:var(--ciq-border)] py-10 text-center">
+                                                        <Activity className="h-7 w-7 text-[color:var(--ciq-text-40)]" />
+                                                        <p className="text-sm font-medium text-[color:var(--ciq-text-68)]">Biometric stream idle</p>
+                                                        <p className="text-xs text-[color:var(--ciq-text-40)]">
+                                                            Start the conversation to capture live signals
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Live Biometric Metrics */}
+                                                {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
+                                                    <div>
+                                                        <div className="mb-2.5 flex items-center gap-2">
+                                                            <span className="relative flex h-2 w-2">
+                                                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[color:var(--ciq-accent-green)] opacity-60" />
+                                                                <span className="relative inline-flex h-2 w-2 rounded-full bg-[color:var(--ciq-accent-green)]" />
                                                             </span>
+                                                            <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--ciq-text-60)]">
+                                                                Live Biometrics
+                                                            </h3>
+                                                        </div>
+                                                        <div className="flex flex-wrap justify-center gap-2.5 [&>*]:w-[9.5rem] [&>*]:grow-0">
+                                                            <MetricCell
+                                                                label="Blink Rate"
+                                                                accent="var(--ciq-accent-blue)"
+                                                                value={
+                                                                    <>
+                                                                        {currentBiometrics.metrics.blinkRate.toFixed(1)}
+                                                                        <span className="ml-0.5 text-[12px] font-medium text-[color:var(--ciq-text-60)]">
+                                                                            /min
+                                                                        </span>
+                                                                    </>
+                                                                }
+                                                                sub={`base ${baselineData?.blinkRate.toFixed(1) || "--"}`}
+                                                            />
+                                                            <MetricCell
+                                                                label="Eye Openness"
+                                                                accent="var(--ciq-accent-blue)"
+                                                                value={formatMetric(currentBiometrics.metrics.eyeOpenness)}
+                                                            />
+                                                            <MetricCell
+                                                                label="Smile"
+                                                                accent="var(--ciq-accent-green)"
+                                                                value={formatMetric(currentBiometrics.metrics.smileIntensity)}
+                                                            />
+                                                            <MetricCell
+                                                                label="Head Pose"
+                                                                accent="var(--ciq-accent-purple)"
+                                                                value={
+                                                                    <span className="text-base">
+                                                                        {getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}
+                                                                    </span>
+                                                                }
+                                                            />
+                                                            <MetricCell
+                                                                label="Blink Count"
+                                                                accent="var(--ciq-accent-blue)"
+                                                                value={currentBiometrics.metrics.blinkCount}
+                                                                sub={`in ${formatValidTime(currentBiometrics.metrics.blinkValidMs)} face time`}
+                                                            />
+                                                            <MetricCell
+                                                                label="Blink Change"
+                                                                accent={
+                                                                    !liveBlinkChangeReady
+                                                                        ? "var(--ciq-text-60)"
+                                                                        : currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                                          ? "var(--ciq-accent-red)"
+                                                                          : "var(--ciq-accent-green)"
+                                                                }
+                                                                valueClassName={
+                                                                    !liveBlinkChangeReady
+                                                                        ? "text-[color:var(--ciq-text-60)]"
+                                                                        : currentBiometrics.metrics.blinkRateChangePercent >= 0
+                                                                          ? "text-[color:var(--ciq-accent-red)]"
+                                                                          : "text-[color:var(--ciq-accent-green)]"
+                                                                }
+                                                                value={
+                                                                    liveBlinkChangeReady
+                                                                        ? `${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}${currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%`
+                                                                        : "—"
+                                                                }
+                                                                sub={liveBlinkChangeReady ? undefined : "not enough data"}
+                                                            />
+                                                            <div
+                                                                className="ciq-metric"
+                                                                style={{ ["--ciq-metric-accent" as string]: "var(--ciq-accent-purple)" } as React.CSSProperties}
+                                                            >
+                                                                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[color:var(--ciq-text-60)]">
+                                                                    Gaze — Left Eye
+                                                                </p>
+                                                                <div className="mt-0.5 flex items-center gap-1.5">
+                                                                    <GazeIndicator gaze={currentBiometrics.metrics.leftGaze} />
+                                                                    <span className="font-data text-base font-bold text-[color:var(--ciq-text-strong)]">
+                                                                        {currentBiometrics.metrics.leftGaze.label}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div
+                                                                className="ciq-metric"
+                                                                style={{ ["--ciq-metric-accent" as string]: "var(--ciq-accent-purple)" } as React.CSSProperties}
+                                                            >
+                                                                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[color:var(--ciq-text-60)]">
+                                                                    Gaze — Right Eye
+                                                                </p>
+                                                                <div className="mt-0.5 flex items-center gap-1.5">
+                                                                    <GazeIndicator gaze={currentBiometrics.metrics.rightGaze} />
+                                                                    <span className="font-data text-base font-bold text-[color:var(--ciq-text-strong)]">
+                                                                        {currentBiometrics.metrics.rightGaze.label}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Blink Rate Stress + Voice Sentiment — compact cards centered below the live feed */}
+                                                {((stressResult && isRecording) || sentiment) && (
+                                                    <div className="flex flex-wrap justify-center gap-3">
+                                                        {stressResult && isRecording && (
+                                                            <div
+                                                                className={`w-full rounded-xl border p-3 sm:w-[16rem] ${getStressBgColor(stressResult.state)}`}
+                                                            >
+                                                                <div className="flex items-center justify-between">
+                                                                    <h4 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">
+                                                                        Blink Rate Stress
+                                                                    </h4>
+                                                                    <span
+                                                                        className={`rounded-full px-2 py-0.5 text-[11px] font-bold tracking-wide ${getStressColor(stressResult.state)}`}
+                                                                    >
+                                                                        {stressResult.state.toUpperCase()}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                                                                    <div>
+                                                                        <span className="block text-[color:var(--ciq-text-60)]">Change</span>
+                                                                        <span
+                                                                            className={`font-data text-sm font-bold ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-accent-green)]"}`}
+                                                                        >
+                                                                            {(stressResult.blink_rate_change_percent || 0) >= 0 ? "+" : ""}
+                                                                            {stressResult.blink_rate_change_percent?.toFixed(1) || "0.0"}%
+                                                                        </span>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="block text-[color:var(--ciq-text-60)]">Conf</span>
+                                                                        <span className="font-data text-sm font-bold text-[color:var(--ciq-text-strong)]">
+                                                                            {(stressResult.confidence * 100).toFixed(0)}%
+                                                                        </span>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="block text-[color:var(--ciq-text-60)]">Trend</span>
+                                                                        <span
+                                                                            className={`font-medium capitalize ${
+                                                                                stressResult.trend === "increasing"
+                                                                                    ? "text-[color:var(--ciq-accent-red)]"
+                                                                                    : stressResult.trend === "decreasing"
+                                                                                      ? "text-[color:var(--ciq-accent-green)]"
+                                                                                      : "text-[color:var(--ciq-accent-amber)]"
+                                                                            }`}
+                                                                        >
+                                                                            {stressResult.trend}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {sentiment && (
+                                                            <div className="w-full rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3 sm:w-[16rem]">
+                                                                <div className="flex items-center gap-2">
+                                                                    {sentiment.sentiment === "positive" && (
+                                                                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/20">
+                                                                            <Smile className="h-5 w-5 text-[color:var(--ciq-accent-green)]" />
+                                                                        </div>
+                                                                    )}
+                                                                    {sentiment.sentiment === "neutral" && (
+                                                                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-yellow-500/20">
+                                                                            <Meh className="h-5 w-5 text-[color:var(--ciq-accent-amber)]" />
+                                                                        </div>
+                                                                    )}
+                                                                    {sentiment.sentiment === "negative" && (
+                                                                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-petroleum-flare/20">
+                                                                            <Frown className="h-5 w-5 text-[color:var(--ciq-accent-red)]" />
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="min-w-0">
+                                                                        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">
+                                                                            Voice Sentiment
+                                                                        </p>
+                                                                        <p className="text-base font-semibold capitalize text-[color:var(--ciq-text-strong)]">
+                                                                            {sentiment.sentiment}
+                                                                        </p>
+                                                                    </div>
+                                                                    {sentiment.reason && (
+                                                                        <button
+                                                                            onClick={() => setIsReasonExpanded(!isReasonExpanded)}
+                                                                            className="ml-auto shrink-0 text-[10px] text-[color:var(--ciq-text-60)] hover:text-[color:var(--ciq-text-86)] focus:outline-none"
+                                                                        >
+                                                                            {isReasonExpanded ? "Hide" : "Why?"}
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                                {sentiment.reason && isReasonExpanded && (
+                                                                    <p className="mt-2 rounded-lg bg-[color:var(--ciq-tile)] p-2 text-[11px] leading-relaxed text-[color:var(--ciq-text-86)]">
+                                                                        {sentiment.reason}
+                                                                    </p>
+                                                                )}
+                                                            </div>
                                                         )}
                                                     </div>
-                                                    <div className="h-2 w-full rounded-full bg-[color:var(--ciq-track)]">
-                                                        <div
-                                                            className="h-2 rounded-full bg-blue-500 transition-all duration-1000"
-                                                            style={{ width: `${baselinePhaseProgress}%` }}
-                                                        />
-                                                    </div>
-                                                    <div className="mt-1.5 flex items-center justify-between gap-2">
-                                                        <p className="text-[11px] text-[color:var(--ciq-text-60)]">{baselineStepNote}</p>
-                                                        <Button
-                                                            onClick={baselineProtocol.skip}
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-6 shrink-0 px-2 text-[10px]"
-                                                        >
-                                                            Skip
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            )}
+                                                )}
+                                            </div>
+                                        </div>
+                                    </section>
+                                )}
+                            </AnimatePresence>
+                        </div>
 
-                                            {/* None — idle, no baseline yet */}
-                                            {baselineState === "none" && (
-                                                <p className="text-xs text-[color:var(--ciq-text-60)]">
-                                                    Every assessment records its own baseline. When you start, a 3-minute eyes-open baseline is recorded (plus 3
-                                                    minutes eyes closed if an EEG headband is connected) before the questions begin.
-                                                </p>
+                        {/* Centered 8-of-12 column for the results (not for PILOT — its report
+                            has its own screen and the page must not scroll) */}
+                        {!isPilot && (
+                            <div className="col-span-12 flex flex-col gap-4 lg:col-span-8 lg:col-start-3">
+                                {/* Final Results Panel - Burnout Assessment */}
+                                <section className="ciq-glass-card min-h-[420px]">
+                                    <div className="flex h-full flex-col">
+                                        <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
+                                            <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">
+                                                Final Results — Burnout Assessment
+                                            </h2>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto p-4">
+                                            {surveyTotal > 0 ? (
+                                                <>
+                                                    {/* No progress indicator while the baseline is recording */}
+                                                    {baselineState !== "recording" && (
+                                                        <div className="mb-4">
+                                                            <div className="mb-2 flex justify-between text-xs text-[color:var(--ciq-text-60)]">
+                                                                <span>Overall Assessment Progress</span>
+                                                                <span>{Math.round((surveyCompleted / surveyTotal) * 100)}%</span>
+                                                            </div>
+                                                            <div className="h-2 w-full overflow-hidden rounded-full bg-[color:var(--ciq-track)]">
+                                                                <div
+                                                                    className="h-full rounded-full bg-[color:var(--ciq-accent-blue)] transition-all duration-500"
+                                                                    style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {surveyQuestions.length > 0 && (
+                                                        <div className="mb-4">
+                                                            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">
+                                                                Assessment Summary
+                                                            </h3>
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
+                                                                    <p className="text-xs text-[color:var(--ciq-text-60)]">Total Questions</p>
+                                                                    <p className="font-data text-2xl font-semibold text-[color:var(--ciq-text-strong)]">
+                                                                        {surveyTotal}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
+                                                                    <p className="text-xs text-[color:var(--ciq-text-60)]">Completed</p>
+                                                                    <p className="font-data text-2xl font-semibold text-[color:var(--ciq-accent-purple)]">
+                                                                        {surveyCompleted}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {showDetailedReport && biometricSnapshots.length > 0 && reportBody}
+                                                    {!showDetailedReport && (
+                                                        <div className="mt-4 text-center text-sm text-[color:var(--ciq-text-60)]">
+                                                            Complete the survey to view detailed burnout assessment results
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <div className="flex h-full flex-col items-center justify-center text-center">
+                                                    <ClipboardList className="mb-3 h-12 w-12 text-[color:var(--ciq-text-40)]" />
+                                                    <p className="text-sm text-[color:var(--ciq-text-60)]">No assessment data</p>
+                                                    <p className="text-xs text-[color:var(--ciq-text-40)]">Begin conversation to start the survey assessment</p>
+                                                </div>
                                             )}
                                         </div>
-
-                                        <EegConnectPanel
-                                            status={eegStatus}
-                                            device={eegDevice}
-                                            error={eegError}
-                                            available={eegAvailable}
-                                            hasRecording={eegHasRecording}
-                                            // The baseline protocol records EEG too (eyes open / closed), so the
-                                            // live waveform shows from the baseline onwards, not only once the
-                                            // questions begin.
-                                            assessmentStarted={eegSurveyStarted || baselineProtocol.isActive}
-                                            channels={eegChannels}
-                                            getChannelSamples={getEegChannelSamples}
-                                            onConnect={connectEeg}
-                                            onDisconnect={disconnectEeg}
-                                            onSave={saveEeg}
-                                        />
-
-                                        {/* Idle state — keeps the panel feeling alive before signals arrive */}
-                                        {!isRecording && (
-                                            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[color:var(--ciq-border)] py-10 text-center">
-                                                <Activity className="h-7 w-7 text-[color:var(--ciq-text-40)]" />
-                                                <p className="text-sm font-medium text-[color:var(--ciq-text-68)]">Biometric stream idle</p>
-                                                <p className="text-xs text-[color:var(--ciq-text-40)]">Start the conversation to capture live signals</p>
-                                            </div>
-                                        )}
-
-                                        {/* Live Biometric Metrics */}
-                                        {currentBiometrics && currentBiometrics.faceDetected && isRecording && (
-                                            <div>
-                                                <div className="mb-2.5 flex items-center gap-2">
-                                                    <span className="relative flex h-2 w-2">
-                                                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[color:var(--ciq-accent-green)] opacity-60" />
-                                                        <span className="relative inline-flex h-2 w-2 rounded-full bg-[color:var(--ciq-accent-green)]" />
-                                                    </span>
-                                                    <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--ciq-text-60)]">
-                                                        Live Biometrics
-                                                    </h3>
-                                                </div>
-                                                <div className="flex flex-wrap justify-center gap-2.5 [&>*]:w-[9.5rem] [&>*]:grow-0">
-                                                    <MetricCell
-                                                        label="Blink Rate"
-                                                        accent="var(--ciq-accent-blue)"
-                                                        value={
-                                                            <>
-                                                                {currentBiometrics.metrics.blinkRate.toFixed(1)}
-                                                                <span className="ml-0.5 text-[12px] font-medium text-[color:var(--ciq-text-60)]">/min</span>
-                                                            </>
-                                                        }
-                                                        sub={`base ${baselineData?.blinkRate.toFixed(1) || "--"}`}
-                                                    />
-                                                    <MetricCell
-                                                        label="Eye Openness"
-                                                        accent="var(--ciq-accent-blue)"
-                                                        value={formatMetric(currentBiometrics.metrics.eyeOpenness)}
-                                                    />
-                                                    <MetricCell
-                                                        label="Smile"
-                                                        accent="var(--ciq-accent-green)"
-                                                        value={formatMetric(currentBiometrics.metrics.smileIntensity)}
-                                                    />
-                                                    <MetricCell
-                                                        label="Head Pose"
-                                                        accent="var(--ciq-accent-purple)"
-                                                        value={<span className="text-base">{getHeadPoseLabel(currentBiometrics.metrics.headPose.yaw)}</span>}
-                                                    />
-                                                    <MetricCell
-                                                        label="Blink Count"
-                                                        accent="var(--ciq-accent-blue)"
-                                                        value={currentBiometrics.metrics.blinkCount}
-                                                        sub={`in ${formatValidTime(currentBiometrics.metrics.blinkValidMs)} face time`}
-                                                    />
-                                                    <MetricCell
-                                                        label="Blink Change"
-                                                        accent={
-                                                            !liveBlinkChangeReady
-                                                                ? "var(--ciq-text-60)"
-                                                                : currentBiometrics.metrics.blinkRateChangePercent >= 0
-                                                                  ? "var(--ciq-accent-red)"
-                                                                  : "var(--ciq-accent-green)"
-                                                        }
-                                                        valueClassName={
-                                                            !liveBlinkChangeReady
-                                                                ? "text-[color:var(--ciq-text-60)]"
-                                                                : currentBiometrics.metrics.blinkRateChangePercent >= 0
-                                                                  ? "text-[color:var(--ciq-accent-red)]"
-                                                                  : "text-[color:var(--ciq-accent-green)]"
-                                                        }
-                                                        value={
-                                                            liveBlinkChangeReady
-                                                                ? `${currentBiometrics.metrics.blinkRateChangePercent >= 0 ? "+" : ""}${currentBiometrics.metrics.blinkRateChangePercent.toFixed(1)}%`
-                                                                : "—"
-                                                        }
-                                                        sub={liveBlinkChangeReady ? undefined : "not enough data"}
-                                                    />
-                                                    <div
-                                                        className="ciq-metric"
-                                                        style={{ ["--ciq-metric-accent" as string]: "var(--ciq-accent-purple)" } as React.CSSProperties}
-                                                    >
-                                                        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[color:var(--ciq-text-60)]">
-                                                            Gaze — Left Eye
-                                                        </p>
-                                                        <div className="mt-0.5 flex items-center gap-1.5">
-                                                            <GazeIndicator gaze={currentBiometrics.metrics.leftGaze} />
-                                                            <span className="font-data text-base font-bold text-[color:var(--ciq-text-strong)]">
-                                                                {currentBiometrics.metrics.leftGaze.label}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                    <div
-                                                        className="ciq-metric"
-                                                        style={{ ["--ciq-metric-accent" as string]: "var(--ciq-accent-purple)" } as React.CSSProperties}
-                                                    >
-                                                        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[color:var(--ciq-text-60)]">
-                                                            Gaze — Right Eye
-                                                        </p>
-                                                        <div className="mt-0.5 flex items-center gap-1.5">
-                                                            <GazeIndicator gaze={currentBiometrics.metrics.rightGaze} />
-                                                            <span className="font-data text-base font-bold text-[color:var(--ciq-text-strong)]">
-                                                                {currentBiometrics.metrics.rightGaze.label}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Blink Rate Stress + Voice Sentiment — compact cards centered below the live feed */}
-                                        {((stressResult && isRecording) || sentiment) && (
-                                            <div className="flex flex-wrap justify-center gap-3">
-                                                {stressResult && isRecording && (
-                                                    <div className={`w-full rounded-xl border p-3 sm:w-[16rem] ${getStressBgColor(stressResult.state)}`}>
-                                                        <div className="flex items-center justify-between">
-                                                            <h4 className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">Blink Rate Stress</h4>
-                                                            <span
-                                                                className={`rounded-full px-2 py-0.5 text-[11px] font-bold tracking-wide ${getStressColor(stressResult.state)}`}
-                                                            >
-                                                                {stressResult.state.toUpperCase()}
-                                                            </span>
-                                                        </div>
-                                                        <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
-                                                            <div>
-                                                                <span className="block text-[color:var(--ciq-text-60)]">Change</span>
-                                                                <span
-                                                                    className={`font-data text-sm font-bold ${(stressResult.blink_rate_change_percent || 0) >= 0 ? "text-[color:var(--ciq-accent-red)]" : "text-[color:var(--ciq-accent-green)]"}`}
-                                                                >
-                                                                    {(stressResult.blink_rate_change_percent || 0) >= 0 ? "+" : ""}
-                                                                    {stressResult.blink_rate_change_percent?.toFixed(1) || "0.0"}%
-                                                                </span>
-                                                            </div>
-                                                            <div>
-                                                                <span className="block text-[color:var(--ciq-text-60)]">Conf</span>
-                                                                <span className="font-data text-sm font-bold text-[color:var(--ciq-text-strong)]">
-                                                                    {(stressResult.confidence * 100).toFixed(0)}%
-                                                                </span>
-                                                            </div>
-                                                            <div>
-                                                                <span className="block text-[color:var(--ciq-text-60)]">Trend</span>
-                                                                <span
-                                                                    className={`font-medium capitalize ${
-                                                                        stressResult.trend === "increasing"
-                                                                            ? "text-[color:var(--ciq-accent-red)]"
-                                                                            : stressResult.trend === "decreasing"
-                                                                              ? "text-[color:var(--ciq-accent-green)]"
-                                                                              : "text-[color:var(--ciq-accent-amber)]"
-                                                                    }`}
-                                                                >
-                                                                    {stressResult.trend}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {sentiment && (
-                                                    <div className="w-full rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3 sm:w-[16rem]">
-                                                        <div className="flex items-center gap-2">
-                                                            {sentiment.sentiment === "positive" && (
-                                                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500/20">
-                                                                    <Smile className="h-5 w-5 text-[color:var(--ciq-accent-green)]" />
-                                                                </div>
-                                                            )}
-                                                            {sentiment.sentiment === "neutral" && (
-                                                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-yellow-500/20">
-                                                                    <Meh className="h-5 w-5 text-[color:var(--ciq-accent-amber)]" />
-                                                                </div>
-                                                            )}
-                                                            {sentiment.sentiment === "negative" && (
-                                                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-petroleum-flare/20">
-                                                                    <Frown className="h-5 w-5 text-[color:var(--ciq-accent-red)]" />
-                                                                </div>
-                                                            )}
-                                                            <div className="min-w-0">
-                                                                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">
-                                                                    Voice Sentiment
-                                                                </p>
-                                                                <p className="text-base font-semibold capitalize text-[color:var(--ciq-text-strong)]">
-                                                                    {sentiment.sentiment}
-                                                                </p>
-                                                            </div>
-                                                            {sentiment.reason && (
-                                                                <button
-                                                                    onClick={() => setIsReasonExpanded(!isReasonExpanded)}
-                                                                    className="ml-auto shrink-0 text-[10px] text-[color:var(--ciq-text-60)] hover:text-[color:var(--ciq-text-86)] focus:outline-none"
-                                                                >
-                                                                    {isReasonExpanded ? "Hide" : "Why?"}
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        {sentiment.reason && isReasonExpanded && (
-                                                            <p className="mt-2 rounded-lg bg-[color:var(--ciq-tile)] p-2 text-[11px] leading-relaxed text-[color:var(--ciq-text-86)]">
-                                                                {sentiment.reason}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
                                     </div>
-                                </div>
-                            </section>
-
-                            {/* Final Results Panel - Burnout Assessment */}
-                            <section className="ciq-glass-card min-h-[420px]">
-                                <div className="flex h-full flex-col">
-                                    <div className="border-b border-[color:var(--ciq-divider)] px-5 py-3">
-                                        <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">
-                                            Final Results — Burnout Assessment
-                                        </h2>
-                                    </div>
-                                    <div className="flex-1 overflow-y-auto p-4">
-                                        {surveyTotal > 0 ? (
-                                            <>
-                                                <div className="mb-4">
-                                                    <div className="mb-2 flex justify-between text-xs text-[color:var(--ciq-text-60)]">
-                                                        <span>Overall Assessment Progress</span>
-                                                        <span>{Math.round((surveyCompleted / surveyTotal) * 100)}%</span>
-                                                    </div>
-                                                    <div className="h-2 w-full overflow-hidden rounded-full bg-[color:var(--ciq-track)]">
-                                                        <div
-                                                            className="h-full rounded-full bg-[color:var(--ciq-accent-blue)] transition-all duration-500"
-                                                            style={{ width: `${(surveyCompleted / surveyTotal) * 100}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {surveyQuestions.length > 0 && (
-                                                    <div className="mb-4">
-                                                        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-[color:var(--ciq-text-60)]">
-                                                            Assessment Summary
-                                                        </h3>
-                                                        <div className="grid grid-cols-2 gap-3">
-                                                            <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
-                                                                <p className="text-xs text-[color:var(--ciq-text-60)]">Total Questions</p>
-                                                                <p className="font-data text-2xl font-semibold text-[color:var(--ciq-text-strong)]">
-                                                                    {surveyTotal}
-                                                                </p>
-                                                            </div>
-                                                            <div className="rounded-lg bg-[color:var(--ciq-tile)] p-3">
-                                                                <p className="text-xs text-[color:var(--ciq-text-60)]">Completed</p>
-                                                                <p className="font-data text-2xl font-semibold text-[color:var(--ciq-accent-purple)]">
-                                                                    {surveyCompleted}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {showDetailedReport && biometricSnapshots.length > 0 && (
-                                                    <div className="relative mt-4">
-                                                        {/* DetailedReport renders underneath while post-processing so Recharts
-                                                        sizes correctly; the overlay covers it until /analyze-report resolves. */}
-                                                        {reportLoading && (
-                                                            <div className="bg-[color:var(--ciq-card)]/90 absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
-                                                                <Loader2 className="h-8 w-8 animate-spin text-[color:var(--ciq-accent-purple)]" />
-                                                                <p className="text-sm font-medium text-[color:var(--ciq-text-strong)]">
-                                                                    Generating your report…
-                                                                </p>
-                                                                <p className="text-xs text-[color:var(--ciq-text-60)]">
-                                                                    Analyzing your responses and biometrics
-                                                                </p>
-                                                            </div>
-                                                        )}
-                                                        {!reportLoading && (
-                                                            <ErrorBoundary label="recovery-window-launcher">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setRecoveryWindowOpen(true)}
-                                                                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4 text-left transition-colors hover:bg-[color:var(--ciq-tile)]"
-                                                                >
-                                                                    <div className="flex items-center gap-3">
-                                                                        <HeartHandshake className="h-5 w-5 shrink-0 text-[color:var(--ciq-accent-purple)]" />
-                                                                        <div>
-                                                                            <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">
-                                                                                Recovery Window
-                                                                            </p>
-                                                                            <p className="text-xs text-[color:var(--ciq-text-muted)]">
-                                                                                A short, voice-guided check-in tailored to how you're doing right now.
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                    <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--ciq-text-muted)]" />
-                                                                </button>
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        <ErrorBoundary label="report">
-                                                            <Suspense
-                                                                fallback={
-                                                                    <div className="flex items-center justify-center gap-2 py-10 text-sm text-[color:var(--ciq-text-60)]">
-                                                                        <Loader2 className="h-4 w-4 animate-spin" /> Building your report…
-                                                                    </div>
-                                                                }
-                                                            >
-                                                                <DetailedReport
-                                                                    snapshots={biometricSnapshots}
-                                                                    sessionId={sessionId}
-                                                                    surveyRunId={surveyRunId}
-                                                                    surveyType={surveyTypeConfig?.activeSurveyType}
-                                                                    onClose={() => setShowDetailedReport(false)}
-                                                                    onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
-                                                                    onReportDelivered={handleReportReady}
-                                                                />
-                                                            </Suspense>
-                                                        </ErrorBoundary>
-                                                    </div>
-                                                )}
-
-                                                {!showDetailedReport && (
-                                                    <div className="mt-4 text-center text-sm text-[color:var(--ciq-text-60)]">
-                                                        Complete the survey to view detailed burnout assessment results
-                                                    </div>
-                                                )}
-                                            </>
-                                        ) : (
-                                            <div className="flex h-full flex-col items-center justify-center text-center">
-                                                <ClipboardList className="mb-3 h-12 w-12 text-[color:var(--ciq-text-40)]" />
-                                                <p className="text-sm text-[color:var(--ciq-text-60)]">No assessment data</p>
-                                                <p className="text-xs text-[color:var(--ciq-text-40)]">Begin conversation to start the survey assessment</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </section>
-                        </div>
+                                </section>
+                            </div>
+                        )}
                     </div>
                 </main>
             )}

@@ -11,9 +11,12 @@ interface VideoPanelProps {
      * <video> elsewhere — e.g. the Recovery Window's own camera panel — can mirror the
      * same feed without requesting a second getUserMedia capture. */
     onStreamReady?: (stream: MediaStream | null) => void;
+    /** On desktop, fill the parent's height instead of a fixed 16:9 box (the picture is
+     * cropped to fit), so a fit-to-screen page never pushes its controls off-screen. */
+    fitHeight?: boolean;
 }
 
-export function VideoPanel({ isRecording = false, expanded = false, onEmotionDetected, onVideoReady, onStreamReady }: VideoPanelProps) {
+export function VideoPanel({ isRecording = false, expanded = false, fitHeight = false, onEmotionDetected, onVideoReady, onStreamReady }: VideoPanelProps) {
     const { videoRef, canvasRef, isStreaming, stream, startVideo, stopVideo, startAnalysis, stopAnalysis } = useVideoCapture({ onEmotionDetected });
 
     useEffect(() => {
@@ -38,9 +41,9 @@ export function VideoPanel({ isRecording = false, expanded = false, onEmotionDet
     }, [stream, onStreamReady]);
 
     return (
-        <div className="flex flex-col">
+        <div className={`flex flex-col ${fitHeight ? "lg:h-full" : ""}`}>
             <div
-                className={`relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-[color:var(--ciq-card)] transition-[max-width] duration-300 ${expanded ? "max-w-none" : "max-w-xl"}`}
+                className={`relative mx-auto aspect-video w-full overflow-hidden rounded-lg bg-[color:var(--ciq-card)] transition-[max-width] duration-300 ${fitHeight ? "lg:aspect-auto lg:h-full" : ""} ${expanded ? "max-w-none" : "max-w-xl"}`}
             >
                 <video ref={videoRef} className="h-full w-full origin-center scale-x-[-1] object-cover" muted playsInline />
                 <canvas ref={canvasRef} className="hidden" />

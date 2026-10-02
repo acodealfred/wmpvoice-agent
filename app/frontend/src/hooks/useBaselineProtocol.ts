@@ -51,7 +51,7 @@ export function useBaselineProtocol(options: Omit<BaselineProtocolOptions, "onCh
         state,
         secondsLeft,
         isActive: state.stage === "cue" || state.stage === "recording",
-        start: useCallback((withEyesClosed: boolean) => protocol.start(withEyesClosed), [protocol]),
+        start: useCallback(() => protocol.start(), [protocol]),
         skip: useCallback(() => protocol.skip(), [protocol]),
         cancel: useCallback(() => protocol.cancel(), [protocol]),
         notifyAudioDelta: useCallback((base64: string) => protocol.notifyAudioDelta(base64), [protocol]),

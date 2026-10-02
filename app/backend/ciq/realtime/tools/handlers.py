@@ -24,6 +24,7 @@ from survey_loader import (
     compute_section_scores,
     effective_score,
     get_score_bounds,
+    option_label,
 )
 
 logger = logging.getLogger("voicerag")
@@ -264,10 +265,13 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
     )
     logger.info(f"[RTMT] ★ Blink History: {sess.blink_rate_history[-10:]}")
 
-    # Every user reply since this question was asked is its answer. Their Whisper
-    # transcripts replace the model's text now if already back, else when they land.
+    # Every user reply since this question was asked is its answer. A scored answer
+    # stores its option label; an open-ended one uses the Whisper transcript (now if
+    # already back, else when it lands).
     assign_items_to_question(sess, question_id)
-    user_response = user_response_for(sess, question_id, model_response)
+    user_response = user_response_for(
+        sess, question_id, model_response, option_label(survey_config, question_id, score),
+    )
 
     sess.survey_results[question_id] = {
         "score": score,

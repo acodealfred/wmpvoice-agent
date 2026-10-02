@@ -100,15 +100,15 @@ async def test_analyze_report_persists_history(report_client):
     assert any(r["survey_run_id"] == "run-3" for r in records)
 
 
-async def test_analyze_report_stores_the_users_own_words(report_client):
-    """userResponse comes from the live session's Whisper transcript, not the
-    browser's copy (the model's paraphrase captured at scoring time)."""
+async def test_analyze_report_stores_the_score_label_for_scored_answers(report_client):
+    """A scored answer's userResponse is its option label, never the Whisper transcript
+    (Whisper mishears short answers: "Some don't." for "Sometimes")."""
     import json
 
     from db import get_user_by_name, get_user_survey_records
 
-    report_client.server.app["rtmt"].transcripts = {"q1": "honestly I'm drained most days"}
-    snapshots = [{**s, "userResponse": "Always."} for s in SNAPSHOTS]
+    report_client.server.app["rtmt"].transcripts = {"q1": "Some don't.", "q3": "and I'm"}
+    snapshots = [{**s, "userResponse": "whatever the model said"} for s in SNAPSHOTS]
     await report_client.post("/analyze-report", json={
         "session_id": "s1", "survey_run_id": "run-words", "survey_type": "TEST",
         "snapshots": snapshots,
@@ -116,5 +116,26 @@ async def test_analyze_report_stores_the_users_own_words(report_client):
     user = await get_user_by_name("system1")
     record = next(r for r in await get_user_survey_records(user["user_id"]) if r["survey_run_id"] == "run-words")
     results = json.loads(record["survey_results"])
+    assert results["q1"]["userResponse"] == "Always"     # score 5
+    assert results["q3"]["userResponse"] == "Never"      # score 1 (raw, before reverse scoring)
+    assert results["q2"]["userResponse"] == "Always"
+
+
+async def test_analyze_report_keeps_the_users_words_for_unscored_answers(report_client):
+    """An open-ended answer (no score) still stores the Whisper transcript."""
+    import json
+
+    from db import get_user_by_name, get_user_survey_records
+
+    report_client.server.app["rtmt"].transcripts = {"q1": "honestly I'm drained most days"}
+    snapshots = [{"questionId": "q1", "domain": "Emotional Exhaustion", "userResponse": "Tired."},
+                 {"questionId": "q2", "domain": "Depersonalization", "userResponse": "Fine."}]
+    await report_client.post("/analyze-report", json={
+        "session_id": "s1", "survey_run_id": "run-open", "survey_type": "TEST",
+        "snapshots": snapshots,
+    })
+    user = await get_user_by_name("system1")
+    record = next(r for r in await get_user_survey_records(user["user_id"]) if r["survey_run_id"] == "run-open")
+    results = json.loads(record["survey_results"])
     assert results["q1"]["userResponse"] == "honestly I'm drained most days"
-    assert results["q2"]["userResponse"] == "Always."  # no transcript -> model text kept
+    assert results["q2"]["userResponse"] == "Fine."      # no transcript -> model text kept

@@ -53,6 +53,7 @@ export type Message = {
 export type ResponseAudioDelta = {
     type: "response.audio.delta";
     delta: string;
+    item_id?: string;
 };
 
 export type ResponseAudioTranscriptDelta = {
@@ -484,3 +485,55 @@ export type FlaggedRecoverySession = {
 // the middle tier as a custom `baseline.cue` message; the wording lives server-side in
 // ciq/prompts/builder.py (_BASELINE_CUES / _SURVEY_START_LEADS).
 export type BaselineCue = "eyes_open_start" | "eyes_closed_start" | "survey_start_after_closed" | "survey_start_after_open";
+
+// Fatigue ↔ Burnout zone from GET /api/zone-trend (ciq/zone.py) — the user's own
+// completed PILOT runs, calculated on demand. A wellbeing guide, not a diagnosis.
+export type ZoneKey = "well" | "mild" | "moderate" | "high";
+export type ZoneLean = "fatigue" | "burnout" | "mixed" | "none";
+
+export type ZoneSignal = {
+    key: "blink_up" | "slower";
+    label: string;
+    approximate: true;
+};
+
+export type ZoneResult = {
+    surveyRunId: string;
+    date: string; // YYYY-MM-DD (UTC)
+    fatigue: number;
+    burnout: number;
+    severity: number; // 0–100, higher = more strain
+    zone: ZoneKey;
+    lean: ZoneLean;
+    leanValue: number; // burnout − fatigue, −100…+100
+    marker: number | null; // 0 = Fatigue end, 100 = Burnout end; null when zone is "well"
+    signals: ZoneSignal[];
+};
+
+export type ZoneTrendPoint = {
+    surveyRunId: string;
+    date: string;
+    severity: number;
+    zone: ZoneKey;
+    lean: ZoneLean;
+};
+
+export type ZoneTrend =
+    | { status: "none" | "first"; points: ZoneTrendPoint[] }
+    | {
+          status: "improving" | "steady" | "worsening";
+          delta: number;
+          ref: number;
+          compared: number;
+          points: ZoneTrendPoint[];
+      };
+
+export type ZoneTrendResponse = {
+    latest: ZoneResult | null;
+    trend: ZoneTrend;
+};
+
+// PILOT report screen: Start (report_explain) / Continue after a pause (report_continue).
+// Sent as a custom `report.cue` message; the wording lives server-side in
+// ciq/prompts/builder.py (report_cue_instructions).
+export type ReportCue = "report_explain" | "report_continue";

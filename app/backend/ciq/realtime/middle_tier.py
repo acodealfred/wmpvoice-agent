@@ -19,7 +19,11 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 from ciq.assessments.service import flush_timeline, persist_transcript
 from ciq.llm.azure_chat import AzureChatClient
-from ciq.prompts.builder import baseline_cue_instructions, build_session_instructions
+from ciq.prompts.builder import (
+    baseline_cue_instructions,
+    build_session_instructions,
+    report_cue_instructions,
+)
 from ciq.prompts.personas import READINESS_SYSTEM_MESSAGE
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import (
@@ -300,11 +304,14 @@ class RTMiddleTier:
         return {"pre": sess.pre_behaviour_snapshot, "post": sess.post_behaviour_snapshot}
 
     async def _apply_user_transcript(self, item_id: str | None, text: str) -> None:
-        """A user speech turn's transcription landed: if it answers a scored question,
-        replace that answer's user_response (memory + DB) with the user's own words."""
+        """A user speech turn's transcription landed: if it answers an open-ended
+        (unscored) question, replace that answer's user_response (memory + DB) with the
+        user's own words. Scored answers keep their option label."""
         sess = self._sess
         question_id = record_transcript(sess, item_id, text)
         if not question_id or question_id not in sess.survey_results:
+            return
+        if sess.survey_results[question_id].get("score") is not None:
             return
         words = transcript_for(sess, question_id)
         if not words:
@@ -885,6 +892,22 @@ class RTMiddleTier:
                     stage = _BASELINE_CUE_STAGES.get(message["cue"])
                     if stage:
                         self._sess.baseline_stage = stage
+                    return json.dumps({
+                        "type": "response.create",
+                        "response": {"instructions": instructions, "tool_choice": "none"},
+                    })
+                case "report.cue":
+                    # Custom client message (never forwarded as-is): the PILOT report screen's
+                    # Start (report_explain) / Continue-after-pause (report_continue). The
+                    # result is computed here, server-side, by the same tool the agent used
+                    # to call — which also stores spoken_report_text for follow-up Q&A.
+                    sess = self._sess
+                    result = await query_survey_tool(sess, sess.survey_config, {"query_type": "burnout_score"})
+                    instructions = report_cue_instructions(message.get("cue", ""), json.loads(result.to_text()))
+                    if instructions is None:
+                        logger.warning("[RTMT] Report cue %s ignored (unknown cue or no results)", message.get("cue"))
+                        return None
+                    logger.info("[RTMT] ★ Report cue: %s", message["cue"])
                     return json.dumps({
                         "type": "response.create",
                         "response": {"instructions": instructions, "tool_choice": "none"},

@@ -165,9 +165,14 @@ async def test_other_query_types_and_other_surveys_get_no_spoken_report():
 
 # ── prompt scoping ────────────────────────────────────────────────────────
 
-def test_only_pilot_instructions_mention_the_spoken_report():
-    assert "spoken_report" in survey_instructions(PILOT)
-    assert "spoken_report" not in survey_instructions(TEST)
+def test_pilot_survey_closes_without_delivering_the_report():
+    # PILOT's report is explained later, from the report screen (report.cue) — the survey
+    # script only closes the check-in. Other surveys still deliver the result in-script.
+    pilot = survey_instructions(PILOT)
+    assert "spoken_report" not in pilot
+    assert "Do NOT call query_survey_results" in pilot
+    assert "report is now on the screen" in pilot
+    assert 'Call query_survey_results with query_type="burnout_score"' in survey_instructions(TEST)
 
 
 def test_followup_context_includes_what_was_said_only_when_present():

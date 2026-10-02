@@ -34,6 +34,7 @@ from db import (
 from survey_loader import (
     compute_survey_summary,
     effective_score,
+    option_label,
     serialize_survey_results,
 )
 
@@ -49,13 +50,24 @@ async def _with_user_transcripts(rtmt, session_id: str, snapshots: list) -> list
     (Whisper transcript, see ciq.realtime.transcripts) wherever the live session has
     one. The browser's copy carries the model's paraphrase captured at scoring time.
     Waits briefly first: the last answer's transcript often lands just after the
-    report request."""
+    report request.
+
+    A scored answer always stores its option label ("Sometimes") instead — Whisper
+    often mishears short answers; see ciq.realtime.transcripts.user_response_for."""
     await rtmt.await_answer_transcripts(session_id)
     words = rtmt.get_answer_transcripts(session_id)
-    return [
-        {**s, "userResponse": words[s.get("questionId")]} if s.get("questionId") in words else s
-        for s in snapshots
-    ]
+    config = rtmt.get_survey_config_for_session(session_id)
+    out = []
+    for s in snapshots:
+        qid = s.get("questionId")
+        label = option_label(config, qid, s.get("score"))
+        if label:
+            out.append({**s, "userResponse": label})
+        elif qid in words:
+            out.append({**s, "userResponse": words[qid]})
+        else:
+            out.append(s)
+    return out
 
 
 async def analyze_report(request):

@@ -21,6 +21,7 @@ from ciq.api.history_routes import (
     manager_score_trend,
     set_demo_data,
     user_sessions_history,
+    user_zone_trend,
 )
 from ciq.api.meta_routes import get_config, get_version
 from ciq.assessments.routes import (
@@ -161,6 +162,7 @@ async def create_app():
 
     # ── History / consent (baselines are per assessment: /me/assessment/baseline) ──
     app.router.add_get("/api/history", user_sessions_history)
+    app.router.add_get("/api/zone-trend", user_zone_trend)
     app.router.add_get("/consent", get_consent)
     app.router.add_post("/consent", save_consent)
     app.router.add_get("/admin/users", admin_list_users)

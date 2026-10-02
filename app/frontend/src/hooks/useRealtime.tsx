@@ -15,7 +15,8 @@ import {
     SurveyUpdate,
     SurveyBiometricUpdate,
     RecoveryUpdate,
-    BaselineCue
+    BaselineCue,
+    ReportCue
 } from "@/types";
 
 // Server VAD tuning shared by every session.update — the default threshold (~0.5)
@@ -122,7 +123,9 @@ export default function useRealTime({
     // genuine dropped-socket reconnect, so reconnects never trigger an unwanted greeting.
     // Holds the opening message itself: a plain response.create for the normal greeting,
     // or a baseline.cue (see sendBaselineCue) when a fresh baseline protocol opens instead.
-    const pendingGreetingRef = useRef<{ type: "response.create" } | { type: "baseline.cue"; cue: BaselineCue } | null>(null);
+    const pendingGreetingRef = useRef<{ type: "response.create" } | { type: "baseline.cue"; cue: BaselineCue } | { type: "report.cue"; cue: ReportCue } | null>(
+        null
+    );
 
     const buildSessionUpdateCommand = (): SessionUpdateCommand => {
         const command: SessionUpdateCommand = {
@@ -192,6 +195,24 @@ export default function useRealTime({
     const sendBaselineCue = (cue: BaselineCue) => {
         pendingGreetingRef.current = { type: "baseline.cue", cue };
         maybeSendGreeting();
+    };
+
+    // PILOT report screen cue. Like a baseline cue it waits for a live session, so it can
+    // be sent right after reconnect() and fires on the fresh session.created.
+    const sendReportCue = (cue: ReportCue) => {
+        pendingGreetingRef.current = { type: "report.cue", cue };
+        maybeSendGreeting();
+    };
+
+    // Tell the model how much of its spoken item the user actually heard, so its memory
+    // of what it said ends where playback was cut off (used to resume a paused report).
+    // Stop the response currently being generated (Pause mid-explanation).
+    const cancelResponse = () => {
+        sendJsonMessage({ type: "response.cancel" });
+    };
+
+    const truncateItem = (itemId: string, audioEndMs: number) => {
+        sendJsonMessage({ type: "conversation.item.truncate", item_id: itemId, content_index: 0, audio_end_ms: audioEndMs });
     };
 
     // Force a clean reconnect: close the live socket so react-use-websocket reopens
@@ -307,5 +328,16 @@ export default function useRealTime({
         }
     };
 
-    return { startSession, requestGreeting, sendBaselineCue, refreshSession, reconnect, addUserAudio, inputAudioBufferClear };
+    return {
+        startSession,
+        requestGreeting,
+        sendBaselineCue,
+        sendReportCue,
+        truncateItem,
+        cancelResponse,
+        refreshSession,
+        reconnect,
+        addUserAudio,
+        inputAudioBufferClear
+    };
 }

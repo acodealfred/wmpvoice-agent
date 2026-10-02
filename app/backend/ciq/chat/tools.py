@@ -19,9 +19,11 @@ from db import (
     get_manager_score_trend,
     get_user_survey_records,
 )
+from survey_loader import load_survey
 
 from ciq.chat.rbac import ChatAuth, is_authorized
 from ciq.kb.mithra_client import call_mithra_kb_chat
+from ciq.zone import ZoneConfigError, build_zone_trend
 
 logger = logging.getLogger("voicerag")
 
@@ -131,6 +133,19 @@ GUEST_TOOL_SCHEMAS = [
             "description": (
                 "The person's most recent assessment report: score, risk, interpretation, "
                 "per-domain totals, and any behavioural analysis / consultative summary text."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_zone_trend",
+            "description": (
+                "The person's own Fatigue ↔ Burnout zone from their PILOT check-ins: severity "
+                "(0-100) and zone (well/mild/moderate/high), whether they lean towards fatigue "
+                "or burnout, the trend (improving/steady/worsening vs recent check-ins), and "
+                "approximate supporting fatigue signals. A wellbeing guide, not a diagnosis."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -260,6 +275,15 @@ async def dispatch_tool(name: str, args: dict, auth: ChatAuth) -> tuple[dict, li
         base["behavioralAnalysis"] = tr.get("analysis") or None
         base["consultativeSummary"] = pi.get("agentResponse") or None
         return {"report": base}, []
+
+    if name == "get_my_zone_trend":
+        recs = await get_user_survey_records(auth.user_id)
+        try:
+            zone = build_zone_trend(recs, load_survey("PILOT"))
+        except ZoneConfigError as e:
+            logger.error("[Chat] Zone unavailable: %s", e)
+            return {"error": "zone unavailable"}, []
+        return {**zone, "note": "A wellbeing guide, not a diagnosis."}, []
 
     # ── Research (both surfaces) ─────────────────────────────────────────
     if name == "search_research":

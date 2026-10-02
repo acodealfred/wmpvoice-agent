@@ -15,6 +15,9 @@ the question by conversation item id, never by arrival order:
 Whisper usually finishes AFTER the tool call, so the answer is first stored with
 the model's text as a fallback and patched when the transcript lands (see
 RTMiddleTier's transcription handler and ciq.assessments.service.persist_transcript).
+
+Scored answers are the exception: they store the option label for their score and
+are never patched with Whisper text (see user_response_for).
 """
 from ciq.realtime.session import SessionState
 
@@ -62,6 +65,15 @@ def pending_transcripts(sess: SessionState) -> list[str]:
     return [i for i in sess.answer_items if i not in sess.item_transcripts]
 
 
-def user_response_for(sess: SessionState, question_id: str, model_text: str | None) -> str:
-    """What to store as the answer's user_response: the real words, else the model's text."""
+def user_response_for(sess: SessionState, question_id: str, model_text: str | None,
+                      score_label: str | None = None) -> str:
+    """What to store as the answer's user_response.
+
+    A scored answer stores its option label ("Sometimes"): Whisper often mishears
+    short one-word answers ("Some don't.", "and I'm"), while the score the model
+    gave is reliable. Only open-ended (unscored) answers use the real words, else
+    the model's text.
+    """
+    if score_label:
+        return score_label
     return transcript_for(sess, question_id) or (model_text or "")

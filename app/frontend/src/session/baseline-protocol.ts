@@ -1,8 +1,8 @@
 import type { BaselineCue } from "@/types";
 
 // Two-phase resting baseline recorded before the assessment: eyes open (camera
-// biometrics + EEG), then eyes closed (EEG only — blink rate and pupil size can't be
-// measured with the eyes shut, so the eyes-closed phase only runs with a headband).
+// biometrics + EEG), then eyes closed (EEG when a headband is recording — blink rate
+// and pupil size can't be measured with the eyes shut). Both phases always run.
 // The agent is silent throughout except for one spoken cue at the start of each
 // phase; each phase's timer starts only once that cue has finished PLAYING, so the
 // recorded window never overlaps the agent's voice.
@@ -42,7 +42,6 @@ const START_CUE: Record<BaselinePhase, BaselineCue> = {
 
 export class BaselineProtocol {
     private state: BaselineProtocolState = { stage: "idle", phase: null, phaseEndsAt: null, phaseSeconds: 0 };
-    private withEyesClosed = false;
     private timer: ReturnType<typeof setTimeout> | null = null;
     // Playback-time estimate for the cue currently being spoken.
     private cueAudioStartedAt: number | null = null;
@@ -58,9 +57,8 @@ export class BaselineProtocol {
         return this.state.stage === "cue" || this.state.stage === "recording";
     }
 
-    start(withEyesClosed: boolean): void {
+    start(): void {
         this.cancel();
-        this.withEyesClosed = withEyesClosed;
         this.speakCue("eyes_open");
     }
 
@@ -119,7 +117,7 @@ export class BaselineProtocol {
         const phase = this.state.phase;
         if (this.state.stage !== "recording" || !phase) return;
         this.opts.onPhaseEnd(phase);
-        if (phase === "eyes_open" && this.withEyesClosed) {
+        if (phase === "eyes_open") {
             this.speakCue("eyes_closed");
         } else {
             this.finish(phase === "eyes_closed", false);

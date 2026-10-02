@@ -66,6 +66,17 @@ def options_for_question(config: dict, question_id: str | None) -> list[dict]:
     return config.get("options", [])
 
 
+def option_label(config: dict, question_id: str | None, score) -> str | None:
+    """The answer-scale label for a raw score ("Sometimes" for 3 on BAT, 50 on CBI), or
+    None when there is no score or it isn't one of the question's options."""
+    if score is None or isinstance(score, bool):
+        return None
+    for o in options_for_question(config, question_id):
+        if o.get("value") == score:
+            return o.get("label")
+    return None
+
+
 def get_score_bounds(config: dict, question_id: str | None = None) -> tuple[int, int]:
     """Return (min, max) option values for a question (or the whole survey); defaults to (1, 5)."""
     options = options_for_question(config, question_id)
