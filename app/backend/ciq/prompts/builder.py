@@ -339,6 +339,19 @@ def baseline_instructions() -> str:
   questions yet. You will be told when to continue."""
 
 
+# English only, always — every spoken turn. The BAT-4 / CBI-WRB3 interpretations and the
+# spoken report are approved wording in English, spoken word for word, so the agent never
+# switches language, even if asked. It must be in EVERY instruction set: the session's, and
+# each cue turn's own response.create instructions, which REPLACE the session instructions
+# for that turn (so a cue without it has no language rule at all).
+LANGUAGE_RULE = (
+    "LANGUAGE: Speak ONLY in English (US), in every turn, from your very first word. Never "
+    "switch to another language — not if the user speaks another language, not if their "
+    "accent or a word sounds foreign, and not even if they ask you to. If they ask for "
+    "another language or speak one, reply in English, briefly and kindly saying you can "
+    "only speak English in this check-in."
+)
+
 # Spoken cues for the baseline protocol, keyed by the `cue` of a client `baseline.cue`
 # message. Each becomes the `instructions` of a single response.create, so the agent says
 # exactly one short line at a phase boundary and nothing else.
@@ -377,11 +390,11 @@ def baseline_cue_instructions(cue: str) -> str | None:
     that script's OPENING (bridge line + permission question).
     """
     if cue in _BASELINE_CUES:
-        return _BASELINE_CUES[cue]
+        return f"{LANGUAGE_RULE}\n\n{_BASELINE_CUES[cue]}"
     lead = _SURVEY_START_LEADS.get(cue)
     if lead is None:
         return None
-    return (
+    return f"{LANGUAGE_RULE}\n\n" + (
         f"{lead} Then, in the SAME turn, continue with the OPENING from your survey "
         "instructions (the short bridge line asking if they're ready to start), and stop to "
         "wait for their reply."
@@ -390,13 +403,17 @@ def baseline_cue_instructions(cue: str) -> str | None:
 
 # PILOT report explanation, triggered from the report screen (client `report.cue`).
 # `report` is query_survey_tool's burnout_score result, computed server-side at cue time:
-# {"sections": [{"label", "interpretation", ...}], "spoken_report": {"parts": [...]}}.
+# {"sections": [{"label", "interpretation", ...}], "spoken_report": {"parts": [...]}}, plus
+# "zone_lines" (ciq.realtime.report_zone) — the Fatigue ↔ Burnout zone sentences, or [].
 REPORT_CUE_NAMES = frozenset({"report_explain", "report_continue"})
 
 _REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
 - STEP 1 — YOUR RESULTS: tell the user EVERY interpretation below, word for word, one at a
   time. They are independent results — never blend or average them. Do not say numbers.
-- STEP 2 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
+- STEP 2 — YOUR FATIGUE ↔ BURNOUT ZONE: if zone lines are given below, say them next, in
+  order, as a short connected passage — it is the overall picture of where they sit between
+  fatigue and burnout. Add nothing to them. If there are none, skip this step silently.
+- STEP 3 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
   spoken piece, in order, part by part: begin each part with its title as a short spoken
   lead-in, then say that part's lines in order, each as its own short sentence.
 - Speak warmly and naturally, like a person talking — never as a list. No bullets, no
@@ -414,14 +431,18 @@ def _report_content(report: dict) -> str:
     lines = ["INTERPRETATIONS (STEP 1):"]
     for s in report.get("sections") or []:
         lines.append(f"- {s.get('label', '')}: {s.get('interpretation', '')}")
+    zone_lines = report.get("zone_lines") or []
+    if zone_lines:
+        lines.append("FATIGUE ↔ BURNOUT ZONE (STEP 2):")
+        lines.extend(f"- {line}" for line in zone_lines)
     parts = (report.get("spoken_report") or {}).get("parts") or []
     if parts:
-        lines.append("SPOKEN REPORT (STEP 2):")
+        lines.append("SPOKEN REPORT (STEP 3):")
         for part in parts:
             lines.append(f"* {part.get('title', '')}")
             lines.extend(f"  - {line}" for line in part.get("say") or [])
     else:
-        lines.append("SPOKEN REPORT (STEP 2): none — after STEP 1, go straight to the closing invitation.")
+        lines.append("SPOKEN REPORT (STEP 3): none — go straight to the closing invitation.")
     return "\n".join(lines)
 
 
@@ -442,7 +463,7 @@ def report_cue_instructions(cue: str, report: dict) -> str | None:
             "Carry on from that exact point — do NOT repeat anything you already said and do NOT "
             "start over. You may begin with a brief 'As I was saying,'."
         )
-    return f"{lead}\n\n{_REPORT_DELIVERY_RULES}\n\n{_report_content(report)}"
+    return f"{LANGUAGE_RULE}\n\n{lead}\n\n{_REPORT_DELIVERY_RULES}\n\n{_report_content(report)}"
 
 
 def readiness_conversation_instructions(questions: list, is_returning_user: bool = False) -> str:
@@ -891,14 +912,9 @@ def build_session_instructions(
     (only while active) → conversation-state grounding → reconnect → stress adaptation.
     """
     base_instructions = base_message or ""
-    # Force English. The agent opens the conversation proactively (response.create) before
-    # the user has said anything, so it has no language cue to anchor on and may otherwise
-    # greet in another language. Pin it up front so it applies to every phase.
-    extra = (
-        "\n\nLANGUAGE: Speak and respond in English (US) by default, including your very "
-        "first greeting. Even if the user speaks in another language, keep replying in "
-        "English UNLESS they explicitly ask you to switch languages — only then switch.\n"
-    )
+    # English only (LANGUAGE_RULE). Pinned up front so it applies to every phase — the
+    # agent opens proactively, before the user has said anything to anchor a language on.
+    extra = f"\n\n{LANGUAGE_RULE}\n"
 
     if enable_meta_intent:
         extra += meta_intent_instructions(meta_intent_config)

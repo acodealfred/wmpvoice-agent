@@ -305,3 +305,42 @@ def build_zone_trend(records: list[dict], config: dict) -> dict:
         "signals": compute_signals(config, newest["results"], previous),
     }
     return {"latest": latest, "trend": trend}
+
+
+# ── Spoken lines for the voice report (report.cue STEP 2) ─────────────────────
+# Fixed, pre-approved wording the agent speaks (it may smooth, never add). Kept in step
+# with the on-screen labels/hints in app/frontend/src/lib/zone.ts. Deliberately no
+# numbers and no fatigue signals: the signals are approximate biometrics, shown on
+# screen only, and the descriptive-only biometric guardrail applies to them.
+_SPOKEN_ZONE = {
+    "well": "Overall, your strain is low — you're doing well.",
+    "mild": "Overall, your strain is in the mild zone.",
+    "moderate": "Overall, your strain is in the moderate zone.",
+    "high": "Overall, your strain is in the high zone.",
+}
+_SPOKEN_LEAN = {
+    "fatigue": "It leans towards fatigue — mostly tiredness, which rest and recovery are likely to help.",
+    "burnout": "It leans towards burnout — more detachment or loss of control, where something "
+               "about the situation may need to change.",
+    "mixed": "It's a mix of tiredness and detachment, without a clear lean either way.",
+}
+_SPOKEN_TREND = {
+    "first": "This is your first check-in, so your trend starts from here.",
+    "improving": "Compared with your recent check-ins, you're improving.",
+    "steady": "Compared with your recent check-ins, your strain is steady.",
+    "worsening": "Compared with your recent check-ins, your strain has gone up.",
+}
+SPOKEN_ZONE_DISCLAIMER = "This zone is a wellbeing guide, not a diagnosis."
+
+
+def zone_spoken_lines(latest: dict | None, trend: dict) -> list[str]:
+    """The zone sentences for one run's spoken report, or [] when there is no zone."""
+    if not latest:
+        return []
+    lines = [_SPOKEN_ZONE[latest["zone"]]]
+    if latest.get("lean") in _SPOKEN_LEAN:  # "none" (well zone) has no lean to speak
+        lines.append(_SPOKEN_LEAN[latest["lean"]])
+    if trend.get("status") in _SPOKEN_TREND:
+        lines.append(_SPOKEN_TREND[trend["status"]])
+    lines.append(SPOKEN_ZONE_DISCLAIMER)
+    return lines

@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from ciq.zone import (
+    SPOKEN_ZONE_DISCLAIMER,
     ZONE_CONFIG,
     ZoneConfigError,
     _strains,
@@ -13,6 +14,7 @@ from ciq.zone import (
     compute_trend,
     compute_zone,
     validate_config,
+    zone_spoken_lines,
 )
 from survey_loader import load_survey
 
@@ -334,3 +336,42 @@ def test_signals_are_approximate_and_never_change_scores():
     strip = lambda z: {k: v for k, v in z.items() if k != "signals"}  # noqa: E731
     assert strip(p["latest"]) == strip(n["latest"])
     assert p["trend"] == n["trend"]
+
+
+# ── Spoken lines (voice report STEP 2) ───────────────────────────────────────
+
+def _latest(zone, lean):
+    return {"zone": zone, "lean": lean, "signals": [{"key": "blink_up", "label": "Blink rate above your baseline"}]}
+
+
+def test_spoken_lines_for_each_zone_lean_and_trend():
+    lines = zone_spoken_lines(_latest("mild", "fatigue"), {"status": "steady"})
+    assert lines == [
+        "Overall, your strain is in the mild zone.",
+        "It leans towards fatigue — mostly tiredness, which rest and recovery are likely to help.",
+        "Compared with your recent check-ins, your strain is steady.",
+        SPOKEN_ZONE_DISCLAIMER,
+    ]
+    assert "leans towards burnout" in " ".join(zone_spoken_lines(_latest("high", "burnout"), {"status": "worsening"}))
+    assert "mix of tiredness" in " ".join(zone_spoken_lines(_latest("moderate", "mixed"), {"status": "improving"}))
+    assert "starts from here" in " ".join(zone_spoken_lines(_latest("mild", "mixed"), {"status": "first"}))
+
+
+def test_well_zone_has_no_lean_line():
+    lines = zone_spoken_lines(_latest("well", "none"), {"status": "improving"})
+    assert lines[0] == "Overall, your strain is low — you're doing well."
+    assert not any("leans" in line or "mix of" in line for line in lines)
+
+
+@pytest.mark.parametrize("zone,lean", [("well", "none"), ("mild", "fatigue"), ("moderate", "mixed"), ("high", "burnout")])
+@pytest.mark.parametrize("status", ["first", "improving", "steady", "worsening"])
+def test_spoken_lines_have_no_numbers_or_signals_and_end_with_the_disclaimer(zone, lean, status):
+    lines = zone_spoken_lines(_latest(zone, lean), {"status": status})
+    text = " ".join(lines)
+    assert not any(ch.isdigit() for ch in text)
+    assert "blink" not in text.lower() and "slower" not in text.lower()
+    assert lines[-1] == SPOKEN_ZONE_DISCLAIMER
+
+
+def test_no_zone_means_no_lines():
+    assert zone_spoken_lines(None, {"status": "none", "points": []}) == []

@@ -230,6 +230,9 @@ function App() {
         addMarker: addEegMarker,
         save: saveEeg,
         getChannelSamples: getEegChannelSamples,
+        getEegRateHz,
+        recordContactSnapshot,
+        contactChannels: eegContactChannels,
         channels: eegChannels
     } = useMuse();
 
@@ -746,6 +749,8 @@ function App() {
 
     const finishBaselineProtocol = async ({ eyesClosed }: { eyesClosed: boolean }) => {
         baselineDoneRef.current = true;
+        // …and whether it slipped during the baseline.
+        recordContactSnapshot("baseline_end");
         const surveyStartTMs = getEegSessionTMs();
         addEegMarker("survey_start", surveyStartTMs, surveyStartTMs);
 
@@ -779,6 +784,8 @@ function App() {
         onPhaseStart: phase => {
             baselinePhaseStartTMsRef.current = getEegSessionTMs();
             if (phase === "eyes_open" && enableBiometrics) startBaselineSession(BASELINE_EYES_OPEN_SECONDS);
+            // The headband fit the baseline is recorded with (saved in the EEG file).
+            if (phase === "eyes_open") recordContactSnapshot("baseline_start");
         },
         onPhaseEnd: phase => {
             // Camera biometrics come from the eyes-open phase only (no blinks/pupil with eyes shut).
@@ -1231,11 +1238,15 @@ function App() {
         ? "Assessment complete. Your results are below."
         : isRecording && baselineState === "recording"
           ? "Recording your baseline. The questions start right after."
-          : isRecording
-            ? "Getting your first question ready…"
-            : resumable
-              ? "Assessment paused. Press Continue to pick up where you left off."
-              : "Press Start to begin your assessment.";
+          : isRecording && surveyCompleted > 0
+            ? // Continued after a pause: progress is restored, the question text arrives with
+              // the agent's next question.
+              `Picking up where you left off: ${surveyCompleted} of ${surveyTotal} answered. Getting your next question ready…`
+            : isRecording
+              ? "Getting your first question ready…"
+              : resumable
+                ? "Assessment paused. Press Continue to pick up where you left off."
+                : "Press Start to begin your assessment.";
     const baselinePhaseLabel = baselineProtocol.state.phase === "eyes_closed" ? "Eyes closed" : "Eyes open";
     const baselineStepNote =
         baselineProtocol.state.stage === "cue"
@@ -1841,7 +1852,7 @@ function App() {
                                                     {baselineState === "none" && (
                                                         <p className="text-xs text-[color:var(--ciq-text-60)]">
                                                             Every assessment records its own baseline. When you start, a 3-minute eyes-open baseline is recorded
-                                                            (plus 3 minutes eyes closed if an EEG headband is connected) before the questions begin.
+                                                            then 3 minutes with eyes closed, before the questions begin.
                                                         </p>
                                                     )}
                                                 </div>
@@ -1858,6 +1869,11 @@ function App() {
                                                     assessmentStarted={eegSurveyStarted || baselineProtocol.isActive}
                                                     channels={eegChannels}
                                                     getChannelSamples={getEegChannelSamples}
+                                                    // Fit lights while fitting the band (not recording yet) and through
+                                                    // the baseline; hidden once the questions begin.
+                                                    showContact={!isRecording || baselineState === "recording"}
+                                                    contactChannels={eegContactChannels}
+                                                    getEegRateHz={getEegRateHz}
                                                     onConnect={connectEeg}
                                                     onDisconnect={disconnectEeg}
                                                     onSave={saveEeg}

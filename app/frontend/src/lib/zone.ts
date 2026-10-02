@@ -1,7 +1,8 @@
 // Fatigue ↔ Burnout zone — labels, colours and copy for GET /api/zone-trend.
 //
 // All figures come from the backend (ciq/zone.py); this module only decides how
-// to present them. A wellbeing guide, not a diagnosis.
+// to present them. A wellbeing guide, not a diagnosis. The voice report speaks the same
+// zone/lean meaning from app/backend/ciq/zone.py (_SPOKEN_*) — keep the two in step.
 
 import { apiFetch } from "@/lib/api";
 import type { ZoneKey, ZoneLean, ZoneTrend, ZoneTrendResponse } from "@/types";

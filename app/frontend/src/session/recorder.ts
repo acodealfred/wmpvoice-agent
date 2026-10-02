@@ -1,9 +1,20 @@
 // Accumulates readings into the "muse-web-bridge/3" session file.
-import { EEG_RATE_HZ, IMU_RATE_HZ, PPG_RATE_HZ, PPG_UUIDS, channelsForPreset, presetHasPpg, type EegChannel, type PpgChannel, type Preset } from "../muse/protocol";
+import {
+    EEG_RATE_HZ,
+    IMU_RATE_HZ,
+    PPG_RATE_HZ,
+    PPG_UUIDS,
+    channelsForPreset,
+    presetHasPpg,
+    type EegChannel,
+    type PpgChannel,
+    type Preset
+} from "../muse/protocol";
 import { EEG_UV_PER_LSB, EEG_ZERO } from "../muse/decode";
 import type { DeviceInfo, Reading } from "../muse/types";
 import { DropCounter } from "./drops";
 import type { Marker } from "./protocol";
+import type { ContactSnapshot } from "../muse/contact";
 
 export const SESSION_SCHEMA = "muse-web-bridge/3";
 
@@ -104,6 +115,12 @@ export interface SessionFile {
     markers?: Marker[];
     /** Present only when a stream hit MAX_PACKETS_PER_STREAM and further packets were dropped. */
     truncated?: boolean;
+    /**
+     * Headband fit (muse/contact.ts) at the baseline's start and end — the fit the baseline
+     * was recorded with, and whether it slipped. Same field names as the iOS probe app.
+     * Present only when a snapshot was taken.
+     */
+    contact?: ContactSnapshot[];
 }
 
 export interface RecorderOptions {
@@ -131,6 +148,7 @@ export class Recorder {
     private t0EpochMs: number | null = null;
     private surveyStartedTMs: number | null = null;
     private truncated = false;
+    private contact: ContactSnapshot[] = [];
 
     constructor(private opts: RecorderOptions) {
         this.channels = channelsForPreset(opts.preset);
@@ -201,6 +219,11 @@ export class Recorder {
         if (this.surveyStartedTMs === null) this.surveyStartedTMs = round(tMs, 1);
     }
 
+    /** Record the headband fit at a moment of the session (baseline start / end). */
+    addContactSnapshot(snapshot: ContactSnapshot): void {
+        this.contact.push(snapshot);
+    }
+
     /** Label the recording with the steps of a guided run; a later run replaces an earlier one. */
     setMarkers(markers: Marker[]): void {
         this.markers = [...markers];
@@ -240,6 +263,7 @@ export class Recorder {
         };
         if (this.markers && this.markers.length > 0) file.markers = this.markers;
         if (this.truncated) file.truncated = true;
+        if (this.contact.length > 0) file.contact = [...this.contact];
         if (presetHasPpg(this.opts.preset)) {
             file.ppg = {
                 rate_hz: PPG_RATE_HZ,

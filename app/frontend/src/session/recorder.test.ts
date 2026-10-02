@@ -176,4 +176,21 @@ describe("Recorder", () => {
         expect(file.eeg.channels).toEqual(["TP9", "AF7", "AF8", "TP10", "AUX"]);
         expect(file.eeg.dropped_packets).toEqual({ TP9: 0, AF7: 0, AF8: 0, TP10: 0, AUX: 0 });
     });
+
+    it("saves headband fit snapshots only when one was taken", () => {
+        expect("contact" in new Recorder(opts).finish()).toBe(false);
+
+        const r = new Recorder(opts);
+        const snap = {
+            label: "baseline_start" as const,
+            t_ms: 1200,
+            muse_contact: { TP9: "good", AF7: "good", AF8: "marginal", TP10: "floating" } as const,
+            muse_contact_noise_uv: { TP9: 12.1, AF7: 9.4, AF8: 31, TP10: 124 },
+            eeg_rate_hz_observed: 255.9
+        };
+        r.addContactSnapshot(snap);
+        r.addContactSnapshot({ ...snap, label: "baseline_end", t_ms: 360_000 });
+        expect(r.finish().contact?.map(c => c.label)).toEqual(["baseline_start", "baseline_end"]);
+        expect(r.finish().contact?.[0]).toEqual(snap);
+    });
 });

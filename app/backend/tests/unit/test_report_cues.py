@@ -52,8 +52,37 @@ async def test_unknown_cue_or_no_results_is_ignored():
 def test_missing_spoken_report_falls_back_to_interpretations_only():
     text = report_cue_instructions("report_explain", {"sections": [{"label": "BAT-4", "interpretation": "Low."}]})
     assert "BAT-4: Low." in text
-    assert "none — after STEP 1" in text
+    assert "SPOKEN REPORT (STEP 3): none — go straight to the closing invitation." in text
 
 
 def test_cue_names():
     assert REPORT_CUE_NAMES == {"report_explain", "report_continue"}
+
+
+ZONE_LINES = [
+    "Overall, your strain is in the mild zone.",
+    "It leans towards fatigue — mostly tiredness, which rest and recovery are likely to help.",
+    "This is your first check-in, so your trend starts from here.",
+    "This zone is a wellbeing guide, not a diagnosis.",
+]
+
+
+async def test_zone_is_step_2_between_results_and_spoken_report():
+    report = {**await _pilot_report(), "zone_lines": ZONE_LINES}
+    for cue in ("report_explain", "report_continue"):
+        text = report_cue_instructions(cue, report)
+        for line in ZONE_LINES:
+            assert line in text
+        results, zone, spoken = (
+            text.index("INTERPRETATIONS (STEP 1)"),
+            text.index("FATIGUE ↔ BURNOUT ZONE (STEP 2)"),
+            text.index("SPOKEN REPORT (STEP 3)"),
+        )
+        assert results < zone < spoken
+
+
+async def test_zone_step_is_skipped_without_lines():
+    text = report_cue_instructions("report_explain", {**await _pilot_report(), "zone_lines": []})
+    assert "FATIGUE ↔ BURNOUT ZONE (STEP 2):" not in text
+    assert "SPOKEN REPORT (STEP 3)" in text
+    assert "skip this step silently" in text

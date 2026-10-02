@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Bluetooth, BluetoothConnected, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EegWaveform } from "@/components/ui/eeg-waveform";
+import { MuseContactLights } from "@/components/ui/muse-contact-lights";
 import type { MuseStatus } from "@/hooks/useMuse";
 import type { DeviceInfo, EegChannel } from "@/muse";
 
@@ -17,6 +18,11 @@ interface EegConnectPanelProps {
     assessmentStarted: boolean;
     channels: EegChannel[];
     getChannelSamples: (ch: EegChannel) => Float32Array;
+    // Headband fit lights: shown while fitting the band and during the baseline (the
+    // caller decides), hidden once the questions begin.
+    showContact: boolean;
+    contactChannels: readonly EegChannel[];
+    getEegRateHz: () => number | null;
     onConnect: (consentAcceptedAt: string) => void;
     onDisconnect: () => void;
     onSave: () => void;
@@ -51,6 +57,9 @@ export function EegConnectPanel({
     assessmentStarted,
     channels,
     getChannelSamples,
+    showContact,
+    contactChannels,
+    getEegRateHz,
     onConnect,
     onDisconnect,
     onSave
@@ -72,7 +81,7 @@ export function EegConnectPanel({
     return (
         <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
             <div className="mb-2 flex items-center justify-between">
-                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">EEG Headband (optional)</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">EEG Headband</p>
                 <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
                         isConnected
@@ -114,6 +123,9 @@ export function EegConnectPanel({
                             </Button>
                         </div>
                     </div>
+                    {isConnected && showContact && (
+                        <MuseContactLights channels={contactChannels} getChannelSamples={getChannelSamples} getEegRateHz={getEegRateHz} />
+                    )}
                     {isConnected && assessmentStarted && (
                         <EegWaveform
                             active={isLive}

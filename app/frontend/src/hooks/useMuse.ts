@@ -3,11 +3,19 @@ import { WebBluetoothMuse, channelsForPreset, type BluetoothLike, type DeviceInf
 import { Recorder, type SessionFile } from "@/session/recorder";
 import type { Marker } from "@/session/protocol";
 import { RollingWindow } from "@/session/stability";
+import { contactSnapshot, type ContactSnapshot } from "@/muse/contact";
 import { downloadJson, sessionFilename } from "@/ui/download";
 import { isWebBluetoothAvailable } from "@/support";
 import { explainConnectError, explainStartError } from "@/ui/errors";
 
 export type MuseStatus = "idle" | "connecting" | "streaming" | "paused" | "error" | "disconnected";
+
+// The four scalp sensors the fit indicator judges (AUX, when present, isn't worn on skin).
+const CONTACT_CHANNELS: readonly EegChannel[] = ["TP9", "AF7", "AF8", "TP10"];
+// The EEG rate is measured over this much stream (page clock), then restarted.
+const RATE_WINDOW_MS = 10_000;
+// A provisional rate is reported once this much stream has been seen.
+const RATE_MIN_SPAN_MS = 2_000;
 
 // 5 seconds of scrolling history at the headband's 256 Hz EEG rate.
 const CHART_WINDOW_SAMPLES = 256 * 5;
@@ -38,6 +46,14 @@ export function useMuse() {
 
     const sourceRef = useRef<WebBluetoothMuse | null>(null);
     const buffersRef = useRef<Map<EegChannel, RollingWindow>>(new Map());
+    // Observed EEG rate (samples/s on TP9 over the page clock): the fit indicator's 512-sample
+    // window is only ~2 s if the stream really runs at 256 Hz, so this is measured, not assumed.
+    const rateRef = useRef<{ startTMs: number | null; samples: number; lastHz: number | null; spanHz: number | null }>({
+        startTMs: null,
+        samples: 0,
+        lastHz: null,
+        spanHz: null
+    });
     const unsubsRef = useRef<Array<() => void>>([]);
     const recorderRef = useRef<Recorder | null>(null);
     const recordedAtRef = useRef<Date | null>(null);
@@ -105,6 +121,7 @@ export function useMuse() {
             const buffers = new Map<EegChannel, RollingWindow>();
             for (const ch of channelsForPreset(PRESET)) buffers.set(ch, new RollingWindow(CHART_WINDOW_SAMPLES));
             buffersRef.current = buffers;
+            rateRef.current = { startTMs: null, samples: 0, lastHz: null, spanHz: null };
 
             const source = new WebBluetoothMuse(nav.bluetooth);
             sourceRef.current = source;
@@ -131,6 +148,21 @@ export function useMuse() {
                 unsubsRef.current.push(
                     source.on("eeg", r => {
                         buffersRef.current.get(r.ch)?.push(r.uV);
+                        if (r.ch === "TP9") {
+                            const rate = rateRef.current;
+                            if (rate.startTMs === null) {
+                                rate.startTMs = r.tMs; // this packet's samples precede the span
+                            } else {
+                                rate.samples += r.uV.length;
+                                const spanMs = r.tMs - rate.startTMs;
+                                if (spanMs >= RATE_MIN_SPAN_MS) rate.spanHz = rate.samples / (spanMs / 1000);
+                                if (spanMs >= RATE_WINDOW_MS) {
+                                    rate.lastHz = rate.spanHz;
+                                    rate.startTMs = r.tMs;
+                                    rate.samples = 0;
+                                }
+                            }
+                        }
                         if (pausedRef.current) return;
                         sessionTMsRef.current = r.tMs;
                         recorderRef.current?.push(r);
@@ -281,6 +313,19 @@ export function useMuse() {
         return buffersRef.current.get(ch)?.values() ?? new Float32Array(0);
     }, []);
 
+    /** Observed EEG rate in Hz (latest full 10 s window, else the span so far), or null before ~2 s. */
+    const getEegRateHz = useCallback((): number | null => rateRef.current.lastHz ?? rateRef.current.spanHz, []);
+
+    /** Save the headband fit (muse/contact.ts) into the current recording. No-op when not recording. */
+    const recordContactSnapshot = useCallback(
+        (label: ContactSnapshot["label"]) => {
+            const recorder = recorderRef.current;
+            if (!recorder) return;
+            recorder.addContactSnapshot(contactSnapshot(label, sessionTMsRef.current, CONTACT_CHANNELS, getChannelSamples, getEegRateHz()));
+        },
+        [getChannelSamples, getEegRateHz]
+    );
+
     // Downloads everything recorded so far (EEG, IMU, PPG, telemetry, markers)
     // as a muse-web-bridge/3 session file. Works mid-stream or after disconnect —
     // the recorder isn't cleared until the next connect().
@@ -340,6 +385,9 @@ export function useMuse() {
         finishForUpload,
         splitRecording,
         getChannelSamples,
+        getEegRateHz,
+        recordContactSnapshot,
+        contactChannels: CONTACT_CHANNELS,
         channels
     };
 }

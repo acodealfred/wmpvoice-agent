@@ -26,6 +26,7 @@ from ciq.prompts.builder import (
 )
 from ciq.prompts.personas import READINESS_SYSTEM_MESSAGE
 from ciq.realtime.behaviour_capture import start_behaviour_capture
+from ciq.realtime.report_zone import report_zone_lines
 from ciq.realtime.session import (
     SessionStore,
     current_session,
@@ -903,7 +904,14 @@ class RTMiddleTier:
                     # to call — which also stores spoken_report_text for follow-up Q&A.
                     sess = self._sess
                     result = await query_survey_tool(sess, sess.survey_config, {"query_type": "burnout_score"})
-                    instructions = report_cue_instructions(message.get("cue", ""), json.loads(result.to_text()))
+                    report = json.loads(result.to_text())
+                    # STEP 2: the run's Fatigue ↔ Burnout zone as fixed sentences ([] → skipped),
+                    # also kept in the follow-up context so questions about it stay grounded.
+                    report["zone_lines"] = await report_zone_lines(sess)
+                    if report["zone_lines"]:
+                        zone_text = "Fatigue ↔ Burnout zone: " + " ".join(report["zone_lines"])
+                        sess.spoken_report_text = f"{sess.spoken_report_text}\n{zone_text}" if sess.spoken_report_text else zone_text
+                    instructions = report_cue_instructions(message.get("cue", ""), report)
                     if instructions is None:
                         logger.warning("[RTMT] Report cue %s ignored (unknown cue or no results)", message.get("cue"))
                         return None
