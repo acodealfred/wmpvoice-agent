@@ -28,9 +28,13 @@ from ciq.prompts.personas import READINESS_SYSTEM_MESSAGE
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.report_zone import report_zone_lines
 from ciq.realtime.session import (
+    ConnectionState,
     SessionStore,
+    current_connection,
     current_session,
+    reset_active_connection,
     reset_active_session,
+    set_active_connection,
     set_active_session,
 )
 from ciq.realtime.timeline_capture import (
@@ -141,9 +145,9 @@ class RTMiddleTier:
         self.default_survey_config = {}
         # Per-session state store
         self._store = SessionStore()
-        # Per-connection tool call tracking (initialized fresh in _forward_messages)
-        self._tools_pending: dict = {}
-        self._response_in_progress = False
+        # Per-connection tool call tracking lives in ConnectionState (see the
+        # _tools_pending / _response_in_progress properties) — never on self,
+        # since this instance is shared by every concurrent user.
         if voice_choice is not None:
             logger.info("Realtime voice choice set to %s", voice_choice)
         if isinstance(credentials, AzureKeyCredential):
@@ -164,6 +168,20 @@ class RTMiddleTier:
     def _sess(self):
         """Return the SessionState for the current async context."""
         return current_session()
+
+    @property
+    def _tools_pending(self) -> dict:
+        """Pending tool calls for the current WS connection."""
+        return current_connection().tools_pending
+
+    @property
+    def _response_in_progress(self) -> bool:
+        """Whether the current connection's upstream has a response running."""
+        return current_connection().response_in_progress
+
+    @_response_in_progress.setter
+    def _response_in_progress(self, value: bool) -> None:
+        current_connection().response_in_progress = value
 
     def get_or_create_session(self, session_id: str):
         return self._store.get_or_create(session_id)
@@ -971,9 +989,7 @@ class RTMiddleTier:
         return updated_message
 
     async def _forward_messages(self, ws: web.WebSocketResponse):
-        # Per-connection state: reset on every new WS connection.
-        self._tools_pending = {}
-        self._response_in_progress = False
+        # Per-connection state (ConnectionState) is set fresh by _websocket_handler.
         async with aiohttp.ClientSession(base_url=self.endpoint) as session:
             params = {"api-version": self.api_version, "deployment": self.deployment}
             headers = {}
@@ -1154,8 +1170,10 @@ class RTMiddleTier:
         ):
             start_behaviour_capture(sess, "pre")
 
-        # Set context var — inherited by both gather tasks in _forward_messages
+        # Set context vars — inherited by both relay tasks in _forward_messages.
+        # A fresh ConnectionState per WS: a reconnect starts with no pending tools.
         token = set_active_session(sess)
+        conn_token = set_active_connection(ConnectionState())
         try:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
@@ -1169,6 +1187,7 @@ class RTMiddleTier:
             # dropped network is an implicit pause, and the run must be
             # continuable after a reload, redeploy or session eviction.
             await flush_timeline(sess)
+            reset_active_connection(conn_token)
             reset_active_session(token)
         return ws
 

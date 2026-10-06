@@ -37,6 +37,7 @@ import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { MusePanel } from "@/components/ui/muse-panel";
 import { EegConnectPanel } from "@/components/ui/eeg-connect-panel";
+import EegPairModal, { type EegPairVariant } from "@/components/ui/eeg-pair-modal";
 import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
 import { GuestLanding } from "@/components/ui/guest-landing";
@@ -207,8 +208,8 @@ function App() {
         setBaseline
     } = useBiometrics();
 
-    // Optional Muse EEG headband, self-paired from the assessment screen (see
-    // EegConnectPanel below). Raw recording only — no derived stress/burnout
+    // Optional Muse EEG headband, self-paired via EegPairModal when a start action finds
+    // it disconnected (live status in EegConnectPanel below). Raw recording only — no derived stress/burnout
     // metric is computed from it (docs/muse-2-findings.md defers that). Owned
     // here, rather than inside the panel, so the survey lifecycle below can
     // mark question boundaries and upload the finished recording.
@@ -383,12 +384,10 @@ function App() {
     // Half-duplex mic (lib/mic-gate.ts): the user's mic audio isn't sent while the agent
     // is speaking, so it can't hear its own voice or be interrupted. On reopening, the
     // server's input buffer is cleared so no leftover echo becomes a user turn.
-    const [micPaused, setMicPaused] = useState(false);
     const inputAudioBufferClearRef = useRef<() => void>(() => {});
     const micGateRef = useRef<MicGate | null>(null);
     if (micGateRef.current === null) {
         micGateRef.current = new MicGate(open => {
-            setMicPaused(!open);
             if (open) inputAudioBufferClearRef.current();
         });
     }
@@ -407,6 +406,10 @@ function App() {
     // Set once the PILOT report is saved: the strict report-only reconnect is done when
     // Start is pressed (before the explanation), not on the next response.done.
     const reportResetPendingRef = useRef(false);
+    // PILOT: from the last answer until Start is pressed on the report screen, the user's
+    // mic audio isn't sent at all — the agent has told them to press Start, so speaking
+    // shouldn't open a conversation before the report has been explained.
+    const reportMicLockedRef = useRef(false);
 
     const {
         startSession,
@@ -539,6 +542,7 @@ function App() {
                 // and the full report revealed once that resolves (handleReportReady).
                 setReportLoading(true);
                 setShowDetailedReport(true);
+                if (isPilotRef.current) reportMicLockedRef.current = true;
                 eegSegmentLiveRef.current = false; // this last segment is uploaded right here
                 if (eegHasRecording) {
                     const file = finishEegForUpload();
@@ -692,7 +696,7 @@ function App() {
     };
     const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({
         onAudioRecorded: chunk => {
-            if (micGateRef.current?.isOpen()) addUserAudio(chunk);
+            if (micGateRef.current?.isOpen() && !reportMicLockedRef.current) addUserAudio(chunk);
         }
     });
 
@@ -714,6 +718,7 @@ function App() {
         setEnableBiometrics(true);
         reportSpeech.reset();
         reportResetPendingRef.current = false;
+        reportMicLockedRef.current = false;
         // The run id itself is set by the caller: minted by the backend on Start, or
         // the paused run's id on Continue.
     }, []);
@@ -816,6 +821,26 @@ function App() {
         [requiresConsent, consentGiven]
     );
 
+    // Pre-start EEG prompt (EegPairModal): shown by Start / Start new / Continue only when
+    // the headband isn't connected and Web Bluetooth is available. Resolves true to
+    // proceed (paired in the modal, or "Continue without EEG") and false on Cancel. EEG
+    // stays optional — this is a reminder with a pairing shortcut, not a gate.
+    const [eegPromptVariant, setEegPromptVariant] = useState<EegPairVariant | null>(null);
+    const eegPromptResolveRef = useRef<((proceed: boolean) => void) | null>(null);
+    const eegConnected = eegStatus === "streaming" || eegStatus === "paused";
+    const confirmEegOrPair = (variant: EegPairVariant): Promise<boolean> => {
+        if (eegConnected || !eegAvailable) return Promise.resolve(true);
+        return new Promise(resolve => {
+            eegPromptResolveRef.current = resolve;
+            setEegPromptVariant(variant);
+        });
+    };
+    const closeEegPrompt = useCallback((proceed: boolean) => {
+        setEegPromptVariant(null);
+        eegPromptResolveRef.current?.(proceed);
+        eegPromptResolveRef.current = null;
+    }, []);
+
     // Primary toggle: start / stop / resume. It never resets — a stopped survey
     // (mid-way) is left untouched so pressing it again resumes, and after completion
     // it simply reconnects the user for report Q&A. Starting a brand-new assessment
@@ -826,12 +851,7 @@ function App() {
         // there's real progress, it's too late for the headband to matter and repeatedly
         // asking on every pause/resume would just be noise. EEG stays fully optional:
         // this is a reminder, not a gate — Continue proceeds with no EEG either way.
-        if (!eegHasRecording && !hasAssessment) {
-            const proceed = window.confirm(
-                "EEG headband isn't connected. If you plan to use it for this assessment, cancel and pair it first — otherwise no EEG data will be recorded for this session. Continue without it?"
-            );
-            if (!proceed) return;
-        }
+        if (!hasAssessment && !(await confirmEegOrPair("start"))) return;
         setIsRecording(true);
         // Make sure any survey-type selection has actually landed server-side before
         // we send session.update — otherwise the agent's question script can be built
@@ -912,12 +932,7 @@ function App() {
         }
         // A new assessment always starts a genuinely fresh recording below
         // (beginNewEegRecording). Only asked if the headband isn't connected at all.
-        if (!eegHasRecording) {
-            const proceed = window.confirm(
-                "EEG headband isn't connected. If you plan to use it for this new assessment, cancel and pair it first — otherwise no EEG data will be recorded for this session. Continue without it?"
-            );
-            if (!proceed) return;
-        }
+        if (!(await confirmEegOrPair("new"))) return;
         // Guard against the old turn's audio bleeding into the new session during the
         // reconnect below; lifted on the fresh session.created (onReceivedSessionReady).
         suppressAgentAudioRef.current = true;
@@ -1016,12 +1031,7 @@ function App() {
             return;
         }
         stopAudioPlayer();
-        if (!eegHasRecording) {
-            const proceed = window.confirm(
-                "EEG headband isn't connected. If you plan to use it for the rest of this assessment, cancel and pair it first — otherwise no EEG data will be recorded for the remaining questions. Continue without it?"
-            );
-            if (!proceed) return;
-        }
+        if (!(await confirmEegOrPair("continue"))) return;
         let run: AssessmentContinued;
         try {
             run = await continueAssessment(resumable.surveyRunId);
@@ -1100,6 +1110,7 @@ function App() {
     // greeting turn, then send the report cue (if any). The cue waits for a live session,
     // so it also fires correctly right after the report-only reconnect.
     const listenForReport = async (cue: ReportCue | null) => {
+        reportMicLockedRef.current = false;
         if (!isRecording) {
             setIsRecording(true);
             startSession();
@@ -1598,8 +1609,11 @@ function App() {
                                     <div className={`relative p-4 ${fitScreen ? "lg:min-h-0 lg:flex-1" : ""}`}>
                                         {/* The camera stays mounted underneath in avatar mode so MediaPipe
                                             biometric capture is never interrupted — the avatar just overlays it. */}
+                                        {/* The report hides this card, so release the device camera there
+                                            too — except while the Recovery Window (which mirrors this
+                                            stream) is open over it. */}
                                         <VideoPanel
-                                            isRecording={isRecording}
+                                            isRecording={isRecording && (!pilotReportMode || recoveryWindowOpen)}
                                             expanded={videoExpanded}
                                             fitHeight={fitScreen}
                                             onVideoReady={setVideoElement}
@@ -1620,18 +1634,7 @@ function App() {
                                             {enableSurvey && (
                                                 <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
                                                     <div className="space-y-2">
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <div className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Survey Assessment</div>
-                                                            {isRecording && micPaused && (
-                                                                <span
-                                                                    className="flex items-center gap-1 text-[11px] text-[color:var(--ciq-text-60)]"
-                                                                    role="status"
-                                                                >
-                                                                    <MicOff className="h-3 w-3" aria-hidden />
-                                                                    Mic paused while the agent speaks
-                                                                </span>
-                                                            )}
-                                                        </div>
+                                                        <div className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Survey Assessment</div>
                                                         {surveyTotal && surveyTotal > 0 && surveyQuestions && surveyQuestions.length > 0 ? (
                                                             <>
                                                                 <div className="text-xs text-[color:var(--ciq-text-60)]">
@@ -1874,7 +1877,6 @@ function App() {
                                                     showContact={!isRecording || baselineState === "recording"}
                                                     contactChannels={eegContactChannels}
                                                     getEegRateHz={getEegRateHz}
-                                                    onConnect={connectEeg}
                                                     onDisconnect={disconnectEeg}
                                                     onSave={saveEeg}
                                                 />
@@ -2173,6 +2175,18 @@ function App() {
                     </div>
                 </main>
             )}
+
+            <EegPairModal
+                variant={eegPromptVariant}
+                status={eegStatus}
+                error={eegError}
+                contactChannels={eegContactChannels}
+                getChannelSamples={getEegChannelSamples}
+                getEegRateHz={getEegRateHz}
+                onConnect={connectEeg}
+                onProceed={() => closeEegPrompt(true)}
+                onCancel={() => closeEegPrompt(false)}
+            />
 
             <ConsentModal
                 isOpen={showConsent}

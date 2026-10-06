@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, type ReactNode } from "react";
-import { BiometricSnapshot, SSoTReport, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse } from "@/types";
+import { BiometricSnapshot, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { fetchZoneTrend } from "@/lib/zone";
 import { blinkBandLevel } from "@/lib/bands";
 import { answerLevel, describeDomain, describeGauge } from "@/lib/report-descriptions";
-import { Loader2, AlertCircle, BookOpen, ExternalLink, Sparkles, Eye, Timer, Gauge } from "lucide-react";
+import { Loader2, AlertCircle, Sparkles, Eye, Timer, Gauge } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
 import { ReadinessReportView } from "@/components/ui/readiness-report-view";
 import { ZoneScale } from "@/components/ui/zone-scale";
@@ -108,18 +108,15 @@ function useThemeTokens(): Tokens {
     return tok;
 }
 
-type ReportTab = "analysis" | "kb" | "consultative";
+type ReportTab = "analysis" | "consultative";
 
 export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onClose, onReportDelivered, compact = false }: DetailedReportProps) {
     const tok = useThemeTokens();
 
-    const [ssotLoading, setSsotLoading] = useState(false);
-    const [ssotReport, setSsotReport] = useState<SSoTReport | null>(null);
-    const [ssotError, setSsotError] = useState<string | null>(null);
-    const [ssotQuery, setSsotQuery] = useState<string | null>(null);
-
     const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
+    // Bumped by the "Retry saving" button to re-run the /analyze-report save below.
+    const [saveAttempt, setSaveAttempt] = useState(0);
     // Fatigue ↔ Burnout zone, fetched once the run is saved. Any failure just hides the scale.
     const [zoneData, setZoneData] = useState<ZoneTrendResponse | null>(null);
 
@@ -185,66 +182,18 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         }
     };
 
-    const handleGenerateAIReport = async () => {
-        setSsotLoading(true);
-        setSsotError(null);
-        setSsotReport(null);
-        setSsotQuery(null);
-
-        const payload = { snapshots, session_id: sessionId ?? "", survey_run_id: surveyRunId ?? "", survey_type: surveyType ?? "" };
-        console.group("[SSOT] Generate AI Report");
-        console.log("→ POST /ssot-report", payload);
-
-        try {
-            const response = await apiFetch("/ssot-report", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-
-            const data = await response.json();
-            console.log(`← HTTP ${response.status}`, data);
-            console.groupEnd();
-
-            // Reaching the backend means the survey row was persisted (the record is
-            // saved up-front, before the KB call), so clear any auto-save warning.
-            setSaveError(null);
-
-            if (!response.ok) {
-                setSsotError(data.error ?? `Request failed (HTTP ${response.status})`);
-                return;
-            }
-
-            if (data.query) setSsotQuery(data.query);
-
-            if (data.ssotReport?.answer) {
-                setSsotReport(data.ssotReport);
-                onReportDelivered?.();
-            } else {
-                setSsotError("No report returned from Knowledge Base. Ensure documents are uploaded and the company is registered.");
-            }
-        } catch (err) {
-            console.error("[SSOT] Network error", err);
-            console.groupEnd();
-            setSsotError(err instanceof Error ? err.message : "Unknown error");
-        } finally {
-            setSsotLoading(false);
-        }
-    };
-
     // Open a report tab; the first time it's opened, kick off its generation.
     const openReportTab = (tab: ReportTab) => {
         setActiveReportTab(tab);
         if (tab === "analysis" && !analysisResult && !analysisLoading) handleGenerateAnalysis();
         else if (tab === "consultative" && !consultText && !consultLoading) handleGenerateConsultative();
-        else if (tab === "kb" && !ssotReport && !ssotLoading) handleGenerateAIReport();
     };
 
     // ── Data-driven technical report (POST /analyze-report) ───────────────
     // This call is also what persists the survey to history (backend writes the
     // survey_records row up-front). To make sure no survey is silently lost, we
     // retry a few times on transient failure and surface an error if it never
-    // succeeds, so the user can fall back to the "Generate AI Report" button.
+    // succeeds, so the user can press "Retry saving".
     useEffect(() => {
         if (snapshots.length === 0) return;
         let cancelled = false;
@@ -281,7 +230,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     if (attempt < MAX_ATTEMPTS) {
                         await sleep(attempt * 1000); // 1s, 2s backoff
                     } else {
-                        setSaveError('We couldn\'t save this result automatically. Press "Generate AI Report" below to retry and save it to your history.');
+                        setSaveError('We couldn\'t save this result automatically. Press "Retry saving" to try again and save it to your history.');
                     }
                 }
             }
@@ -290,7 +239,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [snapshots, sessionId]);
+    }, [snapshots, sessionId, saveAttempt]);
 
     // Once the report row is persisted, generate the consultative summary in the
     // background so its text (prompt_info.agentResponse) is saved to history. The
@@ -599,7 +548,16 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             {saveError && (
                 <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{saveError}</span>
+                    <span className="flex-1">{saveError}</span>
+                    <button
+                        onClick={() => {
+                            setSaveError(null);
+                            setSaveAttempt(n => n + 1);
+                        }}
+                        className="shrink-0 rounded-md border border-amber-300 px-2 py-0.5 text-xs font-semibold hover:bg-amber-100"
+                    >
+                        Retry saving
+                    </button>
                 </div>
             )}
 
@@ -763,15 +721,6 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                         onClick={() => openReportTab("analysis")}
                     />
                     <ReportTabButton
-                        label="AI Report (KB)"
-                        icon={<BookOpen className="h-4 w-4" />}
-                        active={activeReportTab === "kb"}
-                        loading={ssotLoading}
-                        disabled={snapshots.length === 0}
-                        special
-                        onClick={() => openReportTab("kb")}
-                    />
-                    <ReportTabButton
                         label="Consultative Summary"
                         icon={<Sparkles className="h-4 w-4" />}
                         active={activeReportTab === "consultative"}
@@ -817,52 +766,6 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                             <ReportEmpty label="Generate Behavioral Analysis" onClick={handleGenerateAnalysis} />
                         ))}
 
-                    {activeReportTab === "kb" &&
-                        (ssotLoading ? (
-                            <ReportLoading label="Generating AI report…" />
-                        ) : ssotReport ? (
-                            <div className="space-y-3">
-                                {ssotQuery && (
-                                    <div className="rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-3">
-                                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
-                                            Query sent to Knowledge Base
-                                        </p>
-                                        <p className="text-sm italic leading-relaxed text-[color:var(--ciq-text-body)]">{ssotQuery}</p>
-                                    </div>
-                                )}
-                                <div className="flex items-center gap-2">
-                                    <BookOpen className="h-5 w-5 text-[color:var(--ciq-accent-blue)]" />
-                                    <h4 className="text-base font-semibold text-[color:var(--ciq-text-strong)]">AI Consultative Report</h4>
-                                    <span className="ml-auto rounded-full bg-[color:var(--ciq-card-3)] px-2 py-0.5 text-xs font-medium text-[color:var(--ciq-accent-blue)]">
-                                        SSOT · Evidence-based
-                                    </span>
-                                </div>
-                                <Markdown>{ssotReport.answer}</Markdown>
-                                {ssotReport.citations.length > 0 && (
-                                    <div className="border-t border-[color:var(--ciq-line)] pt-3">
-                                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--ciq-text-muted)]">Citations</p>
-                                        <ul className="space-y-1.5">
-                                            {ssotReport.citations.map((c, i) => (
-                                                <li key={i} className="flex items-start gap-2 text-xs text-[color:var(--ciq-text-body)]">
-                                                    <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-[color:var(--ciq-accent-blue)]" />
-                                                    <span>
-                                                        <span className="font-medium text-[color:var(--ciq-accent-blue)]">{c.paperTitle}</span>
-                                                        {c.paperPage > 0 && (
-                                                            <span className="ml-1 text-[color:var(--ciq-text-muted)]">— p.&nbsp;{c.paperPage}</span>
-                                                        )}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                            </div>
-                        ) : ssotError ? (
-                            <ReportError text={ssotError} onRetry={handleGenerateAIReport} />
-                        ) : (
-                            <ReportEmpty label="Generate AI Report" onClick={handleGenerateAIReport} />
-                        ))}
-
                     {activeReportTab === "consultative" &&
                         (consultLoading ? (
                             <ReportLoading label="Summarizing…" />
@@ -885,7 +788,6 @@ function ReportTabButton({
     active,
     loading,
     disabled,
-    special,
     onClick
 }: {
     label: string;
@@ -893,7 +795,6 @@ function ReportTabButton({
     active: boolean;
     loading: boolean;
     disabled?: boolean;
-    special?: boolean;
     onClick: () => void;
 }) {
     return (
@@ -902,15 +803,13 @@ function ReportTabButton({
             disabled={disabled}
             aria-current={active ? "page" : undefined}
             className={`relative -mb-px flex flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--ciq-accent-purple)] disabled:cursor-not-allowed disabled:opacity-50 ${
-                special ? "bg-[color:var(--ciq-accent-blue)]/10 rounded-t-lg" : ""
-            } ${
                 active
-                    ? `font-bold text-[color:var(--ciq-text-strong)] ${special ? "border-[color:var(--ciq-accent-blue)]" : "border-[color:var(--ciq-accent-purple)]"}`
+                    ? "border-[color:var(--ciq-accent-purple)] font-bold text-[color:var(--ciq-text-strong)]"
                     : "border-transparent font-medium text-[color:var(--ciq-text-muted)] hover:text-[color:var(--ciq-text-strong)]"
             }`}
         >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className={special ? "text-[color:var(--ciq-accent-blue)]" : ""}>{icon}</span>}
-            <span className={special && !active ? "font-semibold text-[color:var(--ciq-accent-blue)]" : ""}>{label}</span>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>{icon}</span>}
+            <span>{label}</span>
         </button>
     );
 }

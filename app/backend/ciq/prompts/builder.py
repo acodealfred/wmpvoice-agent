@@ -608,6 +608,8 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
     first_style = _item_style(questions[0]) if questions else "question"
     first_labels = _labels_for(questions[0]) if questions else []
     scale_step = _scale_intro(first_style, first_labels)
+    reask_labels = first_labels if len(first_labels) >= 2 else ["Never", "Rarely", "Sometimes", "Often", "Always"]
+    reask_example = f'Just to check — would you say {", ".join(reask_labels[:-1])}, or {reask_labels[-1]}?'
 
     if is_returning_user:
         opening = f"""OPENING (returning user — skipped recording):
@@ -659,8 +661,10 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
                     f'TRANSITION before Step {i + 1}: Briefly tell the user you\'re moving to a new '
                     f'set of items before asking, e.g. "Great, now I\'ll {verb}." Then continue.\n\n'
                 )
+        block += f'Step {i + 1}/{len(questions)}: Ask the {noun} — "{q["prompt"]}"\n'
+        if len(labels) >= 2:
+            block += f'  Valid answers: {", ".join(labels)}.\n'
         block += (
-            f'Step {i + 1}/{len(questions)}: Ask the {noun} — "{q["prompt"]}"\n'
             f'  Then WAIT for the user to answer. Once they answer, call record_survey_response with question_id="{q["id"]}".'
         )
         question_blocks.append(block)
@@ -720,8 +724,13 @@ HOW TO ASK EACH QUESTION (conversational, not an interrogation):
 - Optionally add ONE short bridge sentence connecting to the next topic.
 - Ask the CURRENT step's question. You may phrase it naturally and warmly, but you MUST keep
   its original meaning and MUST NOT change what it is measuring.
-- If the answer is vague or doesn't map to a score, ask AT MOST ONE short clarifying follow-up,
-  then record it and move on. Never ask more than one follow-up for a question.
+- Record an answer ONLY when the user says one of the current step's "Valid answers" labels.
+- If the answer is anything else (e.g. "a lot", "twice a week", "kind of", "it depends",
+  "yes"), do NOT record it and NEVER pick, guess, or suggest a label for them — not even the
+  closest one. Instead re-ask with ALL of the current step's labels, e.g. "{reask_example}"
+  (always using THIS step's own "Valid answers" labels).
+- Keep re-asking this way until the user says one of the labels. Stay warm and patient, and
+  vary the wording slightly so it doesn't sound repetitive.
 
 STRICT RULES:
 - The OPENING's permission question ("shall we start?") and Step 1's question are TWO SEPARATE
@@ -733,7 +742,7 @@ STRICT RULES:
 - Use ONLY the questions listed above. Do NOT use any burnout knowledge from your training to
   add, substitute, or expand the questions.
 - Do NOT call record_survey_response when ASKING — only AFTER the user has answered (and after
-  your single optional clarifying follow-up, if you used one).
+  they have said one of that step's "Valid answers" labels).
 - Do NOT call record_survey_response for a question_id you have already recorded.
 - If the user goes off-topic, gently steer back: "Let's stay with this one for a moment —" and
   re-ask the current step's question.

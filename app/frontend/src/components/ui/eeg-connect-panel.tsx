@@ -1,5 +1,4 @@
-import { useRef, useState } from "react";
-import { Bluetooth, BluetoothConnected, Download } from "lucide-react";
+import { BluetoothConnected, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EegWaveform } from "@/components/ui/eeg-waveform";
 import { MuseContactLights } from "@/components/ui/muse-contact-lights";
@@ -23,7 +22,6 @@ interface EegConnectPanelProps {
     showContact: boolean;
     contactChannels: readonly EegChannel[];
     getEegRateHz: () => number | null;
-    onConnect: (consentAcceptedAt: string) => void;
     onDisconnect: () => void;
     onSave: () => void;
 }
@@ -38,8 +36,9 @@ const STATUS_LABEL: Record<MuseStatus, string> = {
 };
 
 /**
- * Self-service pairing for the optional Muse EEG headband, shown on the main
- * assessment screen (not admin-gated, unlike the bench-calibration MusePanel).
+ * Live status for the optional Muse EEG headband, shown on the main assessment
+ * screen (not admin-gated, unlike the bench-calibration MusePanel). Pairing itself
+ * lives in EegPairModal, raised by Start / Start new / Continue when not connected.
  * Renders nothing when Web Bluetooth isn't available — this is an opportunistic
  * extra, not a required step, so there's no error state for unsupported browsers.
  *
@@ -60,23 +59,14 @@ export function EegConnectPanel({
     showContact,
     contactChannels,
     getEegRateHz,
-    onConnect,
     onDisconnect,
     onSave
 }: EegConnectPanelProps) {
-    const [consented, setConsented] = useState(false);
-    const consentAcceptedAtRef = useRef<string | null>(null);
-
     if (!available) return null;
 
     const isBusy = status === "connecting";
     const isLive = status === "streaming";
     const isConnected = isLive || status === "paused";
-
-    const handleConsentChange = (checked: boolean) => {
-        setConsented(checked);
-        consentAcceptedAtRef.current = checked ? new Date().toISOString() : null;
-    };
 
     return (
         <div className="rounded-xl border border-[color:var(--ciq-divider)] bg-[color:var(--ciq-tile)] p-3">
@@ -84,18 +74,15 @@ export function EegConnectPanel({
                 <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[color:var(--ciq-text-60)]">EEG Headband</p>
                 <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
-                        isConnected
-                            ? "text-[color:var(--ciq-accent-green)]"
-                            : status === "error"
-                              ? "text-[color:var(--ciq-accent-red)]"
-                              : "text-[color:var(--ciq-text-60)]"
+                        isConnected ? "text-[color:var(--ciq-accent-green)]" : "text-[color:var(--ciq-text-60)]"
                     }`}
                 >
-                    {STATUS_LABEL[status]}
+                    {/* A failed pairing attempt is reported in EegPairModal; here it's just not connected. */}
+                    {STATUS_LABEL[status === "error" ? "idle" : status]}
                 </span>
             </div>
 
-            {error && <p className="mb-2 text-xs text-[color:var(--ciq-accent-red)]">{error}</p>}
+            {error && (isConnected || isBusy) && <p className="mb-2 text-xs text-[color:var(--ciq-accent-red)]">{error}</p>}
 
             {isConnected || isBusy ? (
                 <div className="space-y-2">
@@ -147,28 +134,14 @@ export function EegConnectPanel({
                 // file that was already uploaded, for anyone who wants a local copy too.
                 <div className="space-y-2">
                     <p className="text-xs text-[color:var(--ciq-text-86)]">Recording complete and saved to your assessment.</p>
-                    <div className="flex gap-2">
-                        <Button onClick={onSave} size="sm" variant="outline" className="flex-1">
-                            <Download className="mr-2 h-4 w-4" />
-                            Download JSON
-                        </Button>
-                        <Button onClick={() => onConnect(new Date().toISOString())} size="sm" variant="outline" className="flex-1">
-                            <Bluetooth className="mr-2 h-4 w-4" />
-                            Pair again
-                        </Button>
-                    </div>
-                </div>
-            ) : (
-                <div>
-                    <label className="mb-2 flex cursor-pointer items-start gap-2 text-xs text-[color:var(--ciq-text-86)]">
-                        <input type="checkbox" className="mt-0.5" checked={consented} onChange={e => handleConsentChange(e.target.checked)} />I consent to my
-                        EEG being recorded during this assessment.
-                    </label>
-                    <Button onClick={() => onConnect(consentAcceptedAtRef.current!)} size="sm" disabled={!consented} className="w-full">
-                        <Bluetooth className="mr-2 h-4 w-4" />
-                        Pair headband
+                    <Button onClick={onSave} size="sm" variant="outline" className="w-full">
+                        <Download className="mr-2 h-4 w-4" />
+                        Download JSON
                     </Button>
                 </div>
+            ) : (
+                // Pairing happens in EegPairModal, raised by Start / Start new / Continue.
+                <p className="text-xs text-[color:var(--ciq-text-60)]">Not connected — you'll be offered to pair it when you start.</p>
             )}
         </div>
     );

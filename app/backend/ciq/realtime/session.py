@@ -421,6 +421,41 @@ def current_session() -> "SessionState":
     return sess
 
 
+@dataclass
+class ConnectionState:
+    """State tied to ONE realtime WS connection (and its upstream Azure socket).
+
+    Deliberately not on SessionState: a session_id can briefly have two live
+    connections (second tab, reconnect overlapping the closing socket), and each
+    has its own response cycle. Must never live on the shared RTMiddleTier either,
+    or concurrent users clobber each other's pending tool calls.
+    """
+    tools_pending: dict = field(default_factory=dict)
+    response_in_progress: bool = False
+
+
+# Same propagation model as _active_session: set in _forward_messages before the
+# relay tasks are gathered, so both tasks share this connection's object.
+_active_connection: contextvars.ContextVar["ConnectionState | None"] = contextvars.ContextVar(
+    "active_connection", default=None
+)
+
+
+def set_active_connection(conn: "ConnectionState"):
+    return _active_connection.set(conn)
+
+
+def reset_active_connection(token) -> None:
+    _active_connection.reset(token)
+
+
+def current_connection() -> "ConnectionState":
+    conn = _active_connection.get()
+    if conn is None:
+        raise RuntimeError("No active realtime connection in context")
+    return conn
+
+
 class SessionStore:
     """Owns the lifetime of all live sessions."""
 
