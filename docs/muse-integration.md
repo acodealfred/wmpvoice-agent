@@ -318,6 +318,10 @@ which version of this code wrote it.
 }
 ```
 
+- **On admin download** (`/admin/eeg-sessions/export`, the Data Validation ZIP) the
+  file also carries a top-level `"ciq": {"user_id", "survey_run_id", "segment_index"}`
+  block identifying whose recording it is. It is added to the downloaded copy only —
+  the stored file is unchanged — and readers (e.g. `ciq/eeg/combine.py`) ignore it.
 - `t0_epoch_ms` is **absent**, never `0`, when streaming never started.
 - It is an offset to refine, not a reference: it is host-stamped, so it carries
   the same arrival jitter. It does not change how packets are timed — `seq`

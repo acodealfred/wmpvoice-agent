@@ -60,6 +60,7 @@ def test_exports_have_no_pupil_columns():
 
 
 _FRAME = {
+    "user_id": "user-1", "survey_run_id": "run-1",
     "frame_index": 0, "timestamp": "2026-01-01T00:00:00", "turn_state": "user_answer",
     "question_id": "q1", "question_index": 1, "blink_rate_bpm": 15.0,
     "blink_rate_change_percent": 5.0, "pupil_mm_change": 0.42,
@@ -102,6 +103,9 @@ async def test_timeline_export_rows_line_up_with_headers(monkeypatch):
     assert by_name["stress_state"] == "normal"
     assert (by_name["stage"], by_name["segment_index"]) == ("survey", "0")  # legacy row: no stage stored
     assert "0.42" not in row  # stored pupil value never leaks into the export
+    # Every row leads with its owner so CSVs pooled across users stay attributable.
+    assert header[:2] == ["user_id", "survey_run_id"]
+    assert row[:2] == ["user-1", "run-1"]
 
 
 async def test_pilot_export_rows_line_up_with_headers(monkeypatch):

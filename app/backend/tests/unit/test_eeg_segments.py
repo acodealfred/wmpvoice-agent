@@ -114,11 +114,21 @@ async def test_segment_download(initialized_db):
 
         one = await client.get(url + "&segment=1")
         assert one.status == 200
-        assert (await one.json())["t0_epoch_ms"] == 20
-        assert "segment1" in one.headers["Content-Disposition"]
+        seg1 = await one.json()
+        assert seg1["t0_epoch_ms"] == 20
+        # Every downloaded file says whose recording it is — in the file and its name.
+        assert seg1["ciq"] == {"user_id": user, "survey_run_id": "run", "segment_index": 1}
+        assert f'filename="eeg_session_{user[:8]}_run_segment1.json"' in one.headers["Content-Disposition"]
 
         bundle = await (await client.get(url)).json()
         assert [s["segment_index"] for s in bundle["segments"]] == [0, 1]
+        assert bundle["user_id"] == user
+        assert [s["file"]["ciq"]["segment_index"] for s in bundle["segments"]] == [0, 1]
+
+        # The tag is added to the downloaded copy only — the stored recording is untouched.
+        from db import get_eeg_segments
+
+        assert all("ciq" not in s["file_json"] for s in await get_eeg_segments("run"))
 
         assert (await client.get(url + "&segment=5")).status == 404
         assert (await client.get(url + "&segment=x")).status == 400

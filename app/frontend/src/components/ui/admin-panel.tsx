@@ -24,19 +24,9 @@ import { apiFetch } from "@/lib/api";
 import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
 import { PILL, BANNER } from "@/lib/badges";
 import { formatServerDate } from "@/lib/datetime";
+import { downloadBlob as triggerBlobDownload, filenameFromResponse } from "@/ui/download";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
-
-function triggerBlobDownload(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-}
 
 export function AdminPanel() {
     // ── KB Registration ──────────────────────────────────────────────
@@ -404,7 +394,7 @@ export function AdminPanel() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `survey_timeline_${timelineRunId.slice(0, 8)}.csv`;
+            a.download = filenameFromResponse(resp, `survey_timeline_${timelineRunId.slice(0, 8)}.csv`);
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -435,7 +425,7 @@ export function AdminPanel() {
                 });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const suffix = segment === undefined ? "" : `_segment${segment}`;
-                triggerBlobDownload(await resp.blob(), `eeg_session_${timelineRunId.slice(0, 8)}${suffix}.json`);
+                triggerBlobDownload(await resp.blob(), filenameFromResponse(resp, `eeg_session_${timelineRunId.slice(0, 8)}${suffix}.json`));
             } catch (err) {
                 setEegError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");
             } finally {
@@ -465,7 +455,7 @@ export function AdminPanel() {
                 credentials: "same-origin"
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            triggerBlobDownload(await resp.blob(), `survey_timeline_combined_${timelineRunId.slice(0, 8)}.csv`);
+            triggerBlobDownload(await resp.blob(), filenameFromResponse(resp, `survey_timeline_combined_${timelineRunId.slice(0, 8)}.csv`));
             setCombinedNotice(resp.headers.get("X-Unified-Warning"));
         } catch (err) {
             setCombinedError(err instanceof Error ? `Download failed (${err.message})` : "Download failed");

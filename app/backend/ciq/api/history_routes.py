@@ -9,6 +9,7 @@ from aiohttp import web
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
+from ciq.common.export_names import export_filename
 from ciq.eeg.combine import EEG_COLUMNS, combine_segments
 from ciq.zone import ZoneConfigError, build_zone_trend
 from db import (
@@ -29,7 +30,9 @@ from survey_loader import compute_survey_summary, effective_score, load_survey
 
 logger = logging.getLogger("voicerag")
 
+# user_id / survey_run_id lead every row so CSVs pooled across users stay attributable.
 _TIMELINE_EXPORT_HEADERS = [
+    "user_id", "survey_run_id",
     "frame_index", "elapsed_seconds", "timestamp", "stage", "segment_index", "turn_state",
     "is_question_frame", "is_answer_frame", "question_id", "question_index",
     "blink_rate_bpm", "blink_rate_change_percent",
@@ -43,6 +46,7 @@ def _timeline_row(f: dict) -> list:
     and combined exports so their columns can never drift apart. Rows recorded
     before the timeline covered the baseline have no stage: they were survey rows."""
     return [
+        f.get("user_id"), f.get("survey_run_id"),
         f["frame_index"], f["frame_index"], f["timestamp"], f.get("stage") or "survey",
         f.get("segment_index") or 0, f["turn_state"],
         f["turn_state"] == "agent_question", f["turn_state"] == "user_answer",
@@ -273,6 +277,12 @@ async def admin_list_user_survey_runs(request: web.Request) -> web.Response:
     return web.json_response({"runs": runs})
 
 
+async def run_owner(survey_run_id: str) -> str | None:
+    """The run's user_id (for export filenames), or None when the run has no record."""
+    record = await get_survey_record(survey_run_id)
+    return record.get("user_id") if record else None
+
+
 async def _summary_rows(survey_run_id: str) -> list[list]:
     """The summary blocks for one run, with the answers fallback for partial runs."""
     return build_survey_summary_rows(
@@ -295,6 +305,16 @@ async def admin_export_survey_timeline(request: web.Request) -> web.Response:
     if not survey_run_id:
         return web.json_response({"error": "survey_run_id is required"}, status=400)
 
+    return web.Response(
+        body=await build_timeline_csv(survey_run_id),
+        headers={"Content-Disposition": f'attachment; filename="{export_filename("timeline", survey_run_id, await run_owner(survey_run_id))}"'},
+        content_type="text/csv",
+    )
+
+
+async def build_timeline_csv(survey_run_id: str) -> str:
+    """The per-second timeline CSV body for one run — shared by the timeline export
+    and the Data Validation ZIP."""
     frames = await get_survey_timeline_frames(survey_run_id)
 
     buf = io.StringIO()
@@ -302,12 +322,37 @@ async def admin_export_survey_timeline(request: web.Request) -> web.Response:
     writer.writerow(_TIMELINE_EXPORT_HEADERS)
     writer.writerows(_timeline_row(f) for f in frames)
     writer.writerows(await _summary_rows(survey_run_id))
+    return buf.getvalue()
 
-    return web.Response(
-        body=buf.getvalue(),
-        headers={"Content-Disposition": f'attachment; filename="survey_timeline_{survey_run_id[:8]}.csv"'},
-        content_type="text/csv",
-    )
+
+class MalformedEegError(ValueError):
+    """The run's stored EEG recording could not be combined with its timeline."""
+
+
+async def build_combined_csv(survey_run_id: str) -> tuple[str, list[str]] | None:
+    """The combined timeline + EEG CSV body and its alignment warnings for one run,
+    or None when the run has no EEG. Raises MalformedEegError for a bad recording.
+    Shared by the combined export and the Data Validation ZIP."""
+    segments = await get_eeg_segments(survey_run_id)
+    if not segments:
+        return None
+
+    frames = await get_survey_timeline_frames(survey_run_id)
+    segment_files = {s["segment_index"]: s["file_json"] for s in segments}
+
+    # numpy/scipy work — off the event loop so live voice sessions don't stall.
+    try:
+        eeg_rows, warnings = await asyncio.to_thread(combine_segments, segment_files, frames)
+    except (KeyError, TypeError, ValueError, IndexError) as e:
+        raise MalformedEegError(f"The stored EEG recording is malformed: {e!r}") from e
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([*_TIMELINE_EXPORT_HEADERS, *EEG_COLUMNS])
+    for f, eeg in zip(frames, eeg_rows):
+        writer.writerow([*_timeline_row(f), *(eeg[c] for c in EEG_COLUMNS)])
+    writer.writerows(await _summary_rows(survey_run_id))
+    return buf.getvalue(), warnings
 
 
 async def admin_export_survey_timeline_combined(request: web.Request) -> web.Response:
@@ -323,30 +368,19 @@ async def admin_export_survey_timeline_combined(request: web.Request) -> web.Res
     if not survey_run_id:
         return web.json_response({"error": "survey_run_id is required"}, status=400)
 
-    segments = await get_eeg_segments(survey_run_id)
-    if not segments:
-        return web.json_response({"error": "No EEG session recorded for this survey run"}, status=404)
-
-    frames = await get_survey_timeline_frames(survey_run_id)
-    segment_files = {s["segment_index"]: s["file_json"] for s in segments}
-
-    # numpy/scipy work — off the event loop so live voice sessions don't stall.
     try:
-        eeg_rows, warnings = await asyncio.to_thread(combine_segments, segment_files, frames)
-    except (KeyError, TypeError, ValueError, IndexError) as e:
-        return web.json_response({"error": f"The stored EEG recording is malformed: {e!r}"}, status=422)
+        combined = await build_combined_csv(survey_run_id)
+    except MalformedEegError as e:
+        return web.json_response({"error": str(e)}, status=422)
+    if combined is None:
+        return web.json_response({"error": "No EEG session recorded for this survey run"}, status=404)
+    body, warnings = combined
 
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow([*_TIMELINE_EXPORT_HEADERS, *EEG_COLUMNS])
-    for f, eeg in zip(frames, eeg_rows):
-        writer.writerow([*_timeline_row(f), *(eeg[c] for c in EEG_COLUMNS)])
-    writer.writerows(await _summary_rows(survey_run_id))
-
-    headers = {"Content-Disposition": f'attachment; filename="survey_timeline_combined_{survey_run_id[:8]}.csv"'}
+    filename = export_filename("combined", survey_run_id, await run_owner(survey_run_id))
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     if warnings:
         headers["X-Unified-Warning"] = " | ".join(warnings)
-    return web.Response(body=buf.getvalue(), headers=headers, content_type="text/csv")
+    return web.Response(body=body, headers=headers, content_type="text/csv")
 
 
 async def user_sessions_history(request: web.Request) -> web.Response:

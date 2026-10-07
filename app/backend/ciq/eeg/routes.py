@@ -4,6 +4,7 @@ import logging
 
 from aiohttp import web
 
+from ciq.common.export_names import export_filename
 from db import get_eeg_segments, save_eeg_segment, save_eeg_session
 
 logger = logging.getLogger("voicerag")
@@ -62,6 +63,37 @@ async def upload_eeg_session(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+def _tagged(survey_run_id: str, seg: dict):
+    """A COPY of the segment's Muse file with a top-level `ciq` identity block, so a
+    downloaded file always says whose recording it is. The stored file_json is never
+    modified; combine.py and other readers ignore the extra key."""
+    file = seg["file_json"]
+    if not isinstance(file, dict):
+        return file
+    return {
+        **file,
+        "ciq": {"user_id": seg.get("user_id"), "survey_run_id": survey_run_id, "segment_index": seg["segment_index"]},
+    }
+
+
+def eeg_payload(survey_run_id: str, segments: list[dict], segment: int | None = None):
+    """The raw EEG download body (before json.dumps) — shared by the EEG export and
+    the Data Validation ZIP. `segment` → that segment's standard Muse file (None if
+    it was not recorded); no segment → the one file, or a {segments: [...]} bundle
+    for a paused-and-continued run. Every file carries the `ciq` block (_tagged)
+    and the bundle a top-level user_id."""
+    if segment is not None:
+        match = next((s for s in segments if s["segment_index"] == segment), None)
+        return _tagged(survey_run_id, match) if match else None
+    if len(segments) == 1:
+        return _tagged(survey_run_id, segments[0])
+    return {
+        "survey_run_id": survey_run_id,
+        "user_id": segments[0].get("user_id"),
+        "segments": [{"segment_index": s["segment_index"], "file": _tagged(survey_run_id, s)} for s in segments],
+    }
+
+
 async def admin_export_eeg_session(request: web.Request) -> web.Response:
     """GET /admin/eeg-sessions/export?survey_run_id=... — download the raw
     muse-web-bridge/3 session file (EEG/IMU/PPG/telemetry + markers), exactly
@@ -82,20 +114,11 @@ async def admin_export_eeg_session(request: web.Request) -> web.Response:
     if not segments:
         return web.json_response({"error": "No EEG session recorded for this survey run"}, status=404)
 
-    filename = f"eeg_session_{survey_run_id[:8]}.json"
-    if segment_param is not None:
-        match = next((s for s in segments if s["segment_index"] == int(segment_param)), None)
-        if not match:
-            return web.json_response({"error": f"No EEG recorded for segment {segment_param}"}, status=404)
-        body = match["file_json"]
-        filename = f"eeg_session_{survey_run_id[:8]}_segment{segment_param}.json"
-    elif len(segments) == 1:
-        body = segments[0]["file_json"]
-    else:
-        body = {
-            "survey_run_id": survey_run_id,
-            "segments": [{"segment_index": s["segment_index"], "file": s["file_json"]} for s in segments],
-        }
+    segment = int(segment_param) if segment_param is not None else None
+    body = eeg_payload(survey_run_id, segments, segment)
+    if body is None:
+        return web.json_response({"error": f"No EEG recorded for segment {segment_param}"}, status=404)
+    filename = export_filename("eeg", survey_run_id, segments[0].get("user_id"), segment=segment)
     return web.Response(
         body=json.dumps(body),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},

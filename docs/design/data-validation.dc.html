@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CIQ Admin · Data Validation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Mulish:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0C0E}
+a{color:#4FA9E8}a:hover{color:#8cc8f2}
+button{font-family:inherit;cursor:pointer}
+select{font-family:inherit}
+.pill{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid #2A343C;background:transparent;color:#B9C2C9;font-size:13px;font-weight:700;letter-spacing:.04em}
+.pill:hover{background:rgba(79,169,232,.10)}
+.pill.on{background:rgba(79,169,232,.16);border-color:#4FA9E8;color:#E8EDF0}
+.pill .n{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;color:#7C8892}
+.pill.on .n{color:#4FA9E8}
+.chk{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;box-sizing:border-box;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap}
+.chk.ok{background:rgba(53,192,138,.14);color:#5ED6A5}
+.chk.warn{background:rgba(240,166,60,.16);color:#F5B95F}
+.chk.fail{background:rgba(228,87,46,.20);color:#F4815E}
+.chk.off{background:transparent;color:#7C8892;border:1px dashed #2A343C}
+.badge{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.08em;white-space:nowrap}
+.badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.badge.ok{background:rgba(53,192,138,.14);color:#5ED6A5}
+.badge.warn{background:rgba(240,166,60,.16);color:#F5B95F}
+.badge.fail{background:rgba(228,87,46,.20);color:#F4815E}
+.row td{border-top:1px solid #1E262C}
+.row:hover td{background:rgba(79,169,232,.05)}
+.row.sel td{background:rgba(79,169,232,.10)}
+.runbtn{background:none;border:0;padding:6px 0;min-height:32px;color:#E8EDF0;font-family:'IBM Plex Mono',monospace;font-size:13px;text-decoration:underline;text-decoration-color:#2A343C;text-underline-offset:4px}
+.runbtn:hover{color:#4FA9E8;text-decoration-color:#4FA9E8}
+.risk{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:5px;font-size:12px;font-weight:700}
+.risk.Low{background:rgba(53,192,138,.14);color:#5ED6A5}
+.risk.Moderate{background:rgba(240,166,60,.16);color:#F5B95F}
+.risk.High{background:rgba(228,87,46,.20);color:#F4815E}
+.opt{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 12px;border:0;border-radius:8px;background:transparent;color:#E8EDF0;text-align:left}
+.opt:hover{background:rgba(79,169,232,.10)}
+.opt:disabled{color:#5C6873;cursor:not-allowed;background:transparent}
+.fmt{flex:0 0 auto;min-width:42px;height:22px;padding:0 6px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;border:1px solid #2A343C;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;color:#9AA5AE}
+.seg{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:6px 12px 6px 14px;border:0;border-radius:6px;background:transparent;color:#E8EDF0;text-align:left;font-size:13px}
+.seg:hover{background:rgba(79,169,232,.10)}
+.scrollpane{scrollbar-width:thin;scrollbar-color:#2A343C transparent}
+.scrollpane:focus-visible{outline:2px solid #4FA9E8;outline-offset:-2px}
+</style>
+</helmet>
+
+<div style="min-height: 100vh; background: #0A0C0E; color: #E8EDF0; font-family: 'Mulish', system-ui, sans-serif; font-size: 14px">
+
+  <!-- App header -->
+  <header style="border-bottom: 1px solid #1E262C; background: rgba(10,12,14,0.92)">
+    <div style="max-width: 1360px; margin: 0 auto; padding: 14px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#4FA9E8" stroke-width="2" aria-hidden="true"><circle cx="14" cy="14" r="11"></circle><path d="M8 14h3l2-5 3 10 2-5h2"></path></svg>
+        <span style="font-family: 'Barlow Semi Condensed', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.06em">CIQ</span>
+        <span style="font-size: 12px; color: #7C8892; border: 1px solid #2A343C; border-radius: 4px; padding: 2px 6px; font-weight: 600; letter-spacing: 0.08em">ADMIN</span>
+      </div>
+      <nav aria-label="Admin sections" style="display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto">
+        <a href="#" style="padding: 10px 14px; border-radius: 6px; color: #B9C2C9; text-decoration: none; font-weight: 600">Users</a>
+        <a href="#" style="padding: 10px 14px; border-radius: 6px; color: #B9C2C9; text-decoration: none; font-weight: 600">Assessments</a>
+        <a href="#" style="padding: 10px 14px; border-radius: 6px; color: #B9C2C9; text-decoration: none; font-weight: 600">EEG</a>
+        <a href="#" aria-current="page" style="padding: 10px 14px; border-radius: 6px; color: #E8EDF0; background: #1E262C; text-decoration: none; font-weight: 700; box-shadow: inset 0 -2px 0 {{accent}}">Data Validation</a>
+        <a href="#" style="padding: 10px 14px; border-radius: 6px; color: #B9C2C9; text-decoration: none; font-weight: 600">Settings</a>
+      </nav>
+      <div style="display: flex; align-items: center; gap: 10px; color: #B9C2C9; font-size: 13px">
+        <span style="width: 32px; height: 32px; border-radius: 50%; background: #1E262C; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: #E8EDF0">A</span>
+        <span>admin</span>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width: 1360px; margin: 0 auto; padding: 28px 24px 56px; display: flex; flex-direction: column; gap: 24px">
+
+    <!-- Title row -->
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px; max-width: 720px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #7C8892; letter-spacing: 0.1em">ASSESSMENT PERSISTENCE</span>
+        <h1 style="margin: 0; font-family: 'Barlow Semi Condensed', sans-serif; font-weight: 700; font-size: 40px; line-height: 1.05; letter-spacing: 0.01em">Data Validation</h1>
+        <p style="margin: 0; color: #9AA5AE; line-height: 1.5">Confirms each completed assessment was saved to the database, with its report and export files.</p>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px">
+        <span style="font-size: 12px; color: #7C8892">Last checked</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #B9C2C9">06 Oct 2026 · 10:42:08</span>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <section aria-label="Filters" style="background: #12171B; border: 1px solid #1E262C; border-radius: 10px; padding: 14px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+      <div role="group" aria-label="Status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+        <span style="font-size: 12px; font-weight: 700; color: #9AA5AE; margin-right: 4px">Status</span>
+        <sc-for list="{{statusPills}}" as="p" hint-placeholder-count="4">
+          <button type="button" class="pill {{p.on}}" aria-pressed="{{p.pressed}}" onClick="{{p.pick}}">{{p.label}} <span class="n">{{p.count}}</span></button>
+        </sc-for>
+      </div>
+      <label style="display: inline-flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; color: #9AA5AE">Completed within
+        <select value="{{range}}" onChange="{{setRange}}" style="height: 40px; padding: 0 10px; border-radius: 8px; border: 1px solid #2A343C; background: #0A0C0E; color: #E8EDF0; font-size: 14px">
+          <option value="1">Today</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="9999">All time</option>
+        </select>
+      </label>
+    </section>
+
+    <!-- KPIs -->
+    <section aria-label="Summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+      <div style="background: #12171B; border: 1px solid #1E262C; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #9AA5AE">Total runs</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 500">{{total}}</span>
+        <span style="font-size: 12px; color: #7C8892">in selected period</span>
+      </div>
+      <div style="background: #12171B; border: 1px solid #1E262C; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #9AA5AE">Completed</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 500; color: #5ED6A5">{{okCount}}</span>
+        <span style="font-size: 12px; color: #7C8892">{{okPct}} fully saved and exportable</span>
+      </div>
+      <div style="background: #12171B; border: 1px solid #1E262C; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #9AA5AE">Partial</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 500; color: #F5B95F">{{warnCount}}</span>
+        <span style="font-size: 12px; color: #7C8892">saved, but report or files incomplete</span>
+      </div>
+      <div style="background: #12171B; border: 1px solid #1E262C; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 12px; font-weight: 600; color: #9AA5AE">Failed</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 500; color: #F4815E">{{failCount}}</span>
+        <span style="font-size: 12px; color: #7C8892">data missing, not exportable</span>
+      </div>
+    </section>
+
+    <!-- Table + detail -->
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
+
+      <section aria-labelledby="runs-h" style="flex: 999 1 600px; min-width: 0; min-height: 560px; background: #12171B; border: 1px solid #1E262C; border-radius: 10px; overflow: hidden">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 16px 18px">
+          <h2 id="runs-h" style="margin: 0; font-family: 'Barlow Semi Condensed', sans-serif; font-size: 20px; font-weight: 600; letter-spacing: 0.02em">Assessment runs <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #7C8892; font-weight: 400">{{shown}}</span></h2>
+          <span style="font-size: 12px; color: #7C8892">Newest first · select a run for details</span>
+        </div>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px">
+            <thead>
+              <tr style="text-align: left; color: #7C8892; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase">
+                <th scope="col" style="padding: 10px 18px; font-weight: 700">Run</th>
+                <th scope="col" style="padding: 10px 8px; font-weight: 700">Type</th>
+                <th scope="col" style="padding: 10px 8px; font-weight: 700">Completed</th>
+                <th scope="col" style="padding: 10px 8px; font-weight: 700">Report</th>
+                <th scope="col" style="padding: 10px 8px; font-weight: 700">Export files</th>
+                <th scope="col" style="padding: 10px 18px 10px 8px; font-weight: 700">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+                <tr class="row {{r.sel}}">
+                  <td style="padding: {{rowPad}} 18px"><button type="button" class="runbtn" onClick="{{r.pick}}">{{r.id}}</button></td>
+                  <td style="padding: {{rowPad}} 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B9C2C9">{{r.type}}</td>
+                  <td style="padding: {{rowPad}} 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B9C2C9; white-space: nowrap">{{r.at}}</td>
+                  <td style="padding: {{rowPad}} 8px"><span class="chk {{r.reportS}}">{{r.reportV}}</span></td>
+                  <td style="padding: {{rowPad}} 8px">
+                    <span class="chk {{r.expS}}">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path></svg>
+                      {{r.expV}}
+                    </span>
+                  </td>
+                  <td style="padding: {{rowPad}} 18px {{rowPad}} 8px"><span class="badge {{r.status}}">{{r.statusLabel}}</span></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 40px 18px; text-align: center; color: #7C8892">No runs match this filter.</div>
+          </sc-if>
+        </div>
+      </section>
+
+      <!-- Detail panel -->
+      <aside aria-labelledby="det-h" style="flex: 1 1 400px; min-width: 0; min-height: 560px; position: relative; background: #12171B; border: 1px solid #1E262C; border-radius: 10px; overflow: hidden">
+        <div class="scrollpane" tabindex="0" aria-label="Run details" style="position: absolute; inset: 0; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 18px">
+        <sc-if value="{{hasSel}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 18px">
+
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+              <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C8892; letter-spacing: 0.06em">SURVEY_RUN_ID</span>
+                <h2 id="det-h" style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 500; overflow-wrap: anywhere">{{sel.id}}</h2>
+              </div>
+              <span class="badge {{sel.status}}">{{sel.statusLabel}}</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; font-size: 13px">
+              <div><div style="font-size: 12px; color: #7C8892; margin-bottom: 4px">Survey type</div><div style="font-family: 'IBM Plex Mono', monospace">{{sel.type}}</div></div>
+              <div><div style="font-size: 12px; color: #7C8892; margin-bottom: 4px">Completed</div><div style="font-family: 'IBM Plex Mono', monospace">{{sel.at}}</div></div>
+              <div style="grid-column: 1 / -1"><div style="font-size: 12px; color: #7C8892; margin-bottom: 6px">Report</div>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap"><span class="chk {{sel.reportS}}">{{sel.reportV}}</span><span style="font-size: 12px; color: #9AA5AE">{{sel.reportNote}}</span></div>
+              </div>
+            </div>
+
+            <!-- Scores -->
+            <div style="border-top: 1px solid #1E262C; padding-top: 16px; display: flex; flex-direction: column; gap: 12px">
+              <h3 style="margin: 0; font-family: 'Barlow Semi Condensed', sans-serif; font-size: 17px; font-weight: 600; letter-spacing: 0.02em">Scores</h3>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+                <div style="background: #0A0C0E; border: 1px solid #1E262C; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+                  <span style="font-size: 12px; font-weight: 700; color: #9AA5AE">{{sel.batName}}</span>
+                  <span class="risk {{sel.batLevel}}" style="align-self: flex-start">{{sel.batLevel}}</span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #7C8892">avg {{sel.batAvg}} / 5</span>
+                </div>
+                <div style="background: #0A0C0E; border: 1px solid #1E262C; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+                  <span style="font-size: 12px; font-weight: 700; color: #9AA5AE">CBI-WRB3</span>
+                  <sc-if value="{{sel.hasCbi}}" hint-placeholder-val="{{ true }}">
+                    <span class="risk {{sel.cbiLevel}}" style="align-self: flex-start">{{sel.cbiLevel}}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #7C8892">mean {{sel.cbiMean}} / 100</span>
+                  </sc-if>
+                  <sc-if value="{{sel.noCbi}}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size: 12px; color: #7C8892; line-height: 1.45">Not part of this survey type.</span>
+                  </sc-if>
+                </div>
+              </div>
+              <sc-if value="{{sel.deviates}}" hint-placeholder-val="{{ true }}">
+                <div role="alert" style="display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 8px; background: rgba(240,166,60,.12); border: 1px solid rgba(240,166,60,.45)">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F5B95F" stroke-width="2" aria-hidden="true" style="flex: 0 0 auto; margin-top: 1px"><path d="M12 3l10 18H2z"></path><path d="M12 10v5"></path><path d="M12 18h.01"></path></svg>
+                  <div style="display: flex; flex-direction: column; gap: 3px">
+                    <span style="font-weight: 700; color: #F5B95F; font-size: 13px">Risk levels disagree</span>
+                    <span style="font-size: 12px; color: #C9D0D5; line-height: 1.45">BAT-4 is {{sel.batLevel}} but CBI-WRB3 is {{sel.cbiLevel}}. Check the item responses before using this run.</span>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+
+            <!-- Export -->
+            <div style="border-top: 1px solid #1E262C; padding-top: 16px; display: flex; flex-direction: column; gap: 10px">
+              <button type="button" onClick="{{toggleMenu}}" aria-expanded="{{menuExpanded}}" aria-haspopup="menu" disabled="{{sel.cantExport}}" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 46px; padding: 0 16px; border-radius: 8px; border: 0; background: {{accent}}; color: #0A0C0E; font-weight: 700; font-size: 14px; opacity: {{sel.btnOpacity}}">
+                <span style="display: inline-flex; align-items: center; gap: 8px">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 21h16"></path></svg>
+                  Export this run
+                </span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="{{chevron}}"></path></svg>
+              </button>
+              <sc-if value="{{sel.cantExport}}" hint-placeholder-val="{{ false }}">
+                <span style="font-size: 12px; color: #F4815E">No export files exist for this run.</span>
+              </sc-if>
+
+              <sc-if value="{{menuShown}}" hint-placeholder-val="{{ true }}">
+                <div role="menu" aria-label="Export options" style="background: #0A0C0E; border: 1px solid #2A343C; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 12px 32px rgba(0,0,0,0.45)">
+
+                  <button type="button" role="menuitem" class="opt">
+                    <span class="fmt">CSV</span>
+                    <span style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0">
+                      <span style="font-weight: 700; font-size: 13px">Survey timeline</span>
+                      <span style="font-size: 12px; color: #7C8892">Per-second biometrics and turn state</span>
+                    </span>
+                  </button>
+
+                  <!-- EEG group -->
+                  <div style="margin: 4px 0; border: 1px solid #1E262C; border-radius: 8px; padding: 6px">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 8px">
+                      <span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4FA9E8" stroke-width="2" aria-hidden="true"><path d="M2 12h4l2-6 4 12 3-9 2 3h5"></path></svg>
+                        Muse EEG
+                      </span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #9AA5AE">{{sel.eegSummary}}</span>
+                    </div>
+                    <sc-if value="{{sel.hasEeg}}" hint-placeholder-val="{{ true }}">
+                      <sc-if value="{{sel.multiSeg}}" hint-placeholder-val="{{ true }}">
+                        <p style="margin: 0 8px 8px; font-size: 12px; color: #9AA5AE; line-height: 1.45">This run was paused and continued, so EEG was recorded in {{sel.segCount}} segments. Each segment has its own clock.</p>
+                      </sc-if>
+                      <button type="button" role="menuitem" class="seg">
+                        <span class="fmt">JSON</span>
+                        <span style="flex: 1 1 auto; font-weight: 700">{{sel.eegAllLabel}}</span>
+                      </button>
+                      <sc-if value="{{sel.multiSeg}}" hint-placeholder-val="{{ true }}">
+                        <div style="margin-left: 26px; border-left: 1px solid #2A343C; padding-left: 4px; display: flex; flex-direction: column">
+                          <sc-for list="{{sel.segments}}" as="g" hint-placeholder-count="3">
+                            <button type="button" role="menuitem" class="seg">
+                              <span class="fmt">JSON</span>
+                              <span style="flex: 1 1 auto">Segment {{g.n}}</span>
+                              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C8892">{{g.span}}</span>
+                            </button>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                      <button type="button" role="menuitem" class="seg">
+                        <span class="fmt">CSV</span>
+                        <span style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto">
+                          <span style="font-weight: 700">Combined timeline + EEG</span>
+                          <span style="font-size: 12px; color: #7C8892">Per-second EEG joined on timeline timestamps</span>
+                        </span>
+                      </button>
+                    </sc-if>
+                    <sc-if value="{{sel.noEeg}}" hint-placeholder-val="{{ false }}">
+                      <p style="margin: 0 8px 6px; font-size: 12px; color: #7C8892">No EEG session was recorded for this run, so the EEG and combined files are not available.</p>
+                    </sc-if>
+                  </div>
+
+                  <sc-if value="{{sel.isPilot}}" hint-placeholder-val="{{ true }}">
+                    <button type="button" role="menuitem" class="opt">
+                      <span class="fmt">XLSX</span>
+                      <span style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0">
+                        <span style="font-weight: 700; font-size: 13px">Pilot survey responses</span>
+                        <span style="font-size: 12px; color: #7C8892">BAT-4 and CBI-WRB3 answers and scores</span>
+                      </span>
+                    </button>
+                  </sc-if>
+
+                  <div style="height: 1px; background: #1E262C; margin: 4px 6px"></div>
+
+                  <!-- All files -->
+                  <button type="button" role="menuitem" class="opt" style="background: rgba(79,169,232,.08)">
+                    <span class="fmt" style="border-color: #4FA9E8; color: #4FA9E8">ZIP</span>
+                    <span style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0">
+                      <span style="font-weight: 700; font-size: 13px">All files</span>
+                      <span style="font-size: 12px; color: #7C8892">{{sel.fileCount}} files in one archive</span>
+                    </span>
+                  </button>
+                  <div aria-label="Archive contents" style="margin: 2px 8px 8px; padding: 10px 12px; border-radius: 6px; background: #12171B; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.75; color: #B9C2C9">
+                    <div style="color: #E8EDF0">{{sel.zipName}}</div>
+                    <sc-for list="{{sel.tree}}" as="t" hint-placeholder-count="5">
+                      <div style="white-space: pre; color: {{t.color}}">{{t.line}}</div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{noSel}}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 0; color: #7C8892; text-align: center">Select a run to see its details.</div>
+        </sc-if>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#4FA9E8","options":["#4FA9E8","#35C08A","#F0A63C"]},"compact":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1640}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { status: 'all', range: '30', selected: 'run_5b07d3', menuOpen: true };
+  }
+
+  data() {
+    // report: ok | warn (stage 1 only) | fail (missing)
+    // files: timeline CSV present, eeg = segment spans, pilot = pilot score rows present
+    return [
+      { id: 'run_7c41e2', type: 'PILOT', at: '06 Oct · 09:42', age: 0, report: 'ok',
+        files: { timeline: true, eeg: ['09:42–09:58'], pilot: true }, bat: ['Moderate', '2.75'], cbi: ['Moderate', '45.8'] },
+      { id: 'run_5b07d3', type: 'PILOT', at: '06 Oct · 08:15', age: 0, report: 'ok',
+        files: { timeline: true, eeg: ['08:15–08:21', '08:34–08:40', '08:52–08:59'], pilot: true }, bat: ['High', '4.25'], cbi: ['Low', '16.7'] },
+      { id: 'run_e9a210', type: 'BAT-23', at: '05 Oct · 16:03', age: 1, report: 'ok',
+        files: { timeline: true, eeg: [], pilot: false }, bat: ['Low', '1.91'], cbi: null },
+      { id: 'run_31fd8c', type: 'PILOT', at: '05 Oct · 11:27', age: 1, report: 'fail',
+        files: { timeline: false, eeg: [], pilot: false }, bat: ['Low', '1.50'], cbi: ['High', '79.2'] },
+      { id: 'run_a4c6f0', type: 'PILOT', at: '04 Oct · 14:50', age: 2, report: 'warn',
+        files: { timeline: true, eeg: ['14:50–15:03', '15:10–15:16'], pilot: true }, bat: ['Moderate', '3.00'], cbi: ['High', '70.8'] },
+      { id: 'run_6f18e7', type: 'BAT-23', at: '02 Oct · 13:36', age: 4, report: 'ok',
+        files: { timeline: true, eeg: ['13:36–13:57'], pilot: false }, bat: ['Moderate', '2.83'], cbi: null },
+      { id: 'run_c27a55', type: 'PILOT', at: '01 Oct · 09:11', age: 5, report: 'fail',
+        files: { timeline: true, eeg: [], pilot: false }, bat: ['Low', '1.25'], cbi: ['Low', '8.3'] },
+      { id: 'run_98be41', type: 'PILOT', at: '29 Sep · 15:44', age: 7, report: 'ok',
+        files: { timeline: true, eeg: [], pilot: true }, bat: ['Low', '1.75'], cbi: ['Low', '20.8'] },
+      { id: 'run_4e7d09', type: 'PILOT', at: '22 Sep · 10:20', age: 14, report: 'ok',
+        files: { timeline: true, eeg: ['10:20–10:36'], pilot: true }, bat: ['High', '4.00'], cbi: ['High', '83.3'] },
+      { id: 'run_b15c3a', type: 'BAT-23', at: '15 Sep · 08:58', age: 21, report: 'warn',
+        files: { timeline: true, eeg: [], pilot: false }, bat: ['Moderate', '3.04'], cbi: null },
+      { id: 'run_2a80f6', type: 'PILOT', at: '28 Aug · 12:14', age: 39, report: 'ok',
+        files: { timeline: true, eeg: ['12:14–12:30'], pilot: true }, bat: ['Low', '2.00'], cbi: ['Moderate', '41.7'] }
+    ];
+  }
+
+  statusOf(r) {
+    if (r.report === 'fail' || !r.files.timeline) return 'fail';
+    if (r.report === 'warn' || (r.type === 'PILOT' && !r.files.pilot)) return 'warn';
+    return 'ok';
+  }
+
+  fileCount(r) {
+    const f = r.files;
+    if (!f.timeline) return 0;
+    return 1 + f.eeg.length + (f.eeg.length ? 1 : 0) + (f.pilot ? 1 : 0);
+  }
+
+  tree(r) {
+    const f = r.files, out = [], short = r.id.replace('run_', '');
+    const items = [];
+    if (f.timeline) items.push(['survey_timeline_' + short + '.csv', '#B9C2C9']);
+    if (f.eeg.length) items.push(['combined_timeline_eeg_' + short + '.csv', '#B9C2C9']);
+    if (f.pilot) items.push(['pilot_survey_' + short + '.xlsx', '#B9C2C9']);
+    if (f.eeg.length) items.push(['eeg/', '#4FA9E8']);
+    items.forEach(([name, color], i) => {
+      const last = i === items.length - 1;
+      out.push({ line: (last ? '└─ ' : '├─ ') + name, color });
+      if (name === 'eeg/') {
+        f.eeg.forEach((span, j) => {
+          const segLast = j === f.eeg.length - 1;
+          const label = f.eeg.length > 1 ? 'eeg_segment' + (j + 1) + '_' + short + '.json' : 'eeg_session_' + short + '.json';
+          out.push({ line: (last ? '   ' : '│  ') + (segLast ? '└─ ' : '├─ ') + label, color: '#B9C2C9' });
+        });
+      }
+    });
+    return out;
+  }
+
+  renderVals() {
+    const st = this.state;
+    const labels = { ok: 'COMPLETED', warn: 'PARTIAL', fail: 'FAILED' };
+    const reportLabels = { ok: 'Saved', warn: 'Partial', fail: 'Missing' };
+    const reportNotes = {
+      ok: 'Behavioral analysis and consultative response both saved.',
+      warn: 'Only the behavioral analysis saved; consultative response missing.',
+      fail: 'No report saved for this run.'
+    };
+    const base = this.data()
+      .filter((r) => r.age < Number(st.range))
+      .map((r) => ({ ...r, status: this.statusOf(r), files_n: this.fileCount(r) }));
+
+    const count = (k) => base.filter((r) => r.status === k).length;
+    const okCount = count('ok'), warnCount = count('warn'), failCount = count('fail');
+    const rowsRaw = st.status === 'all' ? base : base.filter((r) => r.status === st.status);
+
+    const rows = rowsRaw.map((r) => ({
+      id: r.id, type: r.type, at: r.at, status: r.status, statusLabel: labels[r.status],
+      reportS: r.report, reportV: reportLabels[r.report],
+      expS: r.files_n ? 'ok' : 'off', expV: r.files_n ? 'Available · ' + r.files_n : 'Not available',
+      sel: r.id === st.selected ? 'sel' : '',
+      pick: () => this.setState({ selected: r.id, menuOpen: false })
+    }));
+
+    const pills = [['all', 'ALL', base.length], ['ok', 'COMPLETED', okCount], ['warn', 'PARTIAL', warnCount], ['fail', 'FAILED', failCount]]
+      .map(([k, label, n]) => ({ label, count: n, on: st.status === k ? 'on' : '', pressed: st.status === k ? 'true' : 'false', pick: () => this.setState({ status: k }) }));
+
+    const s = base.find((r) => r.id === st.selected);
+    let sel = {};
+    if (s) {
+      const segs = s.files.eeg;
+      const hasCbi = !!s.cbi;
+      const n = s.files_n;
+      sel = {
+        id: s.id, type: s.type, at: s.at, status: s.status, statusLabel: labels[s.status],
+        reportS: s.report, reportV: reportLabels[s.report], reportNote: reportNotes[s.report],
+        batName: s.type === 'PILOT' ? 'BAT-4' : 'BAT-23',
+        batLevel: s.bat[0], batAvg: s.bat[1],
+        hasCbi, noCbi: !hasCbi,
+        cbiLevel: hasCbi ? s.cbi[0] : '', cbiMean: hasCbi ? s.cbi[1] : '',
+        deviates: hasCbi && ((s.bat[0] === 'Low' && s.cbi[0] === 'High') || (s.bat[0] === 'High' && s.cbi[0] === 'Low')),
+        cantExport: n === 0, btnOpacity: n === 0 ? '0.4' : '1',
+        hasEeg: segs.length > 0, noEeg: segs.length === 0 && s.files.timeline, multiSeg: segs.length > 1,
+        segCount: segs.length,
+        eegSummary: segs.length === 0 ? 'none' : segs.length === 1 ? '1 session' : segs.length + ' segments',
+        eegAllLabel: segs.length > 1 ? 'All segments (raw)' : 'EEG session (raw)',
+        segments: segs.map((span, i) => ({ n: i + 1, span })),
+        isPilot: s.files.pilot,
+        fileCount: n,
+        zipName: 'ciq_export_' + s.id + '.zip',
+        tree: this.tree(s)
+      };
+    }
+    const menuShown = !!s && st.menuOpen && !sel.cantExport;
+
+    return {
+      accent: this.props.accent ?? '#4FA9E8',
+      rowPad: (this.props.compact ?? false) ? '6px' : '12px',
+      range: st.range,
+      setRange: (e) => this.setState({ range: e.target.value }),
+      statusPills: pills,
+      total: base.length, okCount, warnCount, failCount,
+      okPct: base.length ? Math.round((okCount / base.length) * 100) + '%' : '0%',
+      rows, shown: rows.length, empty: rows.length === 0,
+      hasSel: !!s, noSel: !s, sel,
+      menuShown, menuExpanded: menuShown ? 'true' : 'false',
+      chevron: menuShown ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6',
+      toggleMenu: () => this.setState({ menuOpen: !st.menuOpen })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -365,6 +365,51 @@ export type SurveyRunSummary = {
     eeg_segments: number[];
 };
 
+// ── Admin Data Validation (GET /admin/data-validation/runs — ciq/validation/rules.py) ──
+// completed = report + data saved; partial = left before the report (closed / paused /
+// active); failed = completed but required data missing. Computed server-side only.
+export type ValidationStatus = "completed" | "partial" | "failed";
+export type ValidationReportState = "saved" | "not_generated" | "missing";
+
+export type ValidationScore = {
+    label: string;
+    riskLevel: string | null;
+    score: number | null;
+    scale: string;
+};
+
+export type ValidationFile = {
+    kind: "timeline" | "combined" | "eeg";
+    path: string;
+    segment?: number;
+};
+
+export type DataValidationRun = {
+    surveyRunId: string;
+    userId: string | null;
+    surveyType: string | null;
+    lifecycleStatus: string;
+    createdAt: string;
+    completedAt: string | null;
+    status: ValidationStatus;
+    report: ValidationReportState;
+    aiSummaryGenerated: boolean;
+    scores: {
+        scored: boolean;
+        primary: ValidationScore;
+        cbi: ValidationScore | null;
+        riskDeviation: boolean;
+    };
+    eegSegments: { index: number; start: string | null; end: string | null }[];
+    files: ValidationFile[];
+    fileCount: number;
+};
+
+export type DataValidationResponse = {
+    checkedAt: string;
+    runs: DataValidationRun[];
+};
+
 export type SurveyRecord = {
     survey_run_id: string;
     session_id: string;

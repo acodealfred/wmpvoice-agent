@@ -957,6 +957,72 @@ async def get_pilot_survey_export_rows() -> list[dict]:
         return [dict(row) for row in rows]
 
 
+async def get_data_validation_runs(since_iso: str | None = None, survey_run_id: str | None = None) -> list[dict]:
+    """Per-run persistence facts for the admin Data Validation dashboard
+    (docs/data-validation-dashboard.md). No JSON blobs beyond technical_report /
+    prompt_info, and never eeg file_json, so the list stays cheap.
+
+    Same inclusion rule as get_user_survey_run_summaries — every run that recorded
+    something, whatever its lifecycle status (partial runs included) — across all
+    users, excluding demo runs. `since_iso` filters on created_at (naive UTC ISO,
+    the format every created_at is written in); `survey_run_id` narrows to one run.
+
+    Each row also carries `eeg_segments` (sorted segment indexes; a legacy
+    single-file recording is [0]) and `segment_spans` {segment_index: {start, end}}
+    from that segment's timeline frames — eeg_session_segments only stores a start.
+    """
+    async with _open_db() as db:
+        async with db.execute("""
+            SELECT sr.survey_run_id, sr.user_id, sr.survey_type, sr.status, sr.created_at, sr.updated_at,
+                   sr.closed_at, sr.paused_at, sr.technical_report, sr.prompt_info,
+                   EXISTS (SELECT 1 FROM survey_timeline_frames f
+                           WHERE f.survey_run_id = sr.survey_run_id) AS has_timeline,
+                   b.survey_run_id IS NOT NULL AS has_bat4_row,
+                   c.survey_run_id IS NOT NULL AS has_cbi3_row,
+                   b.risk_level      AS bat4_risk_level,
+                   b.average_score   AS bat4_average,
+                   c.risk_level      AS cbi3_risk_level,
+                   c.mean_score      AS cbi3_mean,
+                   (SELECT GROUP_CONCAT(seg.segment_index) FROM eeg_session_segments seg
+                     WHERE seg.survey_run_id = sr.survey_run_id) AS segment_list,
+                   es.survey_run_id IS NOT NULL AS has_legacy_eeg
+            FROM survey_records sr
+            LEFT JOIN eeg_sessions es ON es.survey_run_id = sr.survey_run_id
+            LEFT JOIN pilot_bat4_scores b ON b.survey_run_id = sr.survey_run_id
+            LEFT JOIN pilot_cbi3_scores c ON c.survey_run_id = sr.survey_run_id
+            WHERE sr.is_demo = 0
+              AND (? IS NULL OR sr.created_at >= ?)
+              AND (? IS NULL OR sr.survey_run_id = ?)
+              AND (sr.survey_results IS NOT NULL OR sr.prompt_info IS NOT NULL
+                   OR es.survey_run_id IS NOT NULL
+                   OR EXISTS (SELECT 1 FROM survey_item_responses r WHERE r.survey_run_id = sr.survey_run_id)
+                   OR EXISTS (SELECT 1 FROM survey_timeline_frames f WHERE f.survey_run_id = sr.survey_run_id)
+                   OR EXISTS (SELECT 1 FROM eeg_session_segments seg WHERE seg.survey_run_id = sr.survey_run_id))
+            ORDER BY sr.created_at DESC
+        """, (since_iso, since_iso, survey_run_id, survey_run_id)) as cursor:
+            rows = [dict(r) for r in await cursor.fetchall()]
+
+        run_ids = [r["survey_run_id"] for r in rows]
+        spans: dict[str, dict[int, dict]] = {}
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            async with db.execute(
+                f"""SELECT survey_run_id, segment_index, MIN(timestamp) AS start, MAX(timestamp) AS end
+                    FROM survey_timeline_frames
+                    WHERE survey_run_id IN ({placeholders})
+                    GROUP BY survey_run_id, segment_index""",
+                run_ids,
+            ) as cursor:
+                for s in await cursor.fetchall():
+                    spans.setdefault(s["survey_run_id"], {})[s["segment_index"]] = {"start": s["start"], "end": s["end"]}
+
+    for row in rows:
+        segment_list, has_legacy = row.pop("segment_list"), row.pop("has_legacy_eeg")
+        row["eeg_segments"] = sorted(int(x) for x in segment_list.split(",")) if segment_list else ([0] if has_legacy else [])
+        row["segment_spans"] = spans.get(row["survey_run_id"], {})
+    return rows
+
+
 async def delete_session(session_token: str) -> None:
     async with _open_db() as db:
         await db.execute(

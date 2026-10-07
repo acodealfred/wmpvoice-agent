@@ -84,6 +84,10 @@ from ciq.reports.routes import (
     report_behavioral_analysis,
     report_consultative_summary,
 )
+from ciq.validation.routes import (
+    admin_data_validation_export_zip,
+    admin_data_validation_runs,
+)
 from db_init import init_db
 
 logging.basicConfig(
@@ -172,6 +176,11 @@ async def create_app():
     app.router.add_get("/admin/users/{userId}/survey-runs", admin_list_user_survey_runs)
     app.router.add_get("/admin/survey-timeline/export", admin_export_survey_timeline)
     app.router.add_get("/admin/survey-timeline/export-combined", admin_export_survey_timeline_combined)
+
+    # ── Admin Data Validation (docs/data-validation-dashboard.md) ─────────
+    app.router.add_get("/admin/data-validation/runs", admin_data_validation_runs)
+    app.router.add_get("/admin/data-validation/export-zip", admin_data_validation_export_zip)
+
     app.router.add_get("/manager/overview", manager_overview)
     app.router.add_get("/manager/analytics", manager_analytics)
     app.router.add_get("/manager/score-trend", manager_score_trend)
