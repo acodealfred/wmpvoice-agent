@@ -128,14 +128,11 @@ export default function useRealTime({
     );
 
     const buildSessionUpdateCommand = (): SessionUpdateCommand => {
-        const command: SessionUpdateCommand = {
-            type: "session.update",
-            session: { turn_detection: VAD_TURN_DETECTION }
-        };
+        const input: NonNullable<NonNullable<SessionUpdateCommand["session"]["audio"]>["input"]> = { turn_detection: VAD_TURN_DETECTION };
         if (enableInputAudioTranscription) {
-            command.session.input_audio_transcription = { model: "whisper-1" };
+            input.transcription = { model: "whisper-1" };
         }
-        return command;
+        return { type: "session.update", session: { type: "realtime", audio: { input } } };
     };
 
     const { sendJsonMessage, getWebSocket } = useWebSocket(ready ? wsEndpoint : null, {
@@ -227,18 +224,7 @@ export default function useRealTime({
     };
 
     const refreshSession = () => {
-        const command: SessionUpdateCommand = {
-            type: "session.update",
-            session: {
-                turn_detection: VAD_TURN_DETECTION
-            }
-        };
-        if (enableInputAudioTranscription) {
-            command.session.input_audio_transcription = {
-                model: "whisper-1"
-            };
-        }
-        sendJsonMessage(command);
+        sendJsonMessage(buildSessionUpdateCommand());
     };
 
     const addUserAudio = (base64Audio: string) => {
@@ -290,10 +276,10 @@ export default function useRealTime({
             case "response.done":
                 onReceivedResponseDone?.(message as ResponseDone);
                 break;
-            case "response.audio.delta":
+            case "response.output_audio.delta":
                 onReceivedResponseAudioDelta?.(message as ResponseAudioDelta);
                 break;
-            case "response.audio_transcript.delta":
+            case "response.output_audio_transcript.delta":
                 onReceivedResponseAudioTranscriptDelta?.(message as ResponseAudioTranscriptDelta);
                 break;
             case "input_audio_buffer.speech_started":

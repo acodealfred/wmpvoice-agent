@@ -20,7 +20,7 @@ export default function useAudioPlayer({ onDrained }: Parameters = {}) {
         audioPlayer.current.init(SAMPLE_RATE, () => onDrainedRef.current?.());
     };
 
-    // `itemId` (the response.audio.delta's item_id) lets stop() report where that
+    // `itemId` (the response.output_audio.delta's item_id) lets stop() report where that
     // item's speech was cut off.
     const play = (base64Audio: string, itemId?: string) => {
         const binary = atob(base64Audio);

@@ -160,7 +160,7 @@ function App() {
     // feed, no second getUserMedia capture.
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
     // Live text transcript of the voice conversation, shown as a chat inside the
-    // Recovery Window screen. Agent turns stream in via response.audio_transcript.delta;
+    // Recovery Window screen. Agent turns stream in via response.output_audio_transcript.delta;
     // user turns get a slot reserved on speech_started and the text filled in once
     // whisper transcription completes (it lags the agent's spoken reply).
     const [chatTranscript, setChatTranscript] = useState<ChatTurn[]>([]);
@@ -171,7 +171,7 @@ function App() {
     // (wipes Azure's survey conversation memory) without cutting off its spoken result.
     const pendingGuardrailResetRef = useRef(false);
     // Raised while a reset reconnect is in flight (Start New Survey / post-report hard reset).
-    // Drops stale response.audio.delta chunks from the OLD turn so the agent doesn't keep
+    // Drops stale response.output_audio.delta chunks from the OLD turn so the agent doesn't keep
     // speaking the previous sentence over the fresh session. Lifted on the next session.created.
     const suppressAgentAudioRef = useRef(false);
     const [enableSurvey, setEnableSurvey] = useState(false);

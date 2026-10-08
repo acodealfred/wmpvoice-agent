@@ -19,20 +19,27 @@ export type ChatTurn = {
     text: string;
 };
 
+// Realtime GA session shape (the preview API is retired): `type: "realtime"`, with the
+// audio settings nested under `audio.input`. The backend adds voice + transcription.
 export type SessionUpdateCommand = {
     type: "session.update";
     session: {
-        turn_detection?: {
-            type: "server_vad" | "none";
-            // Tuning knobs for server_vad — raising `threshold` makes the model require
-            // a louder signal before it counts as speech, so ambient noise below that
-            // level is ignored instead of triggering a turn.
-            threshold?: number;
-            prefix_padding_ms?: number;
-            silence_duration_ms?: number;
-        };
-        input_audio_transcription?: {
-            model: "whisper-1";
+        type: "realtime";
+        audio?: {
+            input?: {
+                turn_detection?: {
+                    type: "server_vad" | "none";
+                    // Tuning knobs for server_vad — raising `threshold` makes the model require
+                    // a louder signal before it counts as speech, so ambient noise below that
+                    // level is ignored instead of triggering a turn.
+                    threshold?: number;
+                    prefix_padding_ms?: number;
+                    silence_duration_ms?: number;
+                };
+                transcription?: {
+                    model: "whisper-1";
+                };
+            };
         };
     };
 };
@@ -51,13 +58,13 @@ export type Message = {
 };
 
 export type ResponseAudioDelta = {
-    type: "response.audio.delta";
+    type: "response.output_audio.delta";
     delta: string;
     item_id?: string;
 };
 
 export type ResponseAudioTranscriptDelta = {
-    type: "response.audio_transcript.delta";
+    type: "response.output_audio_transcript.delta";
     delta: string;
 };
 

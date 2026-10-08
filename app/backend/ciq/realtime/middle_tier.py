@@ -26,6 +26,13 @@ from ciq.prompts.builder import (
 )
 from ciq.prompts.personas import READINESS_SYSTEM_MESSAGE
 from ciq.realtime.behaviour_capture import start_behaviour_capture
+from ciq.realtime.ga_protocol import (
+    CONVERSATION_ITEM_EVENTS,
+    REALTIME_PATH,
+    apply_session_overrides,
+    realtime_params,
+    redact_session_created,
+)
 from ciq.realtime.report_zone import report_zone_lines
 from ciq.realtime.session import (
     ConnectionState,
@@ -118,7 +125,6 @@ class RTMiddleTier:
     # Meta intent layer — provides LLM with app context, users, and limitations
     enable_meta_intent: bool = True
     meta_intent_config: dict | None = None
-    api_version: str = "2024-10-01-preview"
     _token_provider = None
     # Server default survey config/type — used only to seed a NEW session that hasn't
     # picked its own type yet (no query param, no /survey-type call). The actual,
@@ -460,13 +466,8 @@ class RTMiddleTier:
         if message is not None:
             match message["type"]:
                 case "session.created":
-                    session = message["session"]
                     # Hide the instructions, tools and max tokens from clients.
-                    session["instructions"] = ""
-                    session["tools"] = []
-                    session["voice"] = self.voice_choice
-                    session["tool_choice"] = "none"
-                    session["max_response_output_tokens"] = None
+                    redact_session_created(message["session"], voice=self.voice_choice)
                     updated_message = json.dumps(message)
 
                 case "response.created":
@@ -495,7 +496,7 @@ class RTMiddleTier:
                     if "item" in message and message["item"]["type"] == "function_call":
                         updated_message = None
 
-                case "conversation.item.created":
+                case event if event in CONVERSATION_ITEM_EVENTS:
                     sess = self._sess
                     if (sess.conversation_state == "report_delivered" and
                         "item" in message and
@@ -559,7 +560,7 @@ class RTMiddleTier:
                         item = message["item"]
                         if item["call_id"] not in self._tools_pending:
                             self._tools_pending[item["call_id"]] = RTToolCall(
-                                item["call_id"], message["previous_item_id"]
+                                item["call_id"], message.get("previous_item_id")
                             )
                         updated_message = None
                     elif (
@@ -965,17 +966,16 @@ class RTMiddleTier:
                         logger.error("[RTMT] Failed to build session instructions: %s", e, exc_info=True)
                         session["instructions"] = self.system_message or ""
 
+                    # GA session shape: type=realtime, voice/transcription under `audio`
+                    # (ciq.realtime.ga_protocol). The GA session has no `temperature`.
                     if self.temperature is not None:
-                        session["temperature"] = self.temperature
-                    if self.max_tokens is not None:
-                        session["max_response_output_tokens"] = self.max_tokens
-                    if self.disable_audio is not None:
-                        session["disable_audio"] = self.disable_audio
-                    if self.voice_choice is not None:
-                        session["voice"] = self.voice_choice
-                    # Whisper transcription of the user's audio: the source of each answer's
-                    # user_response (the user's own words — see ciq.realtime.transcripts).
-                    session["input_audio_transcription"] = {"model": "whisper-1"}
+                        logger.warning("[RTMT] temperature is not supported by the Realtime GA session; ignored")
+                    apply_session_overrides(
+                        session,
+                        voice=self.voice_choice,
+                        max_tokens=self.max_tokens,
+                        disable_audio=self.disable_audio,
+                    )
                     # No tool calls during the baseline calibration: the agent must only speak
                     # its cues. A cue like "close your eyes and relax" otherwise reads as a
                     # mindfulness step and triggers a Recovery Window tool, whose "unavailable"
@@ -991,7 +991,8 @@ class RTMiddleTier:
     async def _forward_messages(self, ws: web.WebSocketResponse):
         # Per-connection state (ConnectionState) is set fresh by _websocket_handler.
         async with aiohttp.ClientSession(base_url=self.endpoint) as session:
-            params = {"api-version": self.api_version, "deployment": self.deployment}
+            # Realtime GA endpoint (the preview `?api-version=` URL is retired).
+            params = realtime_params(self.deployment)
             headers = {}
             if "x-ms-client-request-id" in ws.headers:
                 headers["x-ms-client-request-id"] = ws.headers["x-ms-client-request-id"]
@@ -1003,7 +1004,7 @@ class RTMiddleTier:
                 }
             try:
                 async with session.ws_connect(
-                    "/openai/realtime", headers=headers, params=params
+                    REALTIME_PATH, headers=headers, params=params
                 ) as target_ws:
 
                     async def from_client_to_server():

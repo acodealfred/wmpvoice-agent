@@ -118,7 +118,7 @@ Browser mic → useAudioRecorder → WebSocket /realtime
 > entrypoint and legacy imports still work). Route table lives in
 > `ciq/server.py`; behavior/wire-protocol are unchanged.
 
-`RTMiddleTier` (`app/backend/ciq/realtime/middle_tier.py`) is the core: it opens a WebSocket to Azure OpenAI and proxies messages between the frontend and the model. It intercepts `function_call` and `function_call_arguments_done` events to handle three custom tools:
+`RTMiddleTier` (`app/backend/ciq/realtime/middle_tier.py`) is the core: it opens a WebSocket to Azure OpenAI and proxies messages between the frontend and the model. It speaks the **Realtime GA protocol** (`/openai/v1/realtime?model=<deployment>`, `session.type="realtime"`, `response.output_audio.delta`) — the preview `?api-version=…-preview` API was retired by Azure (error `realtime_beta_access_required`); shapes live in `ciq/realtime/ga_protocol.py`. It intercepts `function_call` and `function_call_arguments_done` events to handle three custom tools:
 
 | Tool | Trigger | What it does |
 |---|---|---|
