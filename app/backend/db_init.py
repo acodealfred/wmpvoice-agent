@@ -182,6 +182,26 @@ async def init_db() -> None:
             await db.execute("ALTER TABLE survey_item_responses ADD COLUMN user_response TEXT")
         except aiosqlite.OperationalError:
             pass  # column already present
+        # Per-answer voice acoustics (ciq.voice.features.answer_features): pitch,
+        # loudness and pauses of the user's spoken answer. NULL = not measured
+        # (feature off, too little speech, or rows from before this existed).
+        for ddl in (
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_pitch_mean_hz REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_pitch_sd_hz REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_pitch_min_hz REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_pitch_max_hz REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_intensity_mean_db REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_intensity_sd_db REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_voiced_fraction REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_pause_count INTEGER",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_pause_total_ms REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_pause_max_ms REAL",
+            "ALTER TABLE survey_item_responses ADD COLUMN voice_speech_ms REAL",
+        ):
+            try:
+                await db.execute(ddl)
+            except aiosqlite.OperationalError:
+                pass  # column already present
 
         # Per-second timeline log for a survey run: one row per elapsed second,
         # covering the whole session (not just answered questions). turn_state
@@ -233,6 +253,18 @@ async def init_db() -> None:
             await db.execute("ALTER TABLE survey_timeline_frames ADD COLUMN stage TEXT")
         except aiosqlite.OperationalError:
             pass  # column already present
+        # Per-second voice acoustics (ciq.voice.features.window_features) of the
+        # user's mic audio in that second. NULL = not measured (no audio, agent
+        # speaking, baseline phase, feature off, or rows from before this existed).
+        for ddl in (
+            "ALTER TABLE survey_timeline_frames ADD COLUMN pitch_hz REAL",
+            "ALTER TABLE survey_timeline_frames ADD COLUMN intensity_db REAL",
+            "ALTER TABLE survey_timeline_frames ADD COLUMN voiced INTEGER",
+        ):
+            try:
+                await db.execute(ddl)
+            except aiosqlite.OperationalError:
+                pass  # column already present
 
         # LEGACY (no longer read or written — baselines are per assessment now, on
         # survey_records.baseline_*). Kept so existing data and demo cleanup still work.

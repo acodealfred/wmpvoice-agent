@@ -12,6 +12,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from ciq.voice.buffer import VoiceBuffer
+
 logger = logging.getLogger("voicerag")
 
 _SESSION_TTL_SECONDS = 4 * 3600  # sessions expire after 4 hours of inactivity
@@ -74,6 +76,18 @@ class SessionState:
     current_left_gaze_position: str = "Center"
     current_right_gaze_position: str = "Center"
     current_pupil_mm_change: float = 0.0
+    # ── Voice acoustics (see ciq.voice) ───────────────────────────────────────
+    # The user's survey-phase mic audio (never during agent turns or the
+    # baseline), held in memory only. current_pitch_hz/current_intensity_db/
+    # current_voiced are refreshed once a second by the timeline sampler;
+    # current_voice_features is the latest answer summary (computed on
+    # speech_stopped) and is attached to the next recorded answer.
+    voice_buffer: VoiceBuffer = field(default_factory=VoiceBuffer, repr=False, compare=False)
+    current_pitch_hz: float | None = None
+    current_intensity_db: float | None = None
+    current_voiced: bool | None = None
+    current_voice_features: dict | None = None
+    _voice_task: Any = field(default=None, repr=False, compare=False)
     blink_rate_history: list = field(default_factory=list)
     face_emotion_history: list = field(default_factory=list)
     # Cumulative blink-detector totals from the browser (blinks, face-visible ms), the
@@ -290,6 +304,7 @@ class SessionState:
         self.pending_answer_question_id = None
         self.pending_answer_question_index = None
         self.pending_answer_started_at_frame_index = None
+        self.reset_voice()
         self.reset_recovery_state()
         # Unbound until POST /me/assessment/start|continue binds the next run.
         self.survey_run_id = None
@@ -316,6 +331,15 @@ class SessionState:
             self.blink_rate_history.pop(0)
         if len(self.face_emotion_history) > _MAX_HISTORY_SIZE:
             self.face_emotion_history.pop(0)
+
+    def reset_voice(self) -> None:
+        """Drop all buffered audio and voice readings (new survey, disconnect)."""
+        self.voice_buffer.clear()
+        self.current_pitch_hz = None
+        self.current_intensity_db = None
+        self.current_voiced = None
+        self.current_voice_features = None
+        self._voice_task = None
 
     def clear_biometric_history(self) -> None:
         self.blink_rate_history.clear()

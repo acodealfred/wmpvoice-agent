@@ -19,6 +19,7 @@ from ciq.realtime.timeline_capture import (
 from ciq.realtime.tools.base import ToolResult, ToolResultDirection
 from ciq.realtime.transcripts import assign_items_to_question, user_response_for
 from ciq.survey import get_question_domain
+from ciq.voice.live import finalize_answer_features
 from survey_loader import (
     blink_band,
     compute_section_scores,
@@ -331,8 +332,10 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
         "responseLatencyMs": response_latency_ms,
     }
     # Persist now (not only at report time) so a paused / dropped run can be
-    # continued where the user left off. No-op when no run is bound.
-    await persist_answer(sess, survey_config, snapshot)
+    # continued where the user left off. No-op when no run is bound. The voice
+    # summary (ciq.voice) is stored with the answer but not sent to the browser.
+    voice_features = await finalize_answer_features(sess)
+    await persist_answer(sess, survey_config, {**snapshot, "voiceFeatures": voice_features})
 
     client_message = {
         "type": "survey.biometric.update",

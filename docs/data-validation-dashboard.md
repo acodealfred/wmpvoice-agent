@@ -181,6 +181,13 @@ A single-segment run has `eeg/eeg_session_<user8>_<run8>.json` instead. `<user8>
 `ciq.common.export_names.export_filename`, shared with the single-file downloads (and
 the Admin panel's, which now save under the server's filename).
 
+### Voice features in the exported CSVs
+
+The timeline and combined CSVs (single downloads and inside the ZIP) also carry the
+voice acoustics from `docs/voice-features.md`: `pitch_hz`, `intensity_db`, `voiced` as
+the last per-second timeline columns, and the 11 per-answer `voice_*` columns in the
+SURVEY RESPONSES block. Nothing changes in the dashboard UI itself.
+
 ### User id inside every exported file
 
 - **Timeline and combined CSV**: `user_id`, `survey_run_id` are the **first two
