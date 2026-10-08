@@ -80,6 +80,7 @@ from ciq.realtime.transcripts import (
     transcript_for,
 )
 from ciq.survey import get_question_domain
+from ciq.voice.live import capture_mic_audio, schedule_answer_analysis
 from survey_loader import options_for_question
 
 logger = logging.getLogger("voicerag")
@@ -491,6 +492,7 @@ class RTMiddleTier:
                     # User stopped speaking — close out the "user is answering" window
                     # for the per-second timeline log (see ciq.realtime.timeline_capture).
                     self._sess.user_speaking = False
+                    schedule_answer_analysis(self._sess)
 
                 case "response.output_item.added":
                     if "item" in message and message["item"]["type"] == "function_call":
@@ -897,6 +899,9 @@ class RTMiddleTier:
                     # stays silent apart from the explicit baseline.cue turns below.
                     if self.enable_survey_mode and self._sess.survey_phase == "baseline":
                         return None
+                    # Voice acoustics: buffer-only here (analysis runs in ciq.voice's
+                    # pool, never on this relay path); the message is forwarded as-is.
+                    capture_mic_audio(self._sess, message.get("audio"))
                 case "baseline.cue":
                     # Custom client message (never forwarded as-is): one spoken cue at a
                     # baseline-protocol phase boundary, turned into a single response.create
@@ -1188,6 +1193,8 @@ class RTMiddleTier:
             # dropped network is an implicit pause, and the run must be
             # continuable after a reload, redeploy or session eviction.
             await flush_timeline(sess)
+            # Raw voice audio lives only in memory for the live connection.
+            sess.reset_voice()
             reset_active_connection(conn_token)
             reset_active_session(token)
         return ws

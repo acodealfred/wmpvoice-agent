@@ -28,6 +28,7 @@ import re
 from datetime import UTC, datetime
 
 from ciq.realtime.session import SessionState
+from ciq.voice.live import refresh_window_features
 
 logger = logging.getLogger("voicerag")
 
@@ -135,6 +136,11 @@ def _frame_snapshot(sess: SessionState, turn_state: str, question_id: str | None
         "face_emotion": sess.current_face_emotion,
         "voice_sentiment": sess.current_sentiment,
         "stress_state": sess.stress_state,
+        # Voice acoustics of the user's speech in the last second (ciq.voice);
+        # None when there was no user audio (silence, agent turn, baseline).
+        "pitch_hz": sess.current_pitch_hz,
+        "intensity_db": sess.current_intensity_db,
+        "voiced": sess.current_voiced,
     }
 
 
@@ -147,6 +153,12 @@ async def run_timeline_sampler(sess: SessionState, generation: int) -> None:
     """
     logger.info("[Timeline] ★ Sampler started (session=%s)", sess.session_id)
     while sess.timeline_active and sess.timeline_generation == generation:
+        try:
+            await refresh_window_features(sess)
+        except Exception as e:  # a voice failure must never stop the timeline
+            logger.warning("[Timeline] voice window failed: %r", e)
+        if not (sess.timeline_active and sess.timeline_generation == generation):
+            break  # stopped while the voice reading was in flight
         if sess.agent_speaking:
             # Real turn_state/question_id resolved retroactively in resolve_agent_turn
             # once this turn's transcript is known (response.done).

@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from ciq.common.export_names import export_filename
 from ciq.eeg.combine import EEG_COLUMNS, combine_segments
+from ciq.voice.keys import ANSWER_FEATURE_KEYS, WINDOW_FEATURE_KEYS
 from ciq.zone import ZoneConfigError, build_zone_trend
 from db import (
     get_all_users_with_session_info,
@@ -38,6 +39,8 @@ _TIMELINE_EXPORT_HEADERS = [
     "blink_rate_bpm", "blink_rate_change_percent",
     "left_gaze_position", "right_gaze_position", "face_emotion",
     "voice_sentiment", "stress_state",
+    # Voice acoustics (ciq.voice) — appended last so existing column positions hold.
+    *WINDOW_FEATURE_KEYS,
 ]
 
 
@@ -54,12 +57,15 @@ def _timeline_row(f: dict) -> list:
         f["blink_rate_bpm"], f["blink_rate_change_percent"],
         f["left_gaze_position"], f["right_gaze_position"], f["face_emotion"],
         f["voice_sentiment"], f["stress_state"],
+        *(f.get(k) for k in WINDOW_FEATURE_KEYS),
     ]
 
 
 _SURVEY_RESPONSES_HEADERS = [
     "question_index", "question_id", "domain", "question", "user_response",
     "raw_score", "effective_score",
+    # Per-answer voice summary from survey_item_responses (blank = not measured).
+    *ANSWER_FEATURE_KEYS,
 ]
 
 _BASELINE_HEADERS = [
@@ -109,15 +115,18 @@ def build_survey_summary_rows(record: dict | None, item_rows: list[dict] | None 
     # answered question the current config no longer lists.
     ordered = [*config_ids, *(qid for qid in results if qid not in config_ids)]
     prompts = {q.get("id"): q for q in config.get("questions", [])}
+    voice_by_qid = {r["question_id"]: r for r in item_rows or []}
     for idx, qid in enumerate(ordered, start=1):
         q = prompts.get(qid, {})
         r = results.get(qid, {})
         raw = None if qualitative else r.get("score")
+        voice = voice_by_qid.get(qid, {})
         rows.append([
             idx, qid, r.get("domain") or q.get("domain", ""), q.get("prompt", ""),
             r.get("userResponse", ""),
             "" if raw is None else raw,
             "" if raw is None else effective_score(config, qid, raw),
+            *("" if voice.get(k) is None else voice[k] for k in ANSWER_FEATURE_KEYS),
         ])
 
     rows += [[], ["SURVEY TOTAL"]]

@@ -66,6 +66,7 @@ _FRAME = {
     "blink_rate_change_percent": 5.0, "pupil_mm_change": 0.42,
     "left_gaze_position": "Center", "right_gaze_position": "Left", "face_emotion": "CALM",
     "voice_sentiment": "neutral", "stress_state": "normal",
+    "pitch_hz": 150.5, "intensity_db": 61.2, "voiced": 1,
 }
 
 
@@ -106,6 +107,9 @@ async def test_timeline_export_rows_line_up_with_headers(monkeypatch):
     # Every row leads with its owner so CSVs pooled across users stay attributable.
     assert header[:2] == ["user_id", "survey_run_id"]
     assert row[:2] == ["user-1", "run-1"]
+    # Voice acoustics are appended LAST so every earlier column keeps its position.
+    assert header[-3:] == ["pitch_hz", "intensity_db", "voiced"]
+    assert row[-3:] == ["150.5", "61.2", "1"]
 
 
 async def test_pilot_export_rows_line_up_with_headers(monkeypatch):

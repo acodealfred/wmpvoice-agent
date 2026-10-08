@@ -71,6 +71,10 @@ ENABLE_BIOMETRIC_GUARDRAIL=true  # default for the descriptive-only biometric gu
                                  # Runtime-togglable from the Admin tab via POST /admin/biometric-guardrail.
                                  # NOTE: like all /admin/* routes, this requires the "admin" role
                                  # (enforced in auth_middleware); non-admins get 403.
+ENABLE_VOICE_FEATURES=true       # ON by default: pitch / loudness / pause measurements of the
+                                 # user's survey speech (ciq/voice, parselmouth), stored per
+                                 # second + per answer and exported. Set false to stop.
+                                 # See docs/voice-features.md.
 ```
 
 **AWS Rekognition (face emotion analysis):**

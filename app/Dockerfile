@@ -33,8 +33,6 @@ ENV PYTHONUNBUFFERED=1
 
 RUN python -m pip install -r requirements.txt
 
-RUN python -m pip install gunicorn
-
 RUN chmod +x /app/entrypoint.sh
 
 # entrypoint restores the DB from blob, then launches the app under Litestream

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from ciq.voice.keys import ANSWER_FEATURE_KEYS
 from survey_loader import effective_score
 
 DB_PATH = Path(__file__).parent / "data" / "ciq.db"
@@ -477,20 +478,27 @@ async def save_survey_item_responses(
     pupilMmChange.
     """
     now = datetime.utcnow().isoformat()
+    # Voice acoustics only exist on the live-session snapshot (`voiceFeatures`, see
+    # ciq.realtime.tools.handlers); the report-time upsert from the browser's
+    # snapshots has none, so COALESCE keeps what the live answer already stored.
+    voice_cols = ", ".join(ANSWER_FEATURE_KEYS)
+    voice_updates = "".join(f",\n                       {k} = COALESCE(excluded.{k}, {k})" for k in ANSWER_FEATURE_KEYS)
+    placeholders = ", ".join("?" for _ in range(15 + len(ANSWER_FEATURE_KEYS)))
     async with _open_db() as db:
         for s in snapshots:
             question_id = s.get("questionId")
             if not question_id:
                 continue
             raw_score = s.get("score")
+            voice = s.get("voiceFeatures") or {}
             await db.execute(
-                """INSERT INTO survey_item_responses
+                f"""INSERT INTO survey_item_responses
                    (survey_run_id, user_id, session_id, question_id, domain,
                     raw_score, effective_score, voice_sentiment,
                     blink_rate_change_percent, pupil_mm_change,
                     left_gaze_position, right_gaze_position,
-                    response_latency_ms, user_response, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    response_latency_ms, user_response, created_at, {voice_cols})
+                   VALUES ({placeholders})
                    ON CONFLICT(survey_run_id, question_id) DO UPDATE SET
                        domain = excluded.domain,
                        raw_score = excluded.raw_score,
@@ -501,7 +509,7 @@ async def save_survey_item_responses(
                        left_gaze_position = excluded.left_gaze_position,
                        right_gaze_position = excluded.right_gaze_position,
                        response_latency_ms = excluded.response_latency_ms,
-                       user_response = COALESCE(excluded.user_response, user_response)""",
+                       user_response = COALESCE(excluded.user_response, user_response){voice_updates}""",
                 (
                     survey_run_id, user_id, session_id, question_id, s.get("domain"),
                     raw_score,
@@ -514,6 +522,7 @@ async def save_survey_item_responses(
                     s.get("responseLatencyMs"),
                     s.get("userResponse"),
                     now,
+                    *(voice.get(k) for k in ANSWER_FEATURE_KEYS),
                 ),
             )
         await db.commit()
@@ -565,8 +574,9 @@ async def save_survey_timeline_frames(
                (survey_run_id, session_id, user_id, frame_index, segment_index, timestamp,
                 turn_state, question_id, question_index, blink_rate_bpm,
                 blink_rate_change_percent, pupil_mm_change, left_gaze_position,
-                right_gaze_position, face_emotion, voice_sentiment, stress_state, stage, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                right_gaze_position, face_emotion, voice_sentiment, stress_state, stage, created_at,
+                pitch_hz, intensity_db, voiced)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(survey_run_id, frame_index) DO UPDATE SET
                    turn_state = excluded.turn_state,
                    question_id = excluded.question_id,
@@ -580,6 +590,8 @@ async def save_survey_timeline_frames(
                     f.get("pupil_mm_change"), f.get("left_gaze_position"),
                     f.get("right_gaze_position"), f.get("face_emotion"),
                     f.get("voice_sentiment"), f.get("stress_state"), f.get("stage"), now,
+                    f.get("pitch_hz"), f.get("intensity_db"),
+                    None if f.get("voiced") is None else int(bool(f.get("voiced"))),
                 )
                 for f in frames
             ],
