@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DataValidationRun } from "@/types";
 
-import { exportUrl, filterByStatus, pageCount, paginate, statusBadgeLabel, statusCounts, zipFilename, zipTree } from "./data-validation";
+import { exportUrl, filterByStatus, filterByUserId, pageCount, paginate, statusBadgeLabel, statusCounts, zipFilename, zipTree } from "./data-validation";
 
 function run(over: Partial<DataValidationRun>): DataValidationRun {
     return {
@@ -15,13 +15,38 @@ function run(over: Partial<DataValidationRun>): DataValidationRun {
         status: "completed",
         report: "saved",
         aiSummaryGenerated: false,
-        scores: { scored: true, primary: { label: "BAT-4", riskLevel: "Low", score: 1.5, scale: "avg / 5" }, cbi: null, riskDeviation: false },
+        scores: { scored: true, primary: { label: "BAT-4", riskLevel: "Low", score: 1.5, max: 5 }, cbi: null, riskDeviation: false },
         eegSegments: [],
         files: [],
         fileCount: 0,
         ...over
     };
 }
+
+describe("filterByUserId", () => {
+    const runs = [
+        run({ surveyRunId: "a", userId: "6f1c2a90-aaaa" }),
+        run({ surveyRunId: "b", userId: "6F1C77B0-bbbb" }),
+        run({ surveyRunId: "c", userId: "d4e5f6a7-cccc" }),
+        run({ surveyRunId: "d", userId: null })
+    ];
+    const ids = (q: string) => filterByUserId(runs, q).map(r => r.surveyRunId);
+
+    it("matches any part of the user ID, ignoring case and surrounding spaces", () => {
+        expect(ids("6f1c")).toEqual(["a", "b"]);
+        expect(ids("  CCCC ")).toEqual(["c"]);
+    });
+
+    it("keeps every run for a blank query", () => {
+        expect(ids("")).toEqual(["a", "b", "c", "d"]);
+        expect(ids("   ")).toEqual(["a", "b", "c", "d"]);
+    });
+
+    it("never matches a run without a user ID, and returns none for no match", () => {
+        expect(ids("null")).toEqual([]);
+        expect(ids("zzz")).toEqual([]);
+    });
+});
 
 describe("statusCounts / filterByStatus", () => {
     const runs = [

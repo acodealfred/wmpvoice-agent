@@ -36,6 +36,7 @@ const RecoveryWindowScreen = lazy(() => import("@/components/ui/recovery-window-
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { DataValidationPanel } from "@/components/ui/data-validation-panel";
+import { ReportProgress } from "@/components/ui/report-progress";
 import { MusePanel } from "@/components/ui/muse-panel";
 import { EegConnectPanel } from "@/components/ui/eeg-connect-panel";
 import EegPairModal, { type EegPairVariant } from "@/components/ui/eeg-pair-modal";
@@ -145,6 +146,9 @@ function App() {
     // True from survey completion until the report has finished post-processing
     // (POST /analyze-report) — drives the in-panel "Generating your report…" loader.
     const [reportLoading, setReportLoading] = useState(false);
+    // True once /analyze-report has resolved; the ReportProgress screen then ticks its
+    // last card and clears reportLoading, so the report appears only after 100%.
+    const [reportDataReady, setReportDataReady] = useState(false);
     // True once a survey has been fully answered. Gates the "start fresh" reset so a
     // new assessment only begins after completion — an in-progress survey resumes instead.
     const [assessmentComplete, setAssessmentComplete] = useState(false);
@@ -408,6 +412,9 @@ function App() {
     // Set once the PILOT report is saved: the strict report-only reconnect is done when
     // Start is pressed (before the explanation), not on the next response.done.
     const reportResetPendingRef = useRef(false);
+    // PILOT: the agent's closing line is cued once per assessment, when the report
+    // progress screen's last card starts (the middle tier skipped the automatic reply).
+    const closingCueSentRef = useRef(false);
     // PILOT: from the last answer until Start is pressed on the report screen, the user's
     // mic audio isn't sent at all — the agent has told them to press Start, so speaking
     // shouldn't open a conversation before the report has been explained.
@@ -543,6 +550,8 @@ function App() {
                 // POST /analyze-report (which post-processes + persists). The loader is cleared
                 // and the full report revealed once that resolves (handleReportReady).
                 setReportLoading(true);
+                setReportDataReady(false);
+                closingCueSentRef.current = false;
                 setShowDetailedReport(true);
                 if (isPilotRef.current) reportMicLockedRef.current = true;
                 eegSegmentLiveRef.current = false; // this last segment is uploaded right here
@@ -715,6 +724,8 @@ function App() {
         setSurveyOptions([]);
         setShowDetailedReport(false);
         setReportLoading(false);
+        setReportDataReady(false);
+        closingCueSentRef.current = false;
         setSentiment(null);
         setStressResult(null);
         setEnableBiometrics(true);
@@ -1179,10 +1190,19 @@ function App() {
     // post-processed + persisted to DB). Clears the loader and arms the strict
     // report-only hard reset, performed on the next response.done.
     const handleReportReady = useCallback(() => {
-        setReportLoading(false);
+        // The progress screen finishes its last card, then clears reportLoading (onDone).
+        setReportDataReady(true);
         if (isPilotRef.current) reportResetPendingRef.current = true;
         else pendingGuardrailResetRef.current = true;
     }, []);
+
+    // PILOT only (other surveys read their result out in-script): the progress screen's
+    // last card has started — ask the agent for its closing line, once per assessment.
+    const sendClosingCue = () => {
+        if (!isPilotRef.current || closingCueSentRef.current) return;
+        closingCueSentRef.current = true;
+        sendBaselineCue("survey_complete");
+    };
 
     const getHeadPoseLabel = (degrees: number): string => {
         if (degrees < -15) return "Turned Left";
@@ -1272,14 +1292,13 @@ function App() {
     // ONE place only — the PILOT report screen, or the results panel for other surveys —
     // because mounting DetailedReport fires POST /analyze-report (which saves the run).
     const reportBody = (
-        <div className="relative mt-4">
+        <div className={`relative mt-4 ${reportLoading ? "min-h-[560px]" : ""}`}>
             {/* DetailedReport renders underneath while post-processing so Recharts
-                                                        sizes correctly; the overlay covers it until /analyze-report resolves. */}
+                                                        sizes correctly; the progress screen covers it until /analyze-report
+                                                        resolves AND its last card has ticked (onDone). */}
             {reportLoading && (
-                <div className="bg-[color:var(--ciq-card)]/90 absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl backdrop-blur-sm">
-                    <Loader2 className="h-8 w-8 animate-spin text-[color:var(--ciq-accent-purple)]" />
-                    <p className="text-sm font-medium text-[color:var(--ciq-text-strong)]">Generating your report…</p>
-                    <p className="text-xs text-[color:var(--ciq-text-60)]">Analyzing your responses and biometrics</p>
+                <div className="absolute inset-0 z-10 flex justify-center overflow-y-auto rounded-xl bg-[color:var(--ciq-card)] p-4">
+                    <ReportProgress ready={reportDataReady} onDone={() => setReportLoading(false)} onLastStep={sendClosingCue} />
                 </div>
             )}
             {SHOW_RECOVERY_WINDOW_LAUNCHER && !reportLoading && (

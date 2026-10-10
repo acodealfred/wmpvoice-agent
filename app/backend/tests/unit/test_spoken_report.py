@@ -171,7 +171,7 @@ def test_pilot_survey_closes_without_delivering_the_report():
     pilot = survey_instructions(PILOT)
     assert "spoken_report" not in pilot
     assert "Do NOT call query_survey_results" in pilot
-    assert "report is now on the screen" in pilot
+    assert "After the last answer, say NOTHING" in pilot
     assert 'Call query_survey_results with query_type="burnout_score"' in survey_instructions(TEST)
 
 

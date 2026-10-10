@@ -456,6 +456,9 @@ class ConnectionState:
     """
     tools_pending: dict = field(default_factory=dict)
     response_in_progress: bool = False
+    # PILOT's final answer: don't auto-request the agent's reply after the tool call —
+    # the closing line comes later, as the browser's `survey_complete` cue.
+    skip_tool_followup: bool = False
 
 
 # Same propagation model as _active_session: set in _forward_messages before the

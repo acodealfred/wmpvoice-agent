@@ -212,6 +212,14 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
     )
 
 
+def pilot_survey_just_completed(sess: SessionState) -> bool:
+    """PILOT with every question answered — the agent then stays silent until the
+    progress screen's `survey_complete` cue asks for the closing line."""
+    config = sess.survey_config or {}
+    total = len(config.get("questions", []))
+    return config.get("type") == "PILOT" and total > 0 and len(sess.survey_results) >= total
+
+
 async def sentiment_tool(args: Any) -> ToolResult:
     sentiment = args.get("sentiment", "neutral")
     reason = args.get("reason", "")

@@ -2,13 +2,24 @@
 // exposes every per-run export in one place. Spec: docs/data-validation-dashboard.md;
 // visual reference: docs/design/data-validation.dc.html.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileText, Loader2, RefreshCw } from "lucide-react";
+import { Activity, AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileText, Loader2, RefreshCw, Search, X } from "lucide-react";
 
 import type { DataValidationResponse, DataValidationRun, ValidationReportState, ValidationStatus } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { BANNER, PILL, riskTone, type Tone } from "@/lib/badges";
 import { formatServerDate } from "@/lib/datetime";
-import { exportUrl, filterByStatus, pageCount, paginate, statusBadgeLabel, statusCounts, zipFilename, zipTree, type StatusFilter } from "@/lib/data-validation";
+import {
+    exportUrl,
+    filterByStatus,
+    filterByUserId,
+    pageCount,
+    paginate,
+    statusBadgeLabel,
+    statusCounts,
+    zipFilename,
+    zipTree,
+    type StatusFilter
+} from "@/lib/data-validation";
 import { downloadBlob, filenameFromResponse } from "@/ui/download";
 
 const STATUS_TONE: Record<ValidationStatus, Tone> = { completed: "green", partial: "amber", failed: "red" };
@@ -78,6 +89,7 @@ function segmentSpan(start: string | null, end: string | null): string {
 export function DataValidationPanel() {
     const [range, setRange] = useState("30");
     const [status, setStatus] = useState<StatusFilter>("all");
+    const [userQuery, setUserQuery] = useState("");
     const [data, setData] = useState<DataValidationResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -107,8 +119,10 @@ export function DataValidationPanel() {
     }, [load]);
 
     const runs = useMemo(() => data?.runs ?? [], [data]);
-    const counts = useMemo(() => statusCounts(runs), [runs]);
-    const rows = useMemo(() => filterByStatus(runs, status), [runs, status]);
+    // User-ID search first, so the status pills and summary tiles count what it leaves.
+    const searched = useMemo(() => filterByUserId(runs, userQuery), [runs, userQuery]);
+    const counts = useMemo(() => statusCounts(searched), [searched]);
+    const rows = useMemo(() => filterByStatus(searched, status), [searched, status]);
     const selected = runs.find(r => r.surveyRunId === selectedId) ?? null;
 
     // 10 rows per page; back to page 1 whenever the filtered list changes.
@@ -212,6 +226,27 @@ export function DataValidationPanel() {
                             </button>
                         );
                     })}
+                </div>
+                <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--ciq-text-muted)]" aria-hidden />
+                    <input
+                        type="search"
+                        value={userQuery}
+                        onChange={e => setUserQuery(e.target.value)}
+                        placeholder="Search user ID…"
+                        aria-label="Search by user ID"
+                        className="font-data h-10 w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] pl-9 pr-9 text-sm text-[color:var(--ciq-text-strong)] placeholder:font-sans placeholder:text-[color:var(--ciq-text-muted)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+                    />
+                    {userQuery && (
+                        <button
+                            type="button"
+                            onClick={() => setUserQuery("")}
+                            aria-label="Clear user ID search"
+                            className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded text-[color:var(--ciq-text-muted)] hover:text-[color:var(--ciq-text-strong)]"
+                        >
+                            <X className="h-4 w-4" aria-hidden />
+                        </button>
+                    )}
                 </div>
                 <label className="flex items-center gap-2 text-xs font-bold text-[color:var(--ciq-text-muted)]">
                     Completed within
@@ -501,9 +536,9 @@ function RunDetails({ run, menuOpen, onToggleMenu, menuRef, busyKey, downloadErr
                     <p className="text-sm text-[color:var(--ciq-text-muted)]">Not scored — the run ended before the report.</p>
                 ) : (
                     <div className="grid grid-cols-2 gap-2.5">
-                        <ScoreTile label={primary.label} level={primary.riskLevel} score={primary.score} scale={primary.scale} />
+                        <ScoreTile label={primary.label} level={primary.riskLevel} score={primary.score} max={primary.max} />
                         {cbi ? (
-                            <ScoreTile label={cbi.label} level={cbi.riskLevel} score={cbi.score} scale={cbi.scale} />
+                            <ScoreTile label={cbi.label} level={cbi.riskLevel} score={cbi.score} max={cbi.max} />
                         ) : (
                             <div className="flex flex-col gap-2 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-3">
                                 <span className="text-xs font-bold text-[color:var(--ciq-text-muted)]">CBI-WRB3</span>
@@ -680,19 +715,21 @@ function RunDetails({ run, menuOpen, onToggleMenu, menuRef, busyKey, downloadErr
     );
 }
 
-function ScoreTile({ label, level, score, scale }: { label: string; level: string | null; score: number | null; scale: string }) {
+// Score first ("3 / 5"; just the number for a raw total), then the risk level chip.
+function ScoreTile({ label, level, score, max }: { label: string; level: string | null; score: number | null; max: number | null }) {
     return (
         <div className="flex flex-col gap-2 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-3">
             <span className="text-xs font-bold text-[color:var(--ciq-text-muted)]">{label}</span>
+            {score !== null && (
+                <span className="font-data text-lg text-[color:var(--ciq-text-strong)]">
+                    {score}
+                    {max !== null && <span className="text-sm text-[color:var(--ciq-text-muted)]"> / {max}</span>}
+                </span>
+            )}
             {level ? (
                 <span className={`${CHIP} self-start ${PILL[levelTone(level)]}`}>{level}</span>
             ) : (
                 <span className="text-xs text-[color:var(--ciq-text-muted)]">No risk level saved</span>
-            )}
-            {score !== null && (
-                <span className="font-data text-xs text-[color:var(--ciq-text-muted)]">
-                    {score} · {scale}
-                </span>
             )}
         </div>
     );

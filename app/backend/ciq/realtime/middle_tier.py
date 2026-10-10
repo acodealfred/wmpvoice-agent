@@ -51,7 +51,12 @@ from ciq.realtime.timeline_capture import (
     stop_timeline_capture,
 )
 from ciq.realtime.tools.base import RTToolCall, Tool, ToolResultDirection
-from ciq.realtime.tools.handlers import query_survey_tool, sentiment_tool, survey_tool
+from ciq.realtime.tools.handlers import (
+    pilot_survey_just_completed,
+    query_survey_tool,
+    sentiment_tool,
+    survey_tool,
+)
 from ciq.realtime.tools.recovery_handlers import (
     advance_recovery_track_step_tool,
     recovery_intake_answer_tool,
@@ -592,6 +597,8 @@ class RTMiddleTier:
                         tool = self.tools[item["name"]]
                         args = item["arguments"]
                         result = await tool.target(json.loads(args))
+                        if item["name"] == "record_survey_response" and pilot_survey_just_completed(self._sess):
+                            current_connection().skip_tool_followup = True
                         await server_ws.send_json(
                             {
                                 "type": "conversation.item.create",
@@ -761,7 +768,14 @@ class RTMiddleTier:
                     if self._sess.timeline_active:
                         resolve_agent_turn(self._sess, extract_turn_transcript(message))
 
-                    if len(self._tools_pending) > 0:
+                    conn = current_connection()
+                    if len(self._tools_pending) > 0 and conn.skip_tool_followup:
+                        # PILOT's last answer: stay silent; the progress screen's
+                        # survey_complete cue asks for the closing line at card 4.
+                        self._tools_pending.clear()
+                        conn.skip_tool_followup = False
+                        logger.info("[RTMT] Survey complete — closing line deferred to the survey_complete cue")
+                    elif len(self._tools_pending) > 0:
                         self._tools_pending.clear()
                         # Only request the follow-up response if nothing is already running.
                         if not self._response_in_progress:

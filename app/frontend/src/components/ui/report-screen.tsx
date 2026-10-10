@@ -60,55 +60,57 @@ export function ReportScreen({ report, reportReady, speechState, isListening, on
 
             {/* Floating control bar — fixed to the bottom of the screen, always reachable.
                 Portalled to <body>: inside this animated (transformed, overflow-hidden)
-                section a fixed element would be clipped to the section, not the screen. */}
-            {createPortal(
-                <div className="ciq-glass-card fixed inset-x-4 bottom-4 z-40 mx-auto max-w-xl px-5 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                    <p className="mb-3 flex items-center justify-center gap-2 text-center text-xs text-[color:var(--ciq-text-60)]" role="status">
-                        {speechState === "explaining" && <Volume2 className="h-3.5 w-3.5 shrink-0 text-[color:var(--ciq-accent-blue)]" aria-hidden />}
-                        {speechState === "done" && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[color:var(--ciq-accent-green)]" aria-hidden />}
-                        {STATUS[speechState]}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                        {showStart && (
+                section a fixed element would be clipped to the section, not the screen.
+                Hidden until the report is ready, so it never covers the progress screen's cards. */}
+            {reportReady &&
+                createPortal(
+                    <div className="ciq-glass-card fixed inset-x-4 bottom-4 z-40 mx-auto max-w-xl px-5 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                        <p className="mb-3 flex items-center justify-center gap-2 text-center text-xs text-[color:var(--ciq-text-60)]" role="status">
+                            {speechState === "explaining" && <Volume2 className="h-3.5 w-3.5 shrink-0 text-[color:var(--ciq-accent-blue)]" aria-hidden />}
+                            {speechState === "done" && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[color:var(--ciq-accent-green)]" aria-hidden />}
+                            {STATUS[speechState]}
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                            {showStart && (
+                                <button
+                                    type="button"
+                                    onClick={onStart}
+                                    disabled={!reportReady}
+                                    className="ciq-btn-primary ciq-touch flex items-center justify-center gap-2 rounded-xl text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {reportReady ? <Play className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                                    {reportReady ? "Start" : "Preparing…"}
+                                </button>
+                            )}
+                            {showPause && (
+                                <button
+                                    type="button"
+                                    onClick={onPause}
+                                    className="ciq-btn-secondary ciq-touch flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+                                >
+                                    <Pause className="h-4 w-4" /> Pause
+                                </button>
+                            )}
+                            {showContinue && (
+                                <button
+                                    type="button"
+                                    onClick={onContinue}
+                                    className="ciq-btn-primary ciq-touch flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
+                                >
+                                    <Play className="h-4 w-4" /> Continue
+                                </button>
+                            )}
                             <button
                                 type="button"
-                                onClick={onStart}
-                                disabled={!reportReady}
-                                className="ciq-btn-primary ciq-touch flex items-center justify-center gap-2 rounded-xl text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {reportReady ? <Play className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
-                                {reportReady ? "Start" : "Preparing…"}
-                            </button>
-                        )}
-                        {showPause && (
-                            <button
-                                type="button"
-                                onClick={onPause}
+                                onClick={onFinish}
                                 className="ciq-btn-secondary ciq-touch flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
                             >
-                                <Pause className="h-4 w-4" /> Pause
+                                <CheckCircle2 className="h-4 w-4" /> Finish
                             </button>
-                        )}
-                        {showContinue && (
-                            <button
-                                type="button"
-                                onClick={onContinue}
-                                className="ciq-btn-primary ciq-touch flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
-                            >
-                                <Play className="h-4 w-4" /> Continue
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            onClick={onFinish}
-                            className="ciq-btn-secondary ciq-touch flex items-center justify-center gap-2 rounded-xl text-sm font-semibold"
-                        >
-                            <CheckCircle2 className="h-4 w-4" /> Finish
-                        </button>
-                    </div>
-                </div>,
-                document.body
-            )}
+                        </div>
+                    </div>,
+                    document.body
+                )}
         </motion.section>
     );
 }

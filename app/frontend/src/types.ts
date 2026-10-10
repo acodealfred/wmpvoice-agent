@@ -382,7 +382,8 @@ export type ValidationScore = {
     label: string;
     riskLevel: string | null;
     score: number | null;
-    scale: string;
+    // The scale's maximum (BAT-4 → 5, CBI-WRB3 → 100); null for a raw total.
+    max: number | null;
 };
 
 export type ValidationFile = {
@@ -535,8 +536,8 @@ export type FlaggedRecoverySession = {
 
 // Spoken cues for the baseline calibration protocol (see useBaselineProtocol). Sent to
 // the middle tier as a custom `baseline.cue` message; the wording lives server-side in
-// ciq/prompts/builder.py (_BASELINE_CUES / _SURVEY_START_LEADS).
-export type BaselineCue = "eyes_open_start" | "eyes_closed_start" | "survey_start_after_closed" | "survey_start_after_open";
+// ciq/prompts/builder.py (_BASELINE_CUES / _SURVEY_START_LEADS / _CLOSING_CUES).
+export type BaselineCue = "eyes_open_start" | "eyes_closed_start" | "survey_start_after_closed" | "survey_start_after_open" | "survey_complete";
 
 // Fatigue ↔ Burnout zone from GET /api/zone-trend (ciq/zone.py) — the user's own
 // completed PILOT runs, calculated on demand. A wellbeing guide, not a diagnosis.

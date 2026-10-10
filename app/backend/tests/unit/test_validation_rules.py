@@ -184,7 +184,7 @@ def test_view_non_pilot_uses_technical_report_risk_and_no_cbi():
         technical_report=json.dumps({"analysis": {}, "riskLevel": "Moderate", "totalScore": 61}),
         eeg_segments=[], segment_spans={},
     ))
-    assert v["scores"]["primary"] == {"label": "BATFULL", "riskLevel": "Moderate", "score": 61, "scale": "total"}
+    assert v["scores"]["primary"] == {"label": "BATFULL", "riskLevel": "Moderate", "score": 61, "max": None}
     assert v["scores"]["cbi"] is None
     assert v["scores"]["riskDeviation"] is False
 

@@ -129,8 +129,9 @@ Matches the existing Admin panel: dark Petroleum theme (`--ciq-*` tokens),
      1. `SURVEY_RUN_ID` + status badge
      2. User ID (full) · Survey type · Completed
      3. Report chip + one-line explanation (+ the AI-summary info line from §4)
-     4. **Scores**: two tiles — BAT-4 (`pilot_bat4_scores.risk_level`, avg / 5) and
-        CBI-WRB3 (`pilot_cbi3_scores.risk_level`, mean / 100). For non-PILOT runs the
+     4. **Scores**: two tiles, each the score shown as `score / max` (API field `max`)
+        then the risk chip — BAT-4 (`pilot_bat4_scores.risk_level`, e.g. `3 / 5`) and
+        CBI-WRB3 (`pilot_cbi3_scores.risk_level`, e.g. `66.7 / 100`). For non-PILOT runs the
         first tile is labelled with the survey type and shows
         `technical_report.riskLevel` (+ `totalScore`); the CBI tile says
         "Not part of this survey type." Partial runs: see §4b.

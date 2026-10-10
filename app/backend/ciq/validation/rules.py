@@ -134,14 +134,14 @@ def build_run_view(row: dict) -> dict:
     files = file_manifest(row["survey_run_id"], row.get("user_id"), has_timeline, eeg_segments)
 
     if survey_type == "PILOT":
-        primary = {"label": "BAT-4", "riskLevel": row.get("bat4_risk_level"), "score": row.get("bat4_average"), "scale": "avg / 5"}
-        cbi = {"label": "CBI-WRB3", "riskLevel": row.get("cbi3_risk_level"), "score": row.get("cbi3_mean"), "scale": "mean / 100"} if has_cbi3 else None
+        primary = {"label": "BAT-4", "riskLevel": row.get("bat4_risk_level"), "score": row.get("bat4_average"), "max": 5}
+        cbi = {"label": "CBI-WRB3", "riskLevel": row.get("cbi3_risk_level"), "score": row.get("cbi3_mean"), "max": 100} if has_cbi3 else None
     else:
         primary = {
             "label": survey_type or "Survey",
             "riskLevel": (technical_report or {}).get("riskLevel"),
             "score": (technical_report or {}).get("totalScore"),
-            "scale": "total",
+            "max": None,  # raw total — no fixed maximum
         }
         cbi = None
     scored = primary["riskLevel"] is not None or cbi is not None

@@ -379,7 +379,19 @@ _SURVEY_START_LEADS = {
     ),
 }
 
-BASELINE_CUE_NAMES = frozenset(_BASELINE_CUES) | frozenset(_SURVEY_START_LEADS)
+# PILOT closing line, spoken when the report progress screen's 4th card starts (the
+# browser's `survey_complete` cue) — not straight after the last answer, which the
+# middle tier leaves unanswered (ConnectionState.skip_tool_followup).
+_CLOSING_CUES = {
+    "survey_complete": (
+        "Say ONE short, warm closing line, then stop: thank the user, tell them the check-in "
+        "is complete and their report is ready — it's appearing on their screen now — and "
+        "that you'll walk them through it when they press Start. Do not tell them any result, "
+        "score or interpretation, and do not ask any question."
+    ),
+}
+
+BASELINE_CUE_NAMES = frozenset(_BASELINE_CUES) | frozenset(_SURVEY_START_LEADS) | frozenset(_CLOSING_CUES)
 
 
 def baseline_cue_instructions(cue: str) -> str | None:
@@ -391,6 +403,8 @@ def baseline_cue_instructions(cue: str) -> str | None:
     """
     if cue in _BASELINE_CUES:
         return f"{LANGUAGE_RULE}\n\n{_BASELINE_CUES[cue]}"
+    if cue in _CLOSING_CUES:
+        return f"{LANGUAGE_RULE}\n\n{_CLOSING_CUES[cue]}"
     lead = _SURVEY_START_LEADS.get(cue)
     if lead is None:
         return None
@@ -679,9 +693,8 @@ def survey_instructions(survey_config: dict, is_returning_user: bool = False) ->
         after_all_answers = f"""AFTER ALL {len(questions)} ANSWERS:
 - Do NOT call query_survey_results, and do NOT tell the user any result, score or
   interpretation yet — not even a hint.
-- Say ONE short, warm closing line, then stop: thank them, tell them the check-in is
-  complete and their report is now on the screen, and that you'll walk them through it
-  when they press Start.
+- After the last answer, say NOTHING. A moment later you will be given your closing
+  line to say while the report finishes preparing — say only that.
 - If they ask for their results before pressing Start, gently ask them to press Start on
   the report screen."""
     else:
