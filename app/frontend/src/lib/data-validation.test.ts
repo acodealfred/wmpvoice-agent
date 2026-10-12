@@ -8,6 +8,7 @@ function run(over: Partial<DataValidationRun>): DataValidationRun {
     return {
         surveyRunId: "run-1",
         userId: "user-1",
+        userName: "P001",
         surveyType: "PILOT",
         lifecycleStatus: "completed",
         createdAt: "2026-10-06T08:00:00",

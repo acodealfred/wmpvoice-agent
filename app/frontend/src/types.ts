@@ -395,6 +395,7 @@ export type ValidationFile = {
 export type DataValidationRun = {
     surveyRunId: string;
     userId: string | null;
+    userName: string | null;
     surveyType: string | null;
     lifecycleStatus: string;
     createdAt: string;

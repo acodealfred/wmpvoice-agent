@@ -292,7 +292,7 @@ export function DataValidationPanel() {
                         <span className="text-xs text-[color:var(--ciq-text-muted)]">Newest first · select a row for details</span>
                     </div>
                     <div className="flex-1 overflow-x-auto">
-                        <table className="w-full min-w-[820px] border-collapse text-sm">
+                        <table className="w-full min-w-[920px] border-collapse text-sm">
                             <thead>
                                 <tr className="text-left text-[11px] uppercase tracking-wider text-[color:var(--ciq-text-muted)]">
                                     <th scope="col" className="px-4 py-2 font-bold">
@@ -300,6 +300,9 @@ export function DataValidationPanel() {
                                     </th>
                                     <th scope="col" className="px-2 py-2 font-bold">
                                         User ID
+                                    </th>
+                                    <th scope="col" className="px-2 py-2 font-bold">
+                                        User name
                                     </th>
                                     <th scope="col" className="px-2 py-2 font-bold">
                                         Type
@@ -347,6 +350,7 @@ export function DataValidationPanel() {
                                             <td className="font-data px-2 py-2 text-xs text-[color:var(--ciq-text-body)]" title={r.userId ?? undefined}>
                                                 {r.userId ? r.userId.slice(0, 8) : "—"}
                                             </td>
+                                            <td className="px-2 py-2 text-xs text-[color:var(--ciq-text-strong)]">{r.userName ?? "—"}</td>
                                             <td className="font-data px-2 py-2 text-xs text-[color:var(--ciq-text-body)]">{r.surveyType ?? "—"}</td>
                                             <td className="font-data whitespace-nowrap px-2 py-2 text-xs text-[color:var(--ciq-text-body)]">
                                                 {formatServerDate(r.completedAt)}
@@ -502,6 +506,10 @@ function RunDetails({ run, menuOpen, onToggleMenu, menuRef, busyKey, downloadErr
                 <div className="col-span-2">
                     <dt className="mb-1 text-xs text-[color:var(--ciq-text-muted)]">User ID</dt>
                     <dd className="font-data break-all text-[color:var(--ciq-text-strong)]">{run.userId ?? "—"}</dd>
+                </div>
+                <div className="col-span-2">
+                    <dt className="mb-1 text-xs text-[color:var(--ciq-text-muted)]">User name</dt>
+                    <dd className="text-[color:var(--ciq-text-strong)]">{run.userName ?? "—"}</dd>
                 </div>
                 <div>
                     <dt className="mb-1 text-xs text-[color:var(--ciq-text-muted)]">Survey type</dt>

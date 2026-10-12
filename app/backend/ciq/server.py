@@ -78,6 +78,7 @@ from ciq.recovery.routes import (
     select_track_route,
     start_recovery_session,
 )
+from ciq.reports.export_routes import admin_export_reports
 from ciq.reports.routes import (
     analyze_report,
     generate_ssot_report,
@@ -180,6 +181,9 @@ async def create_app():
     # ── Admin Data Validation (docs/data-validation-dashboard.md) ─────────
     app.router.add_get("/admin/data-validation/runs", admin_data_validation_runs)
     app.router.add_get("/admin/data-validation/export-zip", admin_data_validation_export_zip)
+
+    # ── Admin participant reports (PDF ZIP; ciq/reports/export.py) ──────
+    app.router.add_get("/admin/reports/export", admin_export_reports)
 
     app.router.add_get("/manager/overview", manager_overview)
     app.router.add_get("/manager/analytics", manager_analytics)

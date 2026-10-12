@@ -149,6 +149,7 @@ def build_run_view(row: dict) -> dict:
     return {
         "surveyRunId": row["survey_run_id"],
         "userId": row.get("user_id"),
+        "userName": row.get("user_name"),
         "surveyType": survey_type,
         "lifecycleStatus": lifecycle,
         "createdAt": row.get("created_at"),

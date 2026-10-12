@@ -239,6 +239,27 @@ async def get_user_survey_records(user_id: str) -> list[dict]:
             return [dict(r) for r in rows]
 
 
+async def get_completed_reports(since_iso: str | None = None) -> list[dict]:
+    """Every user's completed reports for the admin "Participant reports" export
+    (ciq.reports.export), newest first. Same inclusion rule as the History tab
+    (get_user_survey_records): status completed + saved data; demo runs excluded.
+    `since_iso` filters on updated_at — the moment a completed run finished (naive
+    UTC ISO, the format updated_at is written in)."""
+    async with _open_db() as db:
+        async with db.execute("""
+            SELECT sr.survey_run_id, sr.user_id, u.name AS user_name, sr.survey_type,
+                   sr.updated_at, sr.technical_report, sr.prompt_info
+            FROM survey_records sr
+            LEFT JOIN users u ON u.user_id = sr.user_id
+            WHERE sr.status = 'completed'
+              AND sr.is_demo = 0
+              AND (sr.survey_results IS NOT NULL OR sr.prompt_info IS NOT NULL)
+              AND (? IS NULL OR sr.updated_at >= ?)
+            ORDER BY sr.updated_at DESC
+        """, (since_iso, since_iso)) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+
 async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
     """Lightweight per-run list (id/type/date/status, no JSON blobs) for admin
     run-pickers like the survey-timeline export UI.
@@ -985,7 +1006,7 @@ async def get_data_validation_runs(since_iso: str | None = None, survey_run_id: 
     """
     async with _open_db() as db:
         async with db.execute("""
-            SELECT sr.survey_run_id, sr.user_id, sr.survey_type, sr.status, sr.created_at, sr.updated_at,
+            SELECT sr.survey_run_id, sr.user_id, u.name AS user_name, sr.survey_type, sr.status, sr.created_at, sr.updated_at,
                    sr.closed_at, sr.paused_at, sr.technical_report, sr.prompt_info,
                    EXISTS (SELECT 1 FROM survey_timeline_frames f
                            WHERE f.survey_run_id = sr.survey_run_id) AS has_timeline,
@@ -999,6 +1020,7 @@ async def get_data_validation_runs(since_iso: str | None = None, survey_run_id: 
                      WHERE seg.survey_run_id = sr.survey_run_id) AS segment_list,
                    es.survey_run_id IS NOT NULL AS has_legacy_eeg
             FROM survey_records sr
+            LEFT JOIN users u ON u.user_id = sr.user_id
             LEFT JOIN eeg_sessions es ON es.survey_run_id = sr.survey_run_id
             LEFT JOIN pilot_bat4_scores b ON b.survey_run_id = sr.survey_run_id
             LEFT JOIN pilot_cbi3_scores c ON c.survey_run_id = sr.survey_run_id

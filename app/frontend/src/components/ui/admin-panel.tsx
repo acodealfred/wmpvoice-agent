@@ -25,6 +25,7 @@ import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale,
 import { PILL, BANNER } from "@/lib/badges";
 import { formatServerDate } from "@/lib/datetime";
 import { downloadBlob as triggerBlobDownload, filenameFromResponse } from "@/ui/download";
+import { ReportExportCard } from "@/components/ui/report-export-card";
 
 type RegistrationStatus = "unknown" | "loading" | "registered" | "unregistered" | "error";
 
@@ -775,6 +776,9 @@ export function AdminPanel() {
                     Download Pilot Survey Details
                 </button>
             </div>
+
+            {/* ── Participant Reports (PDF ZIP) ── */}
+            <ReportExportCard />
 
             {/* ── Survey Timeline Export ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">

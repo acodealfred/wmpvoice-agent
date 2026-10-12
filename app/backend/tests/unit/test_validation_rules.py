@@ -151,7 +151,7 @@ def test_completed_at_fallbacks():
 
 def _row(**over):
     row = {
-        "survey_run_id": RUN, "user_id": USER, "survey_type": "PILOT", "status": "completed",
+        "survey_run_id": RUN, "user_id": USER, "user_name": "P001", "survey_type": "PILOT", "status": "completed",
         "created_at": "2026-10-06T08:00:00", "updated_at": "2026-10-06T08:20:00",
         "closed_at": None, "paused_at": None,
         "technical_report": json.dumps({"analysis": {}}), "prompt_info": None,
@@ -169,6 +169,7 @@ def test_view_pilot_with_deviation_and_segments():
     v = build_run_view(_row())
     assert v["status"] == STATUS_COMPLETED
     assert v["userId"] == USER
+    assert v["userName"] == "P001"
     assert v["report"] == REPORT_SAVED
     assert v["scores"]["riskDeviation"] is True
     assert all("99887766" in f["path"] for f in v["files"])

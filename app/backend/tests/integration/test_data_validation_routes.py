@@ -112,6 +112,7 @@ async def test_runs_statuses_filters_and_exclusions(validation_app, initialized_
 
         ok = runs["run-ok"]
         assert ok["userId"] == uid
+        assert ok["userName"] == "system1"
         assert ok["status"] == "completed"
         assert ok["scores"]["riskDeviation"] is True
         assert [s["index"] for s in ok["eegSegments"]] == [0, 1]
