@@ -338,6 +338,22 @@ class MalformedEegError(ValueError):
     """The run's stored EEG recording could not be combined with its timeline."""
 
 
+def muse_ids_by_segment(segments: list[dict]) -> dict[int, str]:
+    """segment_index -> the headband's Bluetooth name (e.g. "Muse-39E1"), the combined
+    CSV's muse_id. The name ends in the last 4 hex digits of the headband's MAC
+    (printed on the device), so it is the same for every recording made with one
+    headband and differs between headbands — unlike Web Bluetooth's device.id, which
+    changes per browser. Per segment, since a resumed run may reconnect a different
+    headband. Falls back to the stored file's device.name; "" when neither is known."""
+    ids = {}
+    for s in segments:
+        file_json = s.get("file_json")
+        device = file_json.get("device") if isinstance(file_json, dict) else None
+        file_name = device.get("name") if isinstance(device, dict) else None
+        ids[s["segment_index"]] = s.get("device_name") or file_name or ""
+    return ids
+
+
 async def build_combined_csv(survey_run_id: str) -> tuple[str, list[str]] | None:
     """The combined timeline + EEG CSV body and its alignment warnings for one run,
     or None when the run has no EEG. Raises MalformedEegError for a bad recording.
@@ -355,11 +371,14 @@ async def build_combined_csv(survey_run_id: str) -> tuple[str, list[str]] | None
     except (KeyError, TypeError, ValueError, IndexError) as e:
         raise MalformedEegError(f"The stored EEG recording is malformed: {e!r}") from e
 
+    muse_ids = muse_ids_by_segment(segments)
+
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow([*_TIMELINE_EXPORT_HEADERS, *EEG_COLUMNS])
+    writer.writerow([*_TIMELINE_EXPORT_HEADERS, "muse_id", *EEG_COLUMNS])
     for f, eeg in zip(frames, eeg_rows):
-        writer.writerow([*_timeline_row(f), *(eeg[c] for c in EEG_COLUMNS)])
+        muse_id = muse_ids.get(f.get("segment_index") or 0, "")
+        writer.writerow([*_timeline_row(f), muse_id, *(eeg[c] for c in EEG_COLUMNS)])
     writer.writerows(await _summary_rows(survey_run_id))
     return buf.getvalue(), warnings
 

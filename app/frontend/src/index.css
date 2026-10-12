@@ -398,3 +398,63 @@ body {
     box-shadow: var(--ciq-glass-shadow);
     overflow: hidden;
 }
+
+/* ── Report "Download PDF" (lib/print-report.ts) — print only the tagged report,
+   exactly as it looks on screen: dark surfaces kept (print-color-adjust), A4 with
+   no page margin so the browser's URL/date header is dropped. While tagged, the
+   report is pinned to A4 width on screen too, so its charts redraw at the size
+   they will print at (790px ≈ A4 at 96 dpi, and ≥ the md breakpoint). ── */
+[data-print-target] {
+    width: 790px !important;
+    max-width: none !important;
+}
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 0;
+    }
+    html,
+    body {
+        background: var(--ciq-card) !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    [data-print-ancestor] {
+        display: block !important;
+        position: static !important;
+        overflow: visible !important;
+        width: auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    [data-print-ancestor] > :not([data-print-ancestor]):not([data-print-target]) {
+        display: none !important;
+    }
+    [data-print-target] {
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+    [data-print-target],
+    [data-print-target] * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    [data-print-target] .ciq-no-print,
+    [data-print-target] .recharts-tooltip-wrapper {
+        display: none !important;
+    }
+    [data-print-target] .overflow-x-auto {
+        overflow: visible !important;
+    }
+    [data-print-target] .ciq-print-keep,
+    [data-print-target] tr {
+        break-inside: avoid;
+    }
+}

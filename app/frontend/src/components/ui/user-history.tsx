@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen, ClipboardList, ExternalLink, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen, ClipboardList, ExternalLink, RefreshCw, FileText } from "lucide-react";
 import { SurveyRecord } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { Markdown } from "@/components/ui/markdown";
 import { PILL, BANNER, TEXT_TONE, riskTone, sentimentTone } from "@/lib/badges";
 import { formatServerDate } from "@/lib/datetime";
+import { SavedReportDialog } from "@/components/ui/saved-report-dialog";
 
 function fmt(iso: string) {
     return formatServerDate(iso, { dateStyle: "medium", timeStyle: "short" });
@@ -77,6 +78,8 @@ function AIReportSection({ info }: { info: SsotSection }) {
 
 function SessionCard({ session }: { session: SurveyRecord }) {
     const [expanded, setExpanded] = useState(false);
+    const [showReport, setShowReport] = useState(false);
+    const closeReport = useCallback(() => setShowReport(false), []);
     const report = session.technical_report;
     const survey = session.survey_results;
     const info = session.prompt_info;
@@ -131,6 +134,16 @@ function SessionCard({ session }: { session: SurveyRecord }) {
             {/* Expanded detail */}
             {expanded && (
                 <div className="space-y-6 border-t border-[color:var(--ciq-line)] px-5 py-5">
+                    {/* Full report (as shown after the survey) — with its Download PDF button */}
+                    {report && survey && (
+                        <button
+                            onClick={() => setShowReport(true)}
+                            className="flex items-center gap-2 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-4 py-2 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)]"
+                        >
+                            <FileText className="h-4 w-4" /> View full report / Download PDF
+                        </button>
+                    )}
+
                     {/* Technical summary */}
                     {report && (
                         <div className="rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
@@ -240,6 +253,7 @@ function SessionCard({ session }: { session: SurveyRecord }) {
                     </div>
                 </div>
             )}
+            {showReport && <SavedReportDialog scope="me" surveyRunId={session.survey_run_id} onClose={closeReport} />}
         </div>
     );
 }

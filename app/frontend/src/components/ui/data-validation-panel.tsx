@@ -8,6 +8,7 @@ import type { DataValidationResponse, DataValidationRun, ValidationReportState, 
 import { apiFetch } from "@/lib/api";
 import { BANNER, PILL, riskTone, type Tone } from "@/lib/badges";
 import { formatServerDate } from "@/lib/datetime";
+import { SavedReportDialog } from "@/components/ui/saved-report-dialog";
 import {
     exportUrl,
     filterByStatus,
@@ -489,6 +490,9 @@ function RunDetails({ run, menuOpen, onToggleMenu, menuRef, busyKey, downloadErr
     const multi = segs.length > 1;
     const busy = busyKey !== null;
     const icon = (key: string) => (busyKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : null);
+    // The saved report, opened full screen with its Download PDF button.
+    const [showReport, setShowReport] = useState(false);
+    const closeReport = useCallback(() => setShowReport(false), []);
 
     return (
         <>
@@ -531,9 +535,20 @@ function RunDetails({ run, menuOpen, onToggleMenu, menuRef, busyKey, downloadErr
                                 {run.aiSummaryGenerated ? "AI summary generated." : "AI summary not generated yet (generated when the user opens the report)."}
                             </span>
                         )}
+                        {run.report === "saved" && (
+                            <button
+                                type="button"
+                                onClick={() => setShowReport(true)}
+                                className="mt-1 inline-flex min-h-[40px] w-fit items-center gap-2 rounded-lg border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] px-3 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-3)]"
+                            >
+                                <FileText className="h-4 w-4" aria-hidden />
+                                View report / Download PDF
+                            </button>
+                        )}
                     </dd>
                 </div>
             </dl>
+            {showReport && <SavedReportDialog scope="admin" surveyRunId={id} onClose={closeReport} />}
 
             {/* ── Scores ── */}
             <section aria-labelledby="dv-scores-h" className="flex flex-col gap-3 border-t border-[color:var(--ciq-line)] pt-4">

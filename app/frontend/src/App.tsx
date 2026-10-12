@@ -1334,7 +1334,6 @@ function App() {
                         sessionId={sessionId}
                         surveyRunId={surveyRunId}
                         surveyType={surveyTypeConfig?.activeSurveyType}
-                        onClose={() => setShowDetailedReport(false)}
                         onAgentSpeaking={text => console.log("[App] Agent speaking:", text)}
                         onReportDelivered={handleReportReady}
                         compact={isPilot}

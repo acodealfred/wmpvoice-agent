@@ -85,6 +85,7 @@ from ciq.reports.routes import (
     report_behavioral_analysis,
     report_consultative_summary,
 )
+from ciq.reports.saved_routes import admin_saved_report, me_saved_report
 from ciq.validation.routes import (
     admin_data_validation_export_zip,
     admin_data_validation_runs,
@@ -164,6 +165,9 @@ async def create_app():
     app.router.add_post("/report/behavioral-analysis", report_behavioral_analysis)
     app.router.add_post("/report/consultative-summary", report_consultative_summary)
     app.router.add_post("/ssot-report", generate_ssot_report)
+    # Saved report reopened for viewing / PDF download (ciq/reports/saved_routes.py)
+    app.router.add_get("/me/reports/{runId}", me_saved_report)
+    app.router.add_get("/admin/reports/runs/{runId}", admin_saved_report)
 
     # ── History / consent (baselines are per assessment: /me/assessment/baseline) ──
     app.router.add_get("/api/history", user_sessions_history)

@@ -1,10 +1,13 @@
-import { useState, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { BiometricSnapshot, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { fetchZoneTrend } from "@/lib/zone";
 import { blinkBandLevel } from "@/lib/bands";
 import { answerLevel, describeDomain, describeGauge } from "@/lib/report-descriptions";
-import { Loader2, AlertCircle, Sparkles, Eye, Timer, Gauge } from "lucide-react";
+import { printReport } from "@/lib/print-report";
+import { reportFileTitle, type SavedReport } from "@/lib/saved-report";
+import { formatServerDate, parseServerDate } from "@/lib/datetime";
+import { Loader2, AlertCircle, Sparkles, Eye, Timer, Gauge, Download } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
 import { ReadinessReportView } from "@/components/ui/readiness-report-view";
 import { ZoneScale } from "@/components/ui/zone-scale";
@@ -31,7 +34,6 @@ interface DetailedReportProps {
     sessionId?: string;
     surveyRunId?: string;
     surveyType?: string;
-    onClose?: () => void;
     onAgentSpeaking?: (text: string) => void;
     onReportDelivered?: () => void;
     /**
@@ -40,6 +42,13 @@ interface DetailedReportProps {
      * the side-by-side layout, which clips the radar's labels in a narrow panel.
      */
     compact?: boolean;
+    /**
+     * A saved report reopened read-only (History tab / Admin Data Validation): shown
+     * from the stored figures — nothing is saved again, no AI call is made, and the
+     * AI Insights section is left out. `showZone` only when the viewer is the report's
+     * owner, since /api/zone-trend is always the logged-in user's own trend.
+     */
+    saved?: { report: SavedReport["report"]; createdAt: string | null; showZone: boolean };
 }
 
 // Radar axis label wrapped onto several short lines, so long domain names
@@ -110,10 +119,13 @@ function useThemeTokens(): Tokens {
 
 type ReportTab = "analysis" | "consultative";
 
-export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onClose, onReportDelivered, compact = false }: DetailedReportProps) {
+export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onReportDelivered, compact = false, saved }: DetailedReportProps) {
     const tok = useThemeTokens();
+    const reportRef = useRef<HTMLDivElement>(null);
 
-    const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(null);
+    const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(() =>
+        saved ? { ...saved.report, domainTotals: saved.report.domainTotals ?? {}, analysis: {}, agentResponse: "" } : null
+    );
     const [saveError, setSaveError] = useState<string | null>(null);
     // Bumped by the "Retry saving" button to re-run the /analyze-report save below.
     const [saveAttempt, setSaveAttempt] = useState(0);
@@ -195,7 +207,8 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // retry a few times on transient failure and surface an error if it never
     // succeeds, so the user can press "Retry saving".
     useEffect(() => {
-        if (snapshots.length === 0) return;
+        // A saved report is already persisted — never POST it again.
+        if (saved || snapshots.length === 0) return;
         let cancelled = false;
         const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -241,6 +254,19 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [snapshots, sessionId, saveAttempt]);
 
+    // Saved report: the zone scale only for its owner (it shows when this run is their latest).
+    useEffect(() => {
+        if (!saved?.showZone || !surveyRunId) return;
+        let cancelled = false;
+        fetchZoneTrend()
+            .then(z => !cancelled && setZoneData(z))
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [surveyRunId]);
+
     // Once the report row is persisted, generate the consultative summary in the
     // background so its text (prompt_info.agentResponse) is saved to history. The
     // agent speaks a summary live, but that audio is never stored — without this
@@ -248,7 +274,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // Only runs for an authenticated, persistable run; opening the tab reuses the
     // result instead of regenerating it.
     useEffect(() => {
-        if (analyzeData && surveyRunId && !consultText && !consultLoading && !consultError) {
+        if (!saved && analyzeData && surveyRunId && !consultText && !consultLoading && !consultError) {
             handleGenerateConsultative();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,7 +289,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // instead of waiting for a tab click, since it's the main qualitative deliverable.
     const isReadiness = surveyType === "READINESS";
     useEffect(() => {
-        if (isReadiness && analyzeData && !analysisResult && !analysisLoading && !analysisError) {
+        if (!saved && isReadiness && analyzeData && !analysisResult && !analysisLoading && !analysisError) {
             // Also open the tab itself — otherwise the generated narrative sits in
             // state with nothing rendering it until the user happens to click
             // "Behavioral Analysis" manually (the content area is gated on
@@ -519,12 +545,25 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     const hasAnalysis = insightCount > 0 || !!analysisProse.trim();
     const hasConsultative = !!consultText?.trim();
 
-    const cardClass = "rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4";
+    const cardClass = "ciq-print-keep rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4";
+
+    // "Download PDF" — the browser's print → Save as PDF, of this report only (AI Insights left out).
+    const [printing, setPrinting] = useState(false);
+    const handleDownloadPdf = async () => {
+        if (!reportRef.current || printing) return;
+        setPrinting(true);
+        try {
+            const when = saved?.createdAt ? parseServerDate(saved.createdAt) : new Date();
+            await printReport(reportRef.current, reportFileTitle(surveyType, surveyRunId, when));
+        } finally {
+            setPrinting(false);
+        }
+    };
 
     return (
-        <div className="w-full rounded-2xl bg-[color:var(--ciq-card)] p-6 shadow-lg">
+        <div ref={reportRef} className="w-full rounded-2xl bg-[color:var(--ciq-card)] p-6 shadow-lg">
             {/* ── Header ── */}
-            <div className="mb-5 flex items-center justify-between">
+            <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                     <h2 className="font-display text-2xl font-bold text-[color:var(--ciq-text-strong)]">
                         {isReadiness ? "Readiness Assessment" : "Burnout Assessment"}
@@ -532,21 +571,22 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <p className="text-sm text-[color:var(--ciq-text-muted)]">
                         {isReadiness ? "Readiness & physiological insight dashboard" : "Behavioral & physiological insight dashboard"}
                     </p>
+                    {saved?.createdAt && <p className="mt-0.5 text-xs text-[color:var(--ciq-text-faint)]">Completed {formatServerDate(saved.createdAt)}</p>}
                 </div>
-                {onClose && (
-                    <button
-                        onClick={onClose}
-                        className="rounded-full p-2 text-[color:var(--ciq-text-muted)] hover:bg-[color:var(--ciq-card-2)]"
-                        aria-label="Close report"
-                    >
-                        ✕
-                    </button>
-                )}
+                <button
+                    onClick={() => void handleDownloadPdf()}
+                    disabled={!scoreReady || printing}
+                    className="ciq-no-print flex shrink-0 items-center gap-1.5 rounded-lg border border-[color:var(--ciq-line)] px-3 py-1.5 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-2)] disabled:cursor-not-allowed disabled:opacity-50"
+                    title={scoreReady ? "Save this report as a PDF" : "Available once the report is ready"}
+                >
+                    {printing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    Download PDF
+                </button>
             </div>
 
             {/* Auto-save warning — shown when /analyze-report failed to persist after retries. */}
             {saveError && (
-                <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <div className="ciq-no-print mb-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span className="flex-1">{saveError}</span>
                     <button
@@ -601,7 +641,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <div className={compact ? "order-1" : "md:col-span-3"}>
                         <p className="mb-1 text-center text-sm font-medium text-[color:var(--ciq-text-body)]">
                             Domain Profile · avg score
-                            <span className="ml-1 text-xs font-normal text-[color:var(--ciq-text-muted)]">(hover a domain for details)</span>
+                            <span className="ciq-no-print ml-1 text-xs font-normal text-[color:var(--ciq-text-muted)]">(hover a domain for details)</span>
                         </p>
                         <ResponsiveContainer width="100%" height={compact ? 400 : 360}>
                             {useRadar ? (
@@ -644,7 +684,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
             )}
 
             {/* ── KPI tiles ── */}
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="ciq-print-keep mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <KpiTile
                     icon={<Eye className="h-4 w-4" />}
                     label="Peak blink Δ"
@@ -704,80 +744,83 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                 Note: This is a demonstration only. Results should be validated by a healthcare professional.
             </p>
 
-            {/* ── AI reports — tabbed nav + shared content area ── */}
-            <div className="mb-2 border-t border-[color:var(--ciq-line)] pt-6">
-                <h3 className="mb-1 font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">AI Insights</h3>
-                <p className="mb-3 text-xs text-[color:var(--ciq-text-faint)]">
-                    Pick a report to generate — each takes a few seconds. Switching tabs swaps the view below.
-                </p>
+            {/* ── AI reports — tabbed nav + shared content area. Live report only, and
+                 never in the PDF; a saved report (History / Admin) leaves it out. ── */}
+            {!saved && (
+                <div className="ciq-no-print mb-2 border-t border-[color:var(--ciq-line)] pt-6">
+                    <h3 className="mb-1 font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">AI Insights</h3>
+                    <p className="mb-3 text-xs text-[color:var(--ciq-text-faint)]">
+                        Pick a report to generate — each takes a few seconds. Switching tabs swaps the view below.
+                    </p>
 
-                <div className="flex w-full items-stretch border-b border-[color:var(--ciq-line)]">
-                    <ReportTabButton
-                        label="Behavioral Analysis"
-                        icon={<Gauge className="h-4 w-4" />}
-                        active={activeReportTab === "analysis"}
-                        loading={analysisLoading}
-                        disabled={snapshots.length === 0}
-                        onClick={() => openReportTab("analysis")}
-                    />
-                    <ReportTabButton
-                        label="Consultative Summary"
-                        icon={<Sparkles className="h-4 w-4" />}
-                        active={activeReportTab === "consultative"}
-                        loading={consultLoading}
-                        disabled={snapshots.length === 0}
-                        onClick={() => openReportTab("consultative")}
-                    />
-                </div>
+                    <div className="flex w-full items-stretch border-b border-[color:var(--ciq-line)]">
+                        <ReportTabButton
+                            label="Behavioral Analysis"
+                            icon={<Gauge className="h-4 w-4" />}
+                            active={activeReportTab === "analysis"}
+                            loading={analysisLoading}
+                            disabled={snapshots.length === 0}
+                            onClick={() => openReportTab("analysis")}
+                        />
+                        <ReportTabButton
+                            label="Consultative Summary"
+                            icon={<Sparkles className="h-4 w-4" />}
+                            active={activeReportTab === "consultative"}
+                            loading={consultLoading}
+                            disabled={snapshots.length === 0}
+                            onClick={() => openReportTab("consultative")}
+                        />
+                    </div>
 
-                <div className="mt-4 min-h-[9rem] rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
-                    {activeReportTab === null && (
-                        <div className="flex min-h-[7rem] flex-col items-center justify-center gap-1.5 text-center">
-                            <Sparkles className="h-6 w-6 text-[color:var(--ciq-text-faint)]" />
-                            <p className="text-sm text-[color:var(--ciq-text-muted)]">Choose a report above to generate it.</p>
-                        </div>
-                    )}
-
-                    {activeReportTab === "analysis" &&
-                        (analysisLoading ? (
-                            <ReportLoading label={isReadiness ? "Reflecting on the conversation…" : "Analyzing behaviour…"} />
-                        ) : analysisError ? (
-                            <ReportError text={analysisError} onRetry={handleGenerateAnalysis} />
-                        ) : isReadiness && analysisResult?.assessment_summary ? (
-                            <ReadinessReportView analysisResult={analysisResult} />
-                        ) : isReadiness && analysisResult?.raw ? (
-                            // The model's JSON didn't parse into the expected shape server-side
-                            // (parse_llm_json fell back to {raw: "..."}) — show it rather than
-                            // silently rendering nothing even though generation did succeed.
-                            <Markdown>{analysisResult.raw}</Markdown>
-                        ) : hasAnalysis ? (
-                            <div className="space-y-5">
-                                {insightCount > 0 ? (
-                                    <>
-                                        {renderInsightGroup("Correlations", normalizedAnalysis?.correlations, tok.blue)}
-                                        {renderInsightGroup("Contradictions", normalizedAnalysis?.contradictions, tok.red)}
-                                        {renderInsightGroup("Patterns", normalizedAnalysis?.patterns, tok.purple)}
-                                    </>
-                                ) : (
-                                    <Markdown>{analysisProse}</Markdown>
-                                )}
+                    <div className="mt-4 min-h-[9rem] rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4">
+                        {activeReportTab === null && (
+                            <div className="flex min-h-[7rem] flex-col items-center justify-center gap-1.5 text-center">
+                                <Sparkles className="h-6 w-6 text-[color:var(--ciq-text-faint)]" />
+                                <p className="text-sm text-[color:var(--ciq-text-muted)]">Choose a report above to generate it.</p>
                             </div>
-                        ) : (
-                            <ReportEmpty label="Generate Behavioral Analysis" onClick={handleGenerateAnalysis} />
-                        ))}
+                        )}
 
-                    {activeReportTab === "consultative" &&
-                        (consultLoading ? (
-                            <ReportLoading label="Summarizing…" />
-                        ) : consultError ? (
-                            <ReportError text={consultError} onRetry={handleGenerateConsultative} />
-                        ) : hasConsultative ? (
-                            <Markdown>{consultText ?? ""}</Markdown>
-                        ) : (
-                            <ReportEmpty label="Generate Consultative Summary" onClick={handleGenerateConsultative} />
-                        ))}
+                        {activeReportTab === "analysis" &&
+                            (analysisLoading ? (
+                                <ReportLoading label={isReadiness ? "Reflecting on the conversation…" : "Analyzing behaviour…"} />
+                            ) : analysisError ? (
+                                <ReportError text={analysisError} onRetry={handleGenerateAnalysis} />
+                            ) : isReadiness && analysisResult?.assessment_summary ? (
+                                <ReadinessReportView analysisResult={analysisResult} />
+                            ) : isReadiness && analysisResult?.raw ? (
+                                // The model's JSON didn't parse into the expected shape server-side
+                                // (parse_llm_json fell back to {raw: "..."}) — show it rather than
+                                // silently rendering nothing even though generation did succeed.
+                                <Markdown>{analysisResult.raw}</Markdown>
+                            ) : hasAnalysis ? (
+                                <div className="space-y-5">
+                                    {insightCount > 0 ? (
+                                        <>
+                                            {renderInsightGroup("Correlations", normalizedAnalysis?.correlations, tok.blue)}
+                                            {renderInsightGroup("Contradictions", normalizedAnalysis?.contradictions, tok.red)}
+                                            {renderInsightGroup("Patterns", normalizedAnalysis?.patterns, tok.purple)}
+                                        </>
+                                    ) : (
+                                        <Markdown>{analysisProse}</Markdown>
+                                    )}
+                                </div>
+                            ) : (
+                                <ReportEmpty label="Generate Behavioral Analysis" onClick={handleGenerateAnalysis} />
+                            ))}
+
+                        {activeReportTab === "consultative" &&
+                            (consultLoading ? (
+                                <ReportLoading label="Summarizing…" />
+                            ) : consultError ? (
+                                <ReportError text={consultError} onRetry={handleGenerateConsultative} />
+                            ) : hasConsultative ? (
+                                <Markdown>{consultText ?? ""}</Markdown>
+                            ) : (
+                                <ReportEmpty label="Generate Consultative Summary" onClick={handleGenerateConsultative} />
+                            ))}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
