@@ -3,6 +3,7 @@ import { WebBluetoothMuse, channelsForPreset, type BluetoothLike, type DeviceInf
 import { Recorder, type SessionFile } from "@/session/recorder";
 import type { Marker } from "@/session/protocol";
 import { RollingWindow } from "@/session/stability";
+import { StreamMonitor, type DiagEvent } from "@/session/stream-monitor";
 import { downloadJson, sessionFilename } from "@/ui/download";
 import { isWebBluetoothAvailable } from "@/support";
 import { explainConnectError, explainStartError } from "@/ui/errors";
@@ -14,6 +15,16 @@ const CHART_WINDOW_SAMPLES = 256 * 5;
 // p50 is the only preset that streams PPG — on p21/p20 the session file has no
 // pulse data at all, and there's no way to add it after the fact (docs/muse-wiring.md §1).
 const PRESET = "p50" as const;
+// Stream diagnostics (docs: stream-monitor.ts). Observation only: it logs to the
+// console with this prefix and keeps the events on window.__museDiag so an
+// operator can copy them out after a run.
+const DIAG_TICK_MS = 1000;
+const DIAG_HEARTBEAT_MS = 15_000;
+const logDiag = (e: DiagEvent) => {
+    const line = `[muse-diag] ${e.wall} ${e.type} ${JSON.stringify(e.data ?? {})}`;
+    if (e.type === "stall" || e.type === "disconnected") console.warn(line);
+    else console.info(line);
+};
 
 const nav = typeof navigator === "undefined" ? undefined : (navigator as unknown as { bluetooth?: BluetoothLike });
 
@@ -69,12 +80,16 @@ export function useMuse() {
     // capture is paused. Read inside listeners registered once at connect() time,
     // so it has to be a ref rather than a status check.
     const pausedRef = useRef(false);
+    const monitorRef = useRef<StreamMonitor | null>(null);
+    const diagTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const available = isWebBluetoothAvailable(nav);
 
     const teardownListeners = useCallback(() => {
         unsubsRef.current.forEach(off => off());
         unsubsRef.current = [];
+        if (diagTimerRef.current) clearInterval(diagTimerRef.current);
+        diagTimerRef.current = null;
     }, []);
 
     const resetSession = useCallback(() => {
@@ -109,7 +124,28 @@ export function useMuse() {
             const source = new WebBluetoothMuse(nav.bluetooth);
             sourceRef.current = source;
             resetSession();
-            unsubsRef.current.push(source.on("disconnected", () => setStatus("disconnected")));
+            const monitor = new StreamMonitor({ now: () => performance.now(), log: logDiag });
+            monitorRef.current = monitor;
+            (window as unknown as { __museDiag?: StreamMonitor }).__museDiag = monitor;
+            let sinceHeartbeat = 0;
+            diagTimerRef.current = setInterval(() => {
+                monitor.check();
+                sinceHeartbeat += DIAG_TICK_MS;
+                if (sinceHeartbeat >= DIAG_HEARTBEAT_MS) {
+                    sinceHeartbeat = 0;
+                    monitor.heartbeat({
+                        paused: pausedRef.current,
+                        recorderPackets: recorderRef.current?.packetCount() ?? 0,
+                        visibility: document.visibilityState
+                    });
+                }
+            }, DIAG_TICK_MS);
+            unsubsRef.current.push(
+                source.on("disconnected", () => {
+                    monitor.disconnected();
+                    setStatus("disconnected");
+                })
+            );
 
             // Tracks whether the failure happened during the connect handshake or after
             // (during start()), so the error message matches what actually went wrong.
@@ -130,6 +166,7 @@ export function useMuse() {
                 // later without re-subscribing to the still-open Bluetooth link.
                 unsubsRef.current.push(
                     source.on("eeg", r => {
+                        monitor.note("eeg");
                         buffersRef.current.get(r.ch)?.push(r.uV);
                         if (pausedRef.current) return;
                         sessionTMsRef.current = r.tMs;
@@ -139,6 +176,8 @@ export function useMuse() {
                 for (const event of ["imu", "ppg", "telemetry"] as const) {
                     unsubsRef.current.push(
                         source.on(event, r => {
+                            monitor.note(event);
+                            if (r.kind === "telemetry") monitor.noteTelemetry(r.batteryPercent, r.fuelGaugeMv);
                             if (pausedRef.current) return;
                             recorderRef.current?.push(r);
                         })
