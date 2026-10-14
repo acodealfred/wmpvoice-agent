@@ -4,12 +4,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { MuseStatus } from "@/hooks/useMuse";
 import EegPairModal, { type EegPairVariant } from "./eeg-pair-modal";
 
-const render = (variant: EegPairVariant | null, status: MuseStatus = "idle", error: string | null = null) =>
+const render = (variant: EegPairVariant | null, status: MuseStatus = "idle", error: string | null = null, batteryPercent: number | null = null) =>
     renderToStaticMarkup(
         <EegPairModal
             variant={variant}
             status={status}
             error={error}
+            batteryPercent={batteryPercent}
             contactChannels={[]}
             getChannelSamples={() => new Float32Array()}
             getEegRateHz={() => null}
@@ -52,5 +53,12 @@ describe("EegPairModal", () => {
         expect(html).toContain("Start");
         expect(html).not.toContain("Pair headband");
         expect(html).not.toContain("Continue without EEG");
+    });
+
+    it("shows the headband battery once paired, warning when it is low", () => {
+        expect(render("new", "streaming", null, 80)).toContain("Headband battery 80%");
+        expect(render("new", "streaming", null, 80)).not.toContain("Charge it before starting");
+        expect(render("new", "streaming", null, 10)).toContain("Charge it before starting");
+        expect(render("new", "streaming")).not.toContain("Headband battery");
     });
 });

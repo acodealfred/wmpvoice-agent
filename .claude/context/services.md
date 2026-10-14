@@ -64,6 +64,7 @@
 - `GET /admin/users/{userId}/survey-runs` — **(Admin only)** Export survey runs for a specific user.
 - `GET /admin/survey-timeline/export` — **(Admin only)** Export 1-second timeline data.
 - `GET /admin/survey-timeline/export-combined` — **(Admin only)** Export combined timeline + EEG.
+- `GET /admin/monitor/sessions`, `GET /admin/monitor/sessions/{sessionId}` — **(Admin only)** Live Monitor: running assessments' per-second data health (in memory, read-only; `ciq/monitoring/`).
 - `GET /manager/overview` — **(Manager only)** Active employee headcount and risk distribution.
 - `GET /manager/analytics` — **(Manager only)** Departmental breakdown and domain averages.
 - `GET /manager/score-trend` — **(Manager only)** Historical burnout score trend line.

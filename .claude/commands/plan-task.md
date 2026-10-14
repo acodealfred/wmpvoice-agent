@@ -1,14 +1,14 @@
-# `/plan` Command (`.claude/commands/plan.md`)
+# `/plan-task` Command (`.claude/commands/plan-task.md`)
 
 Use this command to create a phased, low-risk implementation blueprint for a feature, refactoring, or bug fix before changing any code.
 
 ## Usage
-`/plan <feature, change description, or goal>`
+`/plan-task  <feature, change description, or goal>`
 
 *Examples:*
-- `/plan add a new export endpoint for recovery window session reflections`
-- `/plan implement custom voice tone adjustment based on pupil dilation`
-- `/plan add a unit test for CBI reverse scoring edge cases`
+- `/plan-task add a new export endpoint for recovery window session reflections`
+- `/plan-task implement custom voice tone adjustment based on pupil dilation`
+- `/plan-task add a unit test for CBI reverse scoring edge cases`
 
 ## Execution Instructions for Claude
 1. **Adopt Planner Persona**: Act strictly according to `.claude/agents/planner.md`.

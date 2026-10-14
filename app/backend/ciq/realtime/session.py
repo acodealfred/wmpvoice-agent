@@ -9,6 +9,7 @@ session across the gather tasks spawned per WebSocket connection.
 import contextvars
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -121,6 +122,18 @@ class SessionState:
     # baseline.cue the frontend sends at each phase boundary (None = before the first
     # cue). Ignored once survey_phase is "survey" (see timeline_stage()).
     baseline_stage: str | None = None
+
+    # Admin Live Monitor (ciq/monitoring): the browser's last ~2 min of assessed
+    # once-a-second health ticks, plus the counters they're judged with. In memory only.
+    monitor_ticks: deque = field(default_factory=lambda: deque(maxlen=120), repr=False, compare=False)
+    monitor_last_tick_at: float | None = None
+    monitor_phase: tuple | None = None  # (phase, since epoch s)
+    monitor_no_face_s: int = 0
+    monitor_no_mic_s: int = 0
+    monitor_audio_chunks: int = 0  # mic chunks since the last tick
+    # Open /realtime sockets — a count, not a flag: a reconnect's new socket can open
+    # before the old one's handler has finished closing.
+    open_ws_count: int = 0
 
     # Voice response latency: time between the agent finishing a turn (e.g. asking
     # a survey question) and the user starting to speak their answer.
@@ -287,6 +300,10 @@ class SessionState:
         self.survey_phase = "baseline"
         self.is_returning_user = False
         self.baseline_stage = None
+        self.monitor_ticks.clear()
+        self.monitor_phase = None
+        self.monitor_no_face_s = 0
+        self.monitor_no_mic_s = 0
         self.pre_behaviour_snapshot = None
         self.post_behaviour_snapshot = None
         self._behaviour_task = None
@@ -497,6 +514,14 @@ class SessionStore:
         sess = self._sessions[session_id]
         sess.last_active_at = time.time()
         return sess
+
+    def peek(self, session_id: str) -> SessionState | None:
+        """The session if it exists — never creates one, never touches last_active_at."""
+        return self._sessions.get(session_id)
+
+    def all(self) -> list[SessionState]:
+        """Snapshot of every live session (read-only use, e.g. the admin Live Monitor)."""
+        return list(self._sessions.values())
 
     def _evict_expired(self) -> None:
         now = time.time()

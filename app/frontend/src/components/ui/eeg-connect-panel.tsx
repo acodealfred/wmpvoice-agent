@@ -1,6 +1,7 @@
 import { BluetoothConnected, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EegWaveform } from "@/components/ui/eeg-waveform";
+import { MuseBattery, MuseBatteryWarning } from "@/components/ui/muse-battery";
 import { MuseContactLights } from "@/components/ui/muse-contact-lights";
 import type { MuseStatus } from "@/hooks/useMuse";
 import type { DeviceInfo, EegChannel } from "@/muse";
@@ -11,6 +12,8 @@ interface EegConnectPanelProps {
     error: string | null;
     available: boolean;
     hasRecording: boolean;
+    // Headband battery % from telemetry; null until the first packet.
+    batteryPercent: number | null;
     // True once the assessment itself has actually started (markSurveyStarted fired),
     // not just "the headband is paired" — gates the waveform below so pairing/settling
     // time before Start doesn't read as if the assessment were already recording.
@@ -53,6 +56,7 @@ export function EegConnectPanel({
     error,
     available,
     hasRecording,
+    batteryPercent,
     assessmentStarted,
     channels,
     getChannelSamples,
@@ -98,6 +102,7 @@ export function EegConnectPanel({
                                 />
                             </span>
                             {device ? `Paired: ${device.name}` : "Connecting…"}
+                            {isConnected && <MuseBattery percent={batteryPercent} />}
                         </span>
                         <div className="flex items-center gap-2">
                             <Button onClick={onSave} size="sm" variant="outline" disabled={!hasRecording} className="h-6 shrink-0 px-2 text-[10px]">
@@ -110,6 +115,7 @@ export function EegConnectPanel({
                             </Button>
                         </div>
                     </div>
+                    {isConnected && <MuseBatteryWarning percent={batteryPercent} />}
                     {isConnected && showContact && (
                         <MuseContactLights channels={contactChannels} getChannelSamples={getChannelSamples} getEegRateHz={getEegRateHz} />
                     )}

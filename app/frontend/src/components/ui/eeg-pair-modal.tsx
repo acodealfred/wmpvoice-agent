@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Bluetooth, X } from "lucide-react";
 
 import { Button } from "./button";
+import { MuseBattery, MuseBatteryWarning } from "./muse-battery";
 import { MuseContactLights } from "./muse-contact-lights";
 import { cn } from "@/lib/utils";
 import type { MuseStatus } from "@/hooks/useMuse";
@@ -22,6 +23,8 @@ export type EegPairModalProps = {
     variant: EegPairVariant | null;
     status: MuseStatus;
     error: string | null;
+    /** Headband battery % from telemetry, shown once paired; null until the first packet. */
+    batteryPercent: number | null;
     /** Fit lights shown once paired, so the band can be adjusted before starting. */
     contactChannels: readonly EegChannel[];
     getChannelSamples: (ch: EegChannel) => Float32Array;
@@ -44,6 +47,7 @@ export default function EegPairModal({
     variant,
     status,
     error,
+    batteryPercent,
     contactChannels,
     getChannelSamples,
     getEegRateHz,
@@ -131,9 +135,13 @@ export default function EegPairModal({
                         <div id="eeg-pair-modal-body" className="space-y-4 px-6 py-5 text-sm leading-relaxed">
                             {isPaired ? (
                                 <>
-                                    <p className="text-[color:var(--ciq-text-body)]">
-                                        Headband paired. Adjust the band until all four sensors show good contact, then press Start.
-                                    </p>
+                                    <div className="flex items-start justify-between gap-3">
+                                        <p className="text-[color:var(--ciq-text-body)]">
+                                            Headband paired. Adjust the band until all four sensors show good contact, then press Start.
+                                        </p>
+                                        <MuseBattery percent={batteryPercent} />
+                                    </div>
+                                    <MuseBatteryWarning percent={batteryPercent} />
                                     <MuseContactLights channels={contactChannels} getChannelSamples={getChannelSamples} getEegRateHz={getEegRateHz} />
                                 </>
                             ) : (

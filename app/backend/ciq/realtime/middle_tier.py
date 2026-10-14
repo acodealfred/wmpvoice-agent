@@ -18,7 +18,9 @@ from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 from ciq.assessments.service import flush_timeline, persist_transcript
+from ciq.config import live_monitor_enabled
 from ciq.llm.azure_chat import AzureChatClient
+from ciq.monitoring.live import record_tick
 from ciq.prompts.builder import (
     baseline_cue_instructions,
     build_session_instructions,
@@ -91,6 +93,9 @@ from survey_loader import options_for_question
 logger = logging.getLogger("voicerag")
 
 # Baseline cue -> the timeline `stage` it starts (see SessionState.timeline_stage).
+# High-rate client messages not worth an INFO line each (mic audio is ~50/s).
+_QUIET_CLIENT_MESSAGES = frozenset({"input_audio_buffer.append", "monitor.tick"})
+
 _BASELINE_CUE_STAGES = {
     "eyes_open_start": "baseline_eyes_open",
     "eyes_closed_start": "baseline_eyes_closed",
@@ -197,6 +202,11 @@ class RTMiddleTier:
 
     def get_or_create_session(self, session_id: str):
         return self._store.get_or_create(session_id)
+
+    @property
+    def sessions(self):
+        """Read-only access to live sessions (admin Live Monitor): peek(id) / all()."""
+        return self._store
 
     def set_stress_state_for_session(self, session_id: str, state: str) -> None:
         self._store.get_or_create(session_id).set_stress_state(state)
@@ -902,12 +912,15 @@ class RTMiddleTier:
     ) -> str | None:
         message = json.loads(msg.data)
         updated_message = msg.data
-        logger.info(
-            f"[RTMT] ★ Message received from client: {message.get('type', 'unknown')}"
-        )
+        if message.get("type") not in _QUIET_CLIENT_MESSAGES:
+            logger.info(
+                f"[RTMT] ★ Message received from client: {message.get('type', 'unknown')}"
+            )
         if message is not None:
             match message["type"]:
                 case "input_audio_buffer.append":
+                    # Live Monitor: is mic audio arriving? (counted before the baseline drop)
+                    self._sess.monitor_audio_chunks += 1
                     # Baseline calibration: the mic stays live in the browser but its audio
                     # never reaches Azure, so server VAD can't trigger a reply and the agent
                     # stays silent apart from the explicit baseline.cue turns below.
@@ -916,6 +929,12 @@ class RTMiddleTier:
                     # Voice acoustics: buffer-only here (analysis runs in ciq.voice's
                     # pool, never on this relay path); the message is forwarded as-is.
                     capture_mic_audio(self._sess, message.get("audio"))
+                case "monitor.tick":
+                    # Custom client message (never forwarded): the assessment page's
+                    # once-a-second data-health summary for the admin Live Monitor.
+                    if live_monitor_enabled():
+                        record_tick(self._sess, message, len(msg.data))
+                    return None
                 case "baseline.cue":
                     # Custom client message (never forwarded as-is): one spoken cue at a
                     # baseline-protocol phase boundary, turned into a single response.create
@@ -1194,11 +1213,13 @@ class RTMiddleTier:
         # A fresh ConnectionState per WS: a reconnect starts with no pending tools.
         token = set_active_session(sess)
         conn_token = set_active_connection(ConnectionState())
+        sess.open_ws_count += 1
         try:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
             await self._forward_messages(ws)
         finally:
+            sess.open_ws_count = max(0, sess.open_ws_count - 1)
             # Stop the timeline sampler on disconnect (safety net against a
             # leaked task if the browser closes mid-survey); a later reconnect
             # on this session_id restarts it and just keeps appending frames.

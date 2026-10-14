@@ -208,6 +208,14 @@ export default function useRealTime({
         sendJsonMessage({ type: "response.cancel" });
     };
 
+    // Live data monitoring (lib/monitor-tick.ts): fire-and-forget, never queued — a tick
+    // that can't go out now is simply dropped (the next one is a second away).
+    const sendMonitorTick = (tick: object) => {
+        const socket = getWebSocket() as WebSocket | null;
+        if (socket?.readyState !== WebSocket.OPEN) return;
+        sendJsonMessage(tick, false);
+    };
+
     const truncateItem = (itemId: string, audioEndMs: number) => {
         sendJsonMessage({ type: "conversation.item.truncate", item_id: itemId, content_index: 0, audio_end_ms: audioEndMs });
     };
@@ -319,6 +327,7 @@ export default function useRealTime({
         requestGreeting,
         sendBaselineCue,
         sendReportCue,
+        sendMonitorTick,
         truncateItem,
         cancelResponse,
         refreshSession,

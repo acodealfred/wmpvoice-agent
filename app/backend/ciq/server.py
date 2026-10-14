@@ -59,6 +59,7 @@ from ciq.kb.routes import (
     kb_send_message,
     report_llm_debug,
 )
+from ciq.monitoring.routes import admin_monitor_session, admin_monitor_sessions
 from ciq.realtime.routes import (
     clear_conversation_state,
     get_session,
@@ -185,6 +186,10 @@ async def create_app():
     # ── Admin Data Validation (docs/data-validation-dashboard.md) ─────────
     app.router.add_get("/admin/data-validation/runs", admin_data_validation_runs)
     app.router.add_get("/admin/data-validation/export-zip", admin_data_validation_export_zip)
+
+    # ── Admin Live Monitor (in-memory, read-only; ciq/monitoring/) ─────────
+    app.router.add_get("/admin/monitor/sessions", admin_monitor_sessions)
+    app.router.add_get("/admin/monitor/sessions/{sessionId}", admin_monitor_session)
 
     # ── Admin participant reports (PDF ZIP; ciq/reports/export.py) ──────
     app.router.add_get("/admin/reports/export", admin_export_reports)

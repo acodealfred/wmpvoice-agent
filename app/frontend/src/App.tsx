@@ -17,7 +17,8 @@ import {
     X,
     HeartHandshake,
     ChevronRight,
-    CheckCircle2
+    CheckCircle2,
+    BluetoothOff
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -36,6 +37,7 @@ const RecoveryWindowScreen = lazy(() => import("@/components/ui/recovery-window-
 import { AdminPanel } from "@/components/ui/admin-panel";
 import { TestGenerator } from "@/components/ui/test-generator";
 import { DataValidationPanel } from "@/components/ui/data-validation-panel";
+import { LiveMonitorPanel } from "@/components/ui/live-monitor-panel";
 import { ReportProgress } from "@/components/ui/report-progress";
 import { MusePanel } from "@/components/ui/muse-panel";
 import { EegConnectPanel } from "@/components/ui/eeg-connect-panel";
@@ -62,9 +64,12 @@ import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
 import { MicGate } from "@/lib/mic-gate";
+import { eegDisconnectAlert } from "@/lib/eeg-alert";
+import type { MonitorTick } from "@/lib/monitor-tick";
 import { ReportSpeech, type ReportSpeechState } from "@/lib/report-speech";
 import { useBiometrics } from "@/hooks/useBiometrics";
 import { useMuse } from "@/hooks/useMuse";
+import type { SessionFile } from "@/session/recorder";
 import { useBaselineProtocol } from "@/hooks/useBaselineProtocol";
 
 import {
@@ -96,6 +101,7 @@ const NAV_TABS = [
     { id: "assessment", label: "Assessment", adminOnly: false, managerOnly: false, guestOnly: false },
     { id: "admin", label: "Admin", adminOnly: true, managerOnly: false, guestOnly: false },
     { id: "validation", label: "Data Validation", adminOnly: true, managerOnly: false, guestOnly: false },
+    { id: "monitor", label: "Live Monitor", adminOnly: true, managerOnly: false, guestOnly: false },
     { id: "test", label: "Test Generator", adminOnly: true, managerOnly: false, guestOnly: false },
     { id: "eeg", label: "Muse EEG", adminOnly: true, managerOnly: false, guestOnly: false },
     { id: "history", label: "History", adminOnly: false, managerOnly: false, guestOnly: false }
@@ -106,6 +112,10 @@ const BASELINE_EYES_OPEN_SECONDS = 180;
 const BASELINE_EYES_CLOSED_SECONDS = 180;
 
 const FINISH_CONFIRM = "Finish this assessment? Your report stays saved in History.";
+
+// An EEG segment worth uploading — a recorder that never received a packet (e.g. the
+// headband was disconnected for that whole stretch) would only store an empty file.
+const hasEegPackets = (file: SessionFile | null): file is SessionFile => !!file && file.eeg.packets.length > 0;
 
 // Recovery Window launcher on the report — hidden in the UI for now (the feature itself
 // is untouched; flip back to true to show the button again).
@@ -127,7 +137,9 @@ function App() {
     // Which Start/Continue segment of the run the live EEG recording belongs to — each
     // segment is uploaded as its own file (see ciq/eeg/combine.combine_segments).
     const eegSegmentRef = useRef(0);
-    const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "assessment" | "admin" | "validation" | "test" | "eeg" | "history">("assessment");
+    const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "assessment" | "admin" | "validation" | "monitor" | "test" | "eeg" | "history">(
+        "assessment"
+    );
     // Nav collapses into this drawer below the `lg` breakpoint (see the header markup) —
     // desktop keeps the always-visible pill row untouched.
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -191,6 +203,8 @@ function App() {
     const pendingStartActionRef = useRef<(() => void) | null>(null);
     const requiresConsent = surveyTypeConfig?.activeSurveyType === "PILOT";
     const [enableBiometrics, setEnableBiometrics] = useState(true);
+    // Admin Live Monitor (backend ciq/monitoring/): send the once-a-second health tick.
+    const [liveMonitorEnabled, setLiveMonitorEnabled] = useState(false);
     const [isReasonExpanded, setIsReasonExpanded] = useState(false);
     const [isBiometricsPanelExpanded, setIsBiometricsPanelExpanded] = useState(false);
     // Toggles the camera feed between compact (centered, max-width) and full card width.
@@ -226,6 +240,7 @@ function App() {
         available: eegAvailable,
         hasRecording: eegHasRecording,
         surveyStarted: eegSurveyStarted,
+        batteryPercent: eegBatteryPercent,
         connect: connectEeg,
         disconnect: disconnectEeg,
         markQuestionResolved: markEegQuestionResolved,
@@ -238,6 +253,7 @@ function App() {
         save: saveEeg,
         getChannelSamples: getEegChannelSamples,
         getEegRateHz,
+        takeEegHealth,
         recordContactSnapshot,
         contactChannels: eegContactChannels,
         channels: eegChannels
@@ -312,6 +328,7 @@ function App() {
             .then(res => res.json())
             .then(data => {
                 setEnableSurvey(data.enableSurveyMode);
+                setLiveMonitorEnabled(data.liveMonitorEnabled ?? false);
                 setSurveyTypeConfig({
                     surveyTypeOverridden: data.surveyTypeOverridden ?? false,
                     activeSurveyType: data.activeSurveyType ?? "PILOT",
@@ -425,6 +442,7 @@ function App() {
         requestGreeting,
         sendBaselineCue,
         sendReportCue,
+        sendMonitorTick,
         truncateItem,
         cancelResponse,
         reconnect,
@@ -557,7 +575,7 @@ function App() {
                 eegSegmentLiveRef.current = false; // this last segment is uploaded right here
                 if (eegHasRecording) {
                     const file = finishEegForUpload();
-                    if (file) {
+                    if (hasEegPackets(file)) {
                         apiFetch("/eeg-sessions", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
@@ -780,15 +798,24 @@ function App() {
             console.warn("[App] Failed to record the assessment baseline:", err)
         );
 
-        try {
-            await apiFetch("/survey-phase", {
+        // Close the mic until the survey lead-in has played — same race as the report cue:
+        // once the phase unlocks the backend stops dropping mic audio, so any sound (a
+        // cough, an "okay?", background noise) would let server VAD start its own turn
+        // first, and Azure would reject the cue (or barge-in would cut it off).
+        micGate.hold();
+        inputAudioBufferClear();
+
+        // apiFetch doesn't throw on an error status, so check it — a failed unlock leaves
+        // the backend dropping the user's voice for the whole survey. Retried once.
+        const unlockSurvey = () =>
+            apiFetch("/survey-phase", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ session_id: sessionId, phase: "survey" })
-            });
-        } catch (err) {
-            console.warn("[App] Failed to unlock survey phase:", err);
-        }
+            }).catch(() => null);
+        let unlockRes = await unlockSurvey();
+        if (!unlockRes?.ok) unlockRes = await unlockSurvey();
+        if (!unlockRes?.ok) console.warn("[App] Failed to unlock survey phase:", unlockRes?.status ?? "network error");
         // session.update first (re-injects the now-unlocked survey script), then the cue
         // that asks the agent to open the survey — same socket, so they arrive in order.
         refreshSession();
@@ -854,6 +881,70 @@ function App() {
         eegPromptResolveRef.current = null;
     }, []);
 
+    // EEG streamed at some point during the current recording stretch (Start / Continue
+    // → Pause / Close / completion). Drives the participant's disconnect alert and the
+    // tick's `expected` flag: someone who went on without EEG is never warned about it.
+    const [eegExpected, setEegExpected] = useState(false);
+    useEffect(() => {
+        if (!isRecording) setEegExpected(false);
+        else if (eegStatus === "streaming") setEegExpected(true);
+    }, [isRecording, eegStatus]);
+    const eegAlert = eegDisconnectAlert({
+        isRecording,
+        eegExpected,
+        eegStatus,
+        assessmentComplete,
+        inBaseline: baselineProtocol.isActive
+    });
+
+    // ── Live data monitoring (lib/monitor-tick.ts → backend ciq/monitoring/) ──
+    // Once a second while recording: a ~300-byte health summary (sample counts, NaNs,
+    // min/max/std, contact, lost packets, camera face) over the open WS — never raw data.
+    // Fire-and-forget: a failed tick is dropped and can never affect the assessment.
+    // Values that change every render are read through a ref so the timer isn't
+    // restarted by them.
+    const monitorInputRef = useRef({ eegStatus, eegExpected, eegBatteryPercent, enableBiometrics, faceDetected: null as boolean | null });
+    monitorInputRef.current = {
+        eegStatus,
+        eegExpected,
+        eegBatteryPercent,
+        enableBiometrics,
+        faceDetected: currentBiometrics ? !!currentBiometrics.faceDetected : null
+    };
+    const monitorSendRef = useRef({ sendMonitorTick, takeEegHealth, getEegRateHz });
+    monitorSendRef.current = { sendMonitorTick, takeEegHealth, getEegRateHz };
+    useEffect(() => {
+        if (!isRecording || !liveMonitorEnabled) return;
+        monitorSendRef.current.takeEegHealth(); // start the first tick's window now
+        const id = window.setInterval(() => {
+            try {
+                const input = monitorInputRef.current;
+                const { sendMonitorTick: send, takeEegHealth: takeHealth, getEegRateHz: rate } = monitorSendRef.current;
+                const health = takeHealth();
+                const tick: MonitorTick = {
+                    type: "monitor.tick",
+                    client_t: Date.now(),
+                    eeg: {
+                        status: input.eegStatus,
+                        expected: input.eegExpected,
+                        battery: input.eegBatteryPercent,
+                        rate_hz: rate(),
+                        channels: health.channels,
+                        contact: health.contact,
+                        dropped: health.dropped,
+                        recorder_packets: health.recorderPackets,
+                        truncated: health.truncated
+                    },
+                    camera: { enabled: input.enableBiometrics, face: input.faceDetected }
+                };
+                send(tick);
+            } catch (err) {
+                console.warn("[Monitor] tick skipped:", err);
+            }
+        }, 1000);
+        return () => window.clearInterval(id);
+    }, [isRecording, liveMonitorEnabled]);
+
     // Primary toggle: start / stop / resume. It never resets — a stopped survey
     // (mid-way) is left untouched so pressing it again resumes, and after completion
     // it simply reconnects the user for report Q&A. Starting a brand-new assessment
@@ -917,7 +1008,7 @@ function App() {
         eegSegmentLiveRef.current = false;
         if (!eegHasRecording) return;
         const file = splitEegRecording();
-        if (!file) return;
+        if (!hasEegPackets(file)) return;
         apiFetch("/eeg-sessions", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1174,13 +1265,28 @@ function App() {
         await finishAssessment();
     };
 
-    // Close: discard the paused run for good (it stays out of history and dashboards).
+    // Close: discard the run for good (it stays out of history and dashboards) — the
+    // paused one, or the live one during its baseline (which offers Close, not Pause:
+    // a paused baseline is re-run from the top anyway). Either way the headband is
+    // disconnected; a live run's partial EEG is discarded, not uploaded.
     const onCloseAssessment = async () => {
-        if (!resumable) return;
-        if (!window.confirm("Close this paused assessment? It can't be continued afterwards.")) return;
+        const closingLive = isRecording;
+        const runId = closingLive ? surveyRunId : resumable?.surveyRunId;
+        if (!runId) return;
+        const confirmText = closingLive
+            ? "Close this assessment? The baseline recorded so far is discarded and it can't be continued."
+            : "Close this paused assessment? It can't be continued afterwards.";
+        if (!window.confirm(confirmText)) return;
+        if (closingLive) {
+            await onStopListening();
+            eegSegmentLiveRef.current = false;
+            resetAssessmentState();
+        }
+        void disconnectEeg();
         try {
-            await closeAssessment(resumable.surveyRunId);
+            await closeAssessment(runId);
         } catch (err) {
+            // e.g. the run was never bound (start failed) — nothing open server-side.
             console.error("Failed to close assessment:", err);
         }
         setResumable(await fetchResumableAssessment().catch(() => null));
@@ -1251,7 +1357,7 @@ function App() {
         return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
     };
     // Which Start / Pause / Continue / Close buttons are shown (see lib/assessment.ts).
-    const controls = assessmentControls({ isRecording, hasResumable: resumable !== null, assessmentComplete });
+    const controls = assessmentControls({ isRecording, inBaseline: baselineProtocol.isActive, hasResumable: resumable !== null, assessmentComplete });
     const controlCount = Object.values(controls).filter(Boolean).length;
 
     // Single source of truth for the always-visible baseline card's state:
@@ -1516,6 +1622,15 @@ function App() {
                 </main>
             )}
 
+            {/* ── Live Monitor ── (admin-only; running assessments' data health, polled while open) */}
+            {activeTab === "monitor" && isAdmin && (
+                <main className="flex-1 overflow-y-auto p-4">
+                    <div className="mx-auto w-full max-w-[1360px]">
+                        <LiveMonitorPanel />
+                    </div>
+                </main>
+            )}
+
             {/* ── Test Generator ── (admin-only, like the Admin panel) */}
             {activeTab === "test" && isAdmin && (
                 <main className="flex-1 overflow-y-auto p-4">
@@ -1701,8 +1816,29 @@ function App() {
                                                     </div>
                                                 </div>
                                             )}
+                                            {/* EEG headband dropped out mid-assessment (lib/eeg-alert.ts). The fix is
+                                            Pause → reconnect → Continue: Pause uploads what was recorded, Continue's
+                                            pairing popup reconnects and starts the next EEG file. */}
+                                            {eegAlert && (
+                                                <div
+                                                    role="alert"
+                                                    className="mb-3 flex items-start gap-2 rounded-xl border border-[rgba(228,180,109,0.45)] bg-[rgba(228,180,109,0.12)] p-3 text-xs text-[color:var(--ciq-text-68)]"
+                                                >
+                                                    <BluetoothOff className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--ciq-accent-amber)]" />
+                                                    <div>
+                                                        <p className="font-semibold text-[color:var(--ciq-accent-amber)]">
+                                                            EEG headband disconnected — EEG isn't being recorded.
+                                                        </p>
+                                                        <p className="mt-0.5">
+                                                            {eegAlert === "survey"
+                                                                ? "Press Pause, check the headband is on and switched on, then press Continue to reconnect it."
+                                                                : "Press Close and start again with the headband connected, or carry on without EEG."}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
                                             {/* Controls — driven by the assessment lifecycle (lib/assessment.ts):
-                                            recording → [Pause]; paused run → [Start new][Continue][Close];
+                                            baseline → [Close]; survey → [Pause]; paused run → [Start new][Continue][Close];
                                             finished report → [Start new][Continue]; otherwise → [Start]. */}
                                             {controls.close && resumable && (
                                                 <p className="mb-2 text-xs text-[color:var(--ciq-text-60)]" role="status">
@@ -1895,10 +2031,11 @@ function App() {
                                                     error={eegError}
                                                     available={eegAvailable}
                                                     hasRecording={eegHasRecording}
+                                                    batteryPercent={eegBatteryPercent}
                                                     // The baseline protocol records EEG too (eyes open / closed), so the
                                                     // live waveform shows from the baseline onwards, not only once the
-                                                    // questions begin.
-                                                    assessmentStarted={eegSurveyStarted || baselineProtocol.isActive}
+                                                    // questions begin. Hidden while paused (headband stays connected).
+                                                    assessmentStarted={isRecording && (eegSurveyStarted || baselineProtocol.isActive)}
                                                     channels={eegChannels}
                                                     getChannelSamples={getEegChannelSamples}
                                                     // Fit lights while fitting the band (not recording yet) and through
@@ -2209,6 +2346,7 @@ function App() {
                 variant={eegPromptVariant}
                 status={eegStatus}
                 error={eegError}
+                batteryPercent={eegBatteryPercent}
                 contactChannels={eegContactChannels}
                 getChannelSamples={getEegChannelSamples}
                 getEegRateHz={getEegRateHz}

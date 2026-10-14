@@ -28,7 +28,9 @@ from datetime import UTC, datetime
 import numpy as np
 from scipy.signal import butter, find_peaks, sosfiltfilt, welch
 
-_BAND_CHANNELS = ("TP9", "TP10", "AF8")
+# Muse channel order. Every recorded channel gets band columns — a channel with poor
+# contact in some session still shows it in eeg_quality and the file's contact snapshots.
+_BAND_CHANNELS = ("TP9", "AF7", "AF8", "TP10")
 _BANDS = (("theta", 4.0, 8.0), ("alpha", 8.0, 13.0), ("beta", 13.0, 30.0))
 _TOTAL_POWER_HZ = (1.0, 45.0)
 _QUALITY_WORST_LAST = ("good", "noisy", "muscle", "no_contact")

@@ -48,7 +48,7 @@ export type AssessmentControls = {
     /** Resume: the paused run, or the post-report conversation. */
     continue: boolean;
     pause: boolean;
-    /** Discard the paused run. */
+    /** Discard the paused run, or the live one during its baseline. */
     close: boolean;
     /** End the finished assessment's session (the report stays saved in History). */
     finish: boolean;
@@ -56,14 +56,20 @@ export type AssessmentControls = {
 
 /**
  * Which assessment buttons to show.
- *  • recording               → Pause
+ *  • recording, in baseline  → Close (a paused baseline is re-run from the top anyway)
+ *  • recording, in survey    → Pause
  *  • a paused run exists     → Start new, Continue, Close
  *  • report finished on page → Start new, Continue (post-report conversation), Finish
  *  • otherwise               → Start
  */
-export function assessmentControls(state: { isRecording: boolean; hasResumable: boolean; assessmentComplete: boolean }): AssessmentControls {
+export function assessmentControls(state: {
+    isRecording: boolean;
+    inBaseline: boolean;
+    hasResumable: boolean;
+    assessmentComplete: boolean;
+}): AssessmentControls {
     const none: AssessmentControls = { start: false, startNew: false, continue: false, pause: false, close: false, finish: false };
-    if (state.isRecording) return { ...none, pause: true };
+    if (state.isRecording) return state.inBaseline ? { ...none, close: true } : { ...none, pause: true };
     if (state.hasResumable) return { ...none, startNew: true, continue: true, close: true };
     if (state.assessmentComplete) return { ...none, startNew: true, continue: true, finish: true };
     return { ...none, start: true };

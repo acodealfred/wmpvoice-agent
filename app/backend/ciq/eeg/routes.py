@@ -14,8 +14,9 @@ logger = logging.getLogger("voicerag")
 # 256 Hz EEG across 4 channels, plus PPG/IMU, over a ~20 min BAT survey lands in the
 # 10-20MB range as JSON. Raised only for this route (via request.clone below), not
 # globally, so every other endpoint keeps the smaller default. 50MB gives headroom
-# over the recorder's own worst case — every stream (EEG/PPG/accel/gyro) capped at
-# MAX_PACKETS_PER_STREAM=40_000 in recorder.ts — without being unreasonably permissive.
+# over the recorder's own worst case — every stream (EEG per channel, PPG/accel/gyro)
+# capped at MAX_PACKETS_PER_STREAM=40_000 in recorder.ts, i.e. ~31 min of 4-channel EEG
+# (~17MB) plus IMU/PPG — without being unreasonably permissive.
 _EEG_UPLOAD_MAX_SIZE = 50 * 1024 * 1024
 
 

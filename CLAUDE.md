@@ -75,6 +75,11 @@ ENABLE_VOICE_FEATURES=true       # ON by default: pitch / loudness / pause measu
                                  # user's survey speech (ciq/voice, parselmouth), stored per
                                  # second + per answer and exported. Set false to stop.
                                  # See docs/voice-features.md.
+ENABLE_LIVE_MONITOR=true         # ON by default: the assessment page sends a ~300-byte data-health
+                                 # tick per second over /realtime (EEG counts/NaN/min-max-std,
+                                 # contact, lost packets, camera face) and admins watch it in the
+                                 # "Live Monitor" tab (/admin/monitor/*). In memory only — relies on
+                                 # the single-replica deployment. See ciq/monitoring/__init__.py.
 ```
 
 **AWS Rekognition (face emotion analysis):**

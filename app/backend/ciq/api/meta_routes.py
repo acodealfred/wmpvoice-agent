@@ -1,7 +1,12 @@
 """Meta endpoints: feature config + build/version info."""
 from aiohttp import web
 
-from ciq.config import APP_VERSION, AVAILABLE_SURVEY_TYPES, env_flag
+from ciq.config import (
+    APP_VERSION,
+    AVAILABLE_SURVEY_TYPES,
+    env_flag,
+    live_monitor_enabled,
+)
 
 
 async def get_config(request):
@@ -15,6 +20,7 @@ async def get_config(request):
             "activeSurveyType": rtmt.default_survey_type if rtmt else "PILOT",
             "availableSurveyTypes": AVAILABLE_SURVEY_TYPES,
             "biometricGuardrailEnabled": rtmt.biometric_guardrail_enabled if rtmt else True,
+            "liveMonitorEnabled": live_monitor_enabled(),
         }
     )
 

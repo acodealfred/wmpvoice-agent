@@ -3,7 +3,8 @@ import { WebBluetoothMuse, channelsForPreset, type BluetoothLike, type DeviceInf
 import { Recorder, type SessionFile } from "@/session/recorder";
 import type { Marker } from "@/session/protocol";
 import { RollingWindow } from "@/session/stability";
-import { contactSnapshot, type ContactSnapshot } from "@/muse/contact";
+import { contactQuality, contactSnapshot, type ContactQuality, type ContactSnapshot } from "@/muse/contact";
+import { EegHealthAccumulator, totalDropped, type ChannelHealth } from "@/lib/monitor-tick";
 import { downloadJson, sessionFilename } from "@/ui/download";
 import { isWebBluetoothAvailable } from "@/support";
 import { explainConnectError, explainStartError } from "@/ui/errors";
@@ -43,6 +44,8 @@ export function useMuse() {
     // consumer (EegConnectPanel) can tell those two apart and only show the live
     // waveform once real assessment recording is underway, per docs/muse-wiring.md.
     const [surveyStarted, setSurveyStarted] = useState(false);
+    // Latest battery % from the headband's telemetry (~every 10 s); null until the first packet.
+    const [batteryPercent, setBatteryPercent] = useState<number | null>(null);
 
     const sourceRef = useRef<WebBluetoothMuse | null>(null);
     const buffersRef = useRef<Map<EegChannel, RollingWindow>>(new Map());
@@ -85,6 +88,10 @@ export function useMuse() {
     // capture is paused. Read inside listeners registered once at connect() time,
     // so it has to be a ref rather than a status check.
     const pausedRef = useRef(false);
+    // Live data monitoring (lib/monitor-tick.ts): per-channel stats since the last
+    // tick, and the recorder's dropped-packet total at that tick (for a per-tick delta).
+    const healthRef = useRef(new EegHealthAccumulator());
+    const droppedAtTickRef = useRef<{ recorder: Recorder | null; total: number }>({ recorder: null, total: 0 });
 
     const available = isWebBluetoothAvailable(nav);
 
@@ -121,7 +128,9 @@ export function useMuse() {
             const buffers = new Map<EegChannel, RollingWindow>();
             for (const ch of channelsForPreset(PRESET)) buffers.set(ch, new RollingWindow(CHART_WINDOW_SAMPLES));
             buffersRef.current = buffers;
+            healthRef.current.reset();
             rateRef.current = { startTMs: null, samples: 0, lastHz: null, spanHz: null };
+            setBatteryPercent(null);
 
             const source = new WebBluetoothMuse(nav.bluetooth);
             sourceRef.current = source;
@@ -148,6 +157,7 @@ export function useMuse() {
                 unsubsRef.current.push(
                     source.on("eeg", r => {
                         buffersRef.current.get(r.ch)?.push(r.uV);
+                        healthRef.current.add(r.ch, r.uV);
                         if (r.ch === "TP9") {
                             const rate = rateRef.current;
                             if (rate.startTMs === null) {
@@ -168,6 +178,8 @@ export function useMuse() {
                         recorderRef.current?.push(r);
                     })
                 );
+                // Battery is tracked even while capture is paused — it's device state, not session data.
+                unsubsRef.current.push(source.on("telemetry", t => setBatteryPercent(Math.round(t.batteryPercent))));
                 for (const event of ["imu", "ppg", "telemetry"] as const) {
                     unsubsRef.current.push(
                         source.on(event, r => {
@@ -195,18 +207,23 @@ export function useMuse() {
 
     const disconnect = useCallback(async () => {
         teardownListeners();
-        try {
-            await sourceRef.current?.stop();
-        } catch {
-            // Best-effort — the connection may already be gone.
-        }
+        // UI state first: the Bluetooth stop() below can take seconds, and until status
+        // leaves "streaming" the panel keeps the waveform mounted and drawing.
+        const source = sourceRef.current;
         sourceRef.current = null;
         buffersRef.current = new Map();
+        healthRef.current.reset();
         pausedRef.current = false;
         questionMarkersRef.current = [];
         setDevice(null);
+        setBatteryPercent(null);
         setStatus("idle");
         setSurveyStarted(false);
+        try {
+            await source?.stop();
+        } catch {
+            // Best-effort — the connection may already be gone.
+        }
     }, [teardownListeners]);
 
     // Pauses/resumes capture without touching the Bluetooth link: the headband
@@ -359,6 +376,34 @@ export function useMuse() {
         return file;
     }, [beginNewRecording]);
 
+    /**
+     * Live data monitoring (lib/monitor-tick.ts): the EEG health since the previous
+     * call — per-channel sample stats, current contact quality, packets lost meanwhile,
+     * and the recorder's size/cap state. Summaries only; call once per tick.
+     */
+    const takeEegHealth = useCallback(() => {
+        const chans = channelsForPreset(PRESET).filter(ch => CONTACT_CHANNELS.includes(ch));
+        const channelStats: Partial<Record<EegChannel, ChannelHealth>> = healthRef.current.take(chans);
+        const contact: Partial<Record<EegChannel, ContactQuality>> = {};
+        for (const ch of chans) contact[ch] = contactQuality(getChannelSamples(ch));
+        const recorder = recorderRef.current;
+        let dropped = 0;
+        if (recorder) {
+            const total = totalDropped(recorder.dropped());
+            const prev = droppedAtTickRef.current;
+            // A new recorder (Continue / Start new / split) starts its own count from zero.
+            dropped = prev.recorder === recorder ? Math.max(0, total - prev.total) : total;
+            droppedAtTickRef.current = { recorder, total };
+        }
+        return {
+            channels: channelStats,
+            contact,
+            dropped,
+            recorderPackets: recorder?.packetCount() ?? 0,
+            truncated: recorder?.isTruncated() ?? false
+        };
+    }, [getChannelSamples]);
+
     // channelsForPreset returns a fresh array every call — memoized so a consumer
     // like EegWaveform, whose draw loop keys a useEffect off this array, doesn't
     // tear down and restart that loop on every unrelated re-render of whatever
@@ -372,6 +417,7 @@ export function useMuse() {
         available,
         hasRecording,
         surveyStarted,
+        batteryPercent,
         connect,
         disconnect,
         pause,
@@ -386,6 +432,7 @@ export function useMuse() {
         splitRecording,
         getChannelSamples,
         getEegRateHz,
+        takeEegHealth,
         recordContactSnapshot,
         contactChannels: CONTACT_CHANNELS,
         channels

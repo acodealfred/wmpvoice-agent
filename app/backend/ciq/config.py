@@ -14,6 +14,12 @@ def env_flag(name: str, default: str = "false") -> bool:
     return os.environ.get(name, default).lower() == "true"
 
 
+def live_monitor_enabled() -> bool:
+    """Admin Live Monitor (ciq/monitoring): the browser's once-a-second health tick and
+    the /admin/monitor/* routes. ON by default; ENABLE_LIVE_MONITOR=false turns it off."""
+    return env_flag("ENABLE_LIVE_MONITOR", "true")
+
+
 def voice_features_enabled() -> bool:
     """Voice pitch / loudness / pause capture (ciq/voice). ON by default; set
     ENABLE_VOICE_FEATURES=false to stop collecting without a code change."""

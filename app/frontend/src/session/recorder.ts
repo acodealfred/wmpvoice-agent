@@ -21,8 +21,10 @@ export const SESSION_SCHEMA = "muse-web-bridge/3";
 // Safety valve against unbounded memory growth: nothing in normal use (a bench
 // run or a BAT assessment) runs anywhere near this long, but a tab left
 // streaming by accident would otherwise grow these arrays forever. ~40,000
-// packets is roughly 30 minutes of EEG at 256 Hz / 12 samples-per-packet —
-// comfortably past any real session, and in the same ballpark for IMU/PPG's
+// packets is roughly 30 minutes of one EEG channel at 256 Hz / 12
+// samples-per-packet, so the EEG cap counts each channel separately (all four
+// share one array — a shared cap ran out ~8 minutes in, i.e. early in the survey
+// once the 6-minute baseline was done). It is in the same ballpark for IMU/PPG's
 // lower packet rates. Once hit, further packets for that stream are dropped
 // rather than accumulated, and the file records that it happened.
 const MAX_PACKETS_PER_STREAM = 40_000;
@@ -137,6 +139,7 @@ const round = (x: number, places: number) => {
 
 export class Recorder {
     private eeg: EegPacketRecord[] = [];
+    private eegPerChannel = new Map<EegChannel, number>();
     private accel: ImuPacketRecord[] = [];
     private gyro: ImuPacketRecord[] = [];
     private ppg: PpgPacketRecord[] = [];
@@ -161,14 +164,17 @@ export class Recorder {
     push(r: Reading): void {
         const t_ms = round(r.tMs, 1);
         switch (r.kind) {
-            case "eeg":
+            case "eeg": {
                 this.drops.observe(r.ch, r.seq);
-                if (this.eeg.length >= MAX_PACKETS_PER_STREAM) {
+                const count = this.eegPerChannel.get(r.ch) ?? 0;
+                if (count >= MAX_PACKETS_PER_STREAM) {
                     this.truncated = true;
                     break;
                 }
+                this.eegPerChannel.set(r.ch, count + 1);
                 this.eeg.push({ ch: r.ch, seq: r.seq, t_ms, v: r.uV.map(x => round(x, 2)) });
                 break;
+            }
             case "imu": {
                 const arr = r.sensor === "accelerometer" ? this.accel : this.gyro;
                 if (arr.length >= MAX_PACKETS_PER_STREAM) {
@@ -231,6 +237,11 @@ export class Recorder {
 
     packetCount(): number {
         return this.eeg.length + this.accel.length + this.gyro.length + this.ppg.length;
+    }
+
+    /** Whether any stream hit MAX_PACKETS_PER_STREAM (later packets are being dropped). */
+    isTruncated(): boolean {
+        return this.truncated;
     }
 
     dropped(): Record<string, number> {

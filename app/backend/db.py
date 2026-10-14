@@ -36,6 +36,19 @@ async def get_user_by_name(name: str) -> dict | None:
             return dict(row) if row else None
 
 
+async def get_user_names(user_ids: list[str]) -> dict[str, str]:
+    """{user_id: name} for the ids given (unknown ids are simply absent)."""
+    ids = list(dict.fromkeys(i for i in user_ids if i))
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    async with _open_db() as db:
+        async with db.execute(
+            f"SELECT user_id, name FROM users WHERE user_id IN ({placeholders})", ids
+        ) as cursor:
+            return {row["user_id"]: row["name"] for row in await cursor.fetchall()}
+
+
 async def create_user(user_id: str, name: str, password_hash: str, role: str = "employee") -> None:
     now = datetime.utcnow().isoformat()
     async with _open_db() as db:

@@ -163,6 +163,17 @@ describe("Recorder", () => {
         expect(file.truncated).toBe(true);
     });
 
+    it("caps EEG per channel, so four channels together can pass the per-stream cap", () => {
+        const r = new Recorder(opts);
+        // 4 × 12,000 = 48,000 packets: ~9.4 minutes on every channel, past a shared 40,000 cap.
+        for (let seq = 0; seq < 12_000; seq++) {
+            for (const ch of ["TP9", "AF7", "AF8", "TP10"] as const) r.push(eeg(ch, seq, seq * 47));
+        }
+        const file = r.finish();
+        expect(file.eeg.packets).toHaveLength(48_000);
+        expect(file.truncated).toBeUndefined();
+    });
+
     it("omits the truncated flag for a normal-length recording", () => {
         const r = new Recorder(opts);
         r.push(eeg("TP9", 1, 0.04));
