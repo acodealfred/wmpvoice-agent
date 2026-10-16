@@ -27,6 +27,13 @@ export default defineConfig({
             },
             "/admin": {
                 target: "http://localhost:8765"
+            },
+            // Report PDF upload + QR share (ciq/reports/pdf_store_routes.py, share_routes.py)
+            "/me": {
+                target: "http://localhost:8765"
+            },
+            "/report-share": {
+                target: "http://localhost:8765"
             }
         }
     }

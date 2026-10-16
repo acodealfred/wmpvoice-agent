@@ -18,6 +18,9 @@ interface EegConnectPanelProps {
     // not just "the headband is paired" — gates the waveform below so pairing/settling
     // time before Start doesn't read as if the assessment were already recording.
     assessmentStarted: boolean;
+    // The survey finished and its EEG was uploaded — the only time a disconnected
+    // headband with a recording means "saved" (after a drop or Pause it doesn't).
+    assessmentComplete: boolean;
     channels: EegChannel[];
     getChannelSamples: (ch: EegChannel) => Float32Array;
     // Headband fit lights: shown while fitting the band and during the baseline (the
@@ -58,6 +61,7 @@ export function EegConnectPanel({
     hasRecording,
     batteryPercent,
     assessmentStarted,
+    assessmentComplete,
     channels,
     getChannelSamples,
     showContact,
@@ -133,9 +137,9 @@ export function EegConnectPanel({
                         </p>
                     )}
                 </div>
-            ) : hasRecording ? (
-                // The headband disconnected (assessment completed and auto-uploaded, or a
-                // manual disconnect) but useMuse() doesn't clear the finished Recorder until
+            ) : hasRecording && assessmentComplete ? (
+                // The headband disconnected after the assessment completed (auto-uploaded),
+                // but useMuse() doesn't clear the finished Recorder until
                 // the next connect() — so `save()` still works here and downloads the same
                 // file that was already uploaded, for anyone who wants a local copy too.
                 <div className="space-y-2">
@@ -147,7 +151,7 @@ export function EegConnectPanel({
                 </div>
             ) : (
                 // Pairing happens in EegPairModal, raised by Start / Start new / Continue.
-                <p className="text-xs text-[color:var(--ciq-text-60)]">Not connected — you'll be offered to pair it when you start.</p>
+                <p className="text-xs text-[color:var(--ciq-text-60)]">Not connected — you'll be offered to pair it when you start or continue.</p>
             )}
         </div>
     );

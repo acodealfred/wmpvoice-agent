@@ -354,10 +354,30 @@ export type AuthState = "checking" | "unauthenticated" | "authenticated";
 export type AdminUser = {
     user_id: string;
     name: string;
+    role: UserRole;
     created_at: string;
     session_count: number;
     last_active_at: string | null;
     last_session_id: string | null;
+};
+
+export type PasswordResetRequest = {
+    request_id: string;
+    user_id: string;
+    name: string;
+    role: UserRole;
+    created_at: string;
+};
+
+/** A pending "request another download" for an already-downloaded report (GET /admin/download-requests). */
+export type ReportDownloadRequest = {
+    request_id: string;
+    survey_run_id: string;
+    user_name: string;
+    survey_type: string | null;
+    completed_at: string | null;
+    report_downloaded_at: string | null;
+    created_at: string;
 };
 
 export type SurveyRunSummary = {
@@ -591,3 +611,25 @@ export type ZoneTrendResponse = {
 // Sent as a custom `report.cue` message; the wording lives server-side in
 // ciq/prompts/builder.py (report_cue_instructions).
 export type ReportCue = "report_explain" | "report_continue";
+
+/** One measure compared with the previous same-type assessment (ciq/reports/comparison.py). */
+export type ComparisonMeasure = {
+    id: string;
+    label: string;
+    previousScore: number;
+    currentScore: number;
+    delta: number;
+    scoreRange: [number, number];
+    /** Higher scores mean more burnout, so lower is "improved". */
+    direction: "improved" | "same" | "worse";
+    previousRisk: string | null;
+    currentRisk: string | null;
+};
+
+/** GET /me/reports/{runId}/comparison — null when there is nothing to compare (first assessment). */
+export type ReportComparison = {
+    previousRunId: string;
+    previousDate: string | null;
+    daysBetween: number | null;
+    measures: ComparisonMeasure[];
+};

@@ -35,6 +35,7 @@ from ciq.realtime.ga_protocol import (
     realtime_params,
     redact_session_created,
 )
+from ciq.realtime.report_comparison import report_comparison_lines
 from ciq.realtime.report_zone import report_zone_lines
 from ciq.realtime.session import (
     ConnectionState,
@@ -93,6 +94,10 @@ from survey_loader import options_for_question
 logger = logging.getLogger("voicerag")
 
 # Baseline cue -> the timeline `stage` it starts (see SessionState.timeline_stage).
+class _SkipSurveyUpdate(Exception):
+    """A refused record_survey_response: no survey.update / biometric update to the browser."""
+
+
 # High-rate client messages not worth an INFO line each (mic audio is ~50/s).
 _QUIET_CLIENT_MESSAGES = frozenset({"input_audio_buffer.append", "monitor.tick"})
 
@@ -666,6 +671,10 @@ class RTMiddleTier:
                             if item["name"] == "record_survey_response":
                                 try:
                                     survey_result = json.loads(result.to_text())
+                                    if survey_result.get("recorded") is False:
+                                        # Refused (wrong question / paused / duplicate): the
+                                        # model was told why; the browser's progress must not move.
+                                        raise _SkipSurveyUpdate
                                     question_id = survey_result.get("question_id")
                                     score = survey_result.get("score")
                                     sess = self._sess
@@ -747,6 +756,8 @@ class RTMiddleTier:
                                     # Clear biometric history if survey is complete for next round
                                     if completed == total_questions:
                                         sess.clear_biometric_history()
+                                except _SkipSurveyUpdate:
+                                    pass
                                 except json.JSONDecodeError as e:
                                     logger.error(f"Failed to parse survey result: {e}")
 
@@ -968,6 +979,11 @@ class RTMiddleTier:
                     if report["zone_lines"]:
                         zone_text = "Fatigue ↔ Burnout zone: " + " ".join(report["zone_lines"])
                         sess.spoken_report_text = f"{sess.spoken_report_text}\n{zone_text}" if sess.spoken_report_text else zone_text
+                    # STEP 3: compared with the user's previous PILOT run ([] → first one, skipped).
+                    report["comparison_lines"] = await report_comparison_lines(sess)
+                    if report["comparison_lines"]:
+                        cmp_text = "Since your last assessment: " + " ".join(report["comparison_lines"])
+                        sess.spoken_report_text = f"{sess.spoken_report_text}\n{cmp_text}" if sess.spoken_report_text else cmp_text
                     instructions = report_cue_instructions(message.get("cue", ""), report)
                     if instructions is None:
                         logger.warning("[RTMT] Report cue %s ignored (unknown cue or no results)", message.get("cue"))

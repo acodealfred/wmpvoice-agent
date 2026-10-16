@@ -45,7 +45,24 @@ def record_tick(sess, tick: dict, raw_size: int, now: float | None = None) -> No
         sess.monitor_audio_chunks = 0
 
         eeg = tick.get("eeg") if isinstance(tick.get("eeg"), dict) else {}
-        eeg_level, ch_levels, eeg_issues = rules.assess_eeg(eeg)
+        # This tick's (samples, real seconds) per channel, averaged with the previous
+        # few ticks' — a single tick's count swings 252/264 on packet boundaries.
+        seconds = rules.window_seconds(eeg)
+        channels = eeg.get("channels") if isinstance(eeg.get("channels"), dict) else {}
+        rate_part = {
+            ch: (stats["n"], seconds)
+            for ch, stats in channels.items()
+            if ch in rules.EEG_CHANNELS and isinstance(stats, dict) and isinstance(stats.get("n"), (int, float))
+        }
+        # Only recent, streaming ticks: zeros from around a drop (or before a pause)
+        # must not drag down the rate of a freshly reconnected headband.
+        recent = [
+            t.get("rate_part", {})
+            for t in list(sess.monitor_ticks)[-(rules.RATE_AVG_TICKS - 1):]
+            if t["eeg"].get("status") == "streaming" and now - t["t"] <= rules.RATE_AVG_TICKS + 1
+        ] if eeg.get("status") == "streaming" else []
+        rates = rules.channel_rates([*recent, rate_part])
+        eeg_level, ch_levels, eeg_issues = rules.assess_eeg(eeg, rates)
         cam_level, cam_issues = rules.assess_camera(camera, sess.monitor_no_face_s)
         mic_level, mic_issues = rules.assess_mic(phase, sess.monitor_no_mic_s)
         tl_level, tl_issues = rules.assess_timeline(stage, sess.timeline_active)
@@ -60,12 +77,14 @@ def record_tick(sess, tick: dict, raw_size: int, now: float | None = None) -> No
             "total": total,
             "levels": {"eeg": eeg_level, "camera": cam_level, "mic": mic_level, "timeline": tl_level},
             "channels": ch_levels,
+            "rate_part": rate_part,
             "issues": eeg_issues + cam_issues + mic_issues + tl_issues,
             "eeg": {
                 "status": eeg.get("status"),
                 "battery": _round(eeg.get("battery"), 0),
                 "rate_hz": _round(eeg.get("rate_hz")),
-                "samples": {ch: (s or {}).get("n") for ch, s in (eeg.get("channels") or {}).items() if ch in rules.EEG_CHANNELS},
+                # Samples per second, averaged over the last RATE_AVG_TICKS ticks (≈256 when healthy).
+                "rates": {ch: round(r) for ch, r in rates.items()},
                 "contact": {ch: q for ch, q in (eeg.get("contact") or {}).items() if ch in rules.EEG_CHANNELS},
                 "recorder_packets": eeg.get("recorder_packets"),
             },

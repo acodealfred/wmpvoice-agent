@@ -84,6 +84,8 @@ export type MonitorTick = {
         expected: boolean;
         battery: number | null;
         rate_hz: number | null;
+        /** Real length of the window the channel stats cover (ms); null on the first tick. */
+        window_ms: number | null;
         channels: Partial<Record<EegChannel, ChannelHealth>>;
         contact: Partial<Record<EegChannel, ContactQuality>>;
         /** Packets the headband's seq counter says were lost since the previous tick. */

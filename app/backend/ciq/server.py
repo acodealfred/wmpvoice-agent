@@ -15,6 +15,7 @@ from ciq.api.history_routes import (
     admin_export_survey_timeline_combined,
     admin_list_user_survey_runs,
     admin_list_users,
+    admin_update_user_role,
     get_demo_data,
     manager_analytics,
     manager_overview,
@@ -24,6 +25,14 @@ from ciq.api.history_routes import (
     user_zone_trend,
 )
 from ciq.api.meta_routes import get_config, get_version
+from ciq.api.password_reset_routes import (
+    admin_approve_password_reset,
+    admin_deny_password_reset,
+    admin_list_password_resets,
+    complete_password_reset_route,
+    password_reset_status,
+    request_password_reset,
+)
 from ciq.assessments.routes import (
     close_assessment,
     continue_assessment,
@@ -79,7 +88,15 @@ from ciq.recovery.routes import (
     select_track_route,
     start_recovery_session,
 )
+from ciq.reports.comparison_routes import me_report_comparison
+from ciq.reports.download_request_routes import (
+    admin_approve_download_request,
+    admin_deny_download_request,
+    admin_list_download_requests,
+    request_another_download,
+)
 from ciq.reports.export_routes import admin_export_reports
+from ciq.reports.pdf_store_routes import upload_report_pdf
 from ciq.reports.routes import (
     analyze_report,
     generate_ssot_report,
@@ -87,6 +104,11 @@ from ciq.reports.routes import (
     report_consultative_summary,
 )
 from ciq.reports.saved_routes import admin_saved_report, me_saved_report
+from ciq.reports.share_routes import (
+    create_report_share,
+    report_share_download,
+    report_share_page,
+)
 from ciq.validation.routes import (
     admin_data_validation_export_zip,
     admin_data_validation_runs,
@@ -168,7 +190,20 @@ async def create_app():
     app.router.add_post("/ssot-report", generate_ssot_report)
     # Saved report reopened for viewing / PDF download (ciq/reports/saved_routes.py)
     app.router.add_get("/me/reports/{runId}", me_saved_report)
+    # Compared with the previous same-type run (ciq/reports/comparison_routes.py)
+    app.router.add_get("/me/reports/{runId}/comparison", me_report_comparison)
     app.router.add_get("/admin/reports/runs/{runId}", admin_saved_report)
+    # QR report download — password, then a one-time link for the phone (ciq/reports/share_routes.py)
+    app.router.add_post("/me/reports/{runId}/share", create_report_share)
+    # The on-screen report PDF, uploaded once by the browser (ciq/reports/pdf_store_routes.py)
+    app.router.add_post("/me/reports/{runId}/pdf", upload_report_pdf)
+    # One download per report; "request another" → admin approve/deny (ciq/reports/download_request_routes.py)
+    app.router.add_post("/me/reports/{runId}/download-request", request_another_download)
+    app.router.add_get("/admin/download-requests", admin_list_download_requests)
+    app.router.add_post("/admin/download-requests/{requestId}/approve", admin_approve_download_request)
+    app.router.add_post("/admin/download-requests/{requestId}/deny", admin_deny_download_request)
+    app.router.add_get("/report-share/{token}", report_share_page)
+    app.router.add_post("/report-share/{token}/download", report_share_download)
 
     # ── History / consent (baselines are per assessment: /me/assessment/baseline) ──
     app.router.add_get("/api/history", user_sessions_history)
@@ -176,6 +211,13 @@ async def create_app():
     app.router.add_get("/consent", get_consent)
     app.router.add_post("/consent", save_consent)
     app.router.add_get("/admin/users", admin_list_users)
+    app.router.add_patch("/admin/users/{userId}/role", admin_update_user_role)
+    app.router.add_get("/admin/password-resets", admin_list_password_resets)
+    app.router.add_post("/admin/password-resets/{requestId}/approve", admin_approve_password_reset)
+    app.router.add_post("/admin/password-resets/{requestId}/deny", admin_deny_password_reset)
+    app.router.add_post("/password-reset/request", request_password_reset)
+    app.router.add_post("/password-reset/status", password_reset_status)
+    app.router.add_post("/password-reset/complete", complete_password_reset_route)
     app.router.add_get("/admin/demo-data", get_demo_data)
     app.router.add_post("/admin/demo-data", set_demo_data)
     app.router.add_get("/admin/pilot-survey/export", admin_export_pilot_survey)

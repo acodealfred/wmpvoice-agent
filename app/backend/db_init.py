@@ -131,6 +131,11 @@ async def init_db() -> None:
             "ALTER TABLE survey_records ADD COLUMN baseline_pupil_size REAL",
             "ALTER TABLE survey_records ADD COLUMN baseline_completed_at TEXT",
             "ALTER TABLE survey_records ADD COLUMN baseline_segment_index INTEGER",
+            # QR report download (ciq/reports/share_routes.py): one download per report.
+            # Set to 1 by the download; an admin-approved request
+            # (report_download_requests) resets it to 0 for one more.
+            "ALTER TABLE survey_records ADD COLUMN report_download_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE survey_records ADD COLUMN report_downloaded_at TEXT",
         ):
             try:
                 await db.execute(ddl)
@@ -644,6 +649,57 @@ async def init_db() -> None:
                 created_at         TEXT NOT NULL,
                 PRIMARY KEY (survey_run_id, segment_index)
             )
+        """)
+
+        # Forgot-password requests from the login page. An admin approves or
+        # denies each one; once approved, the requesting browser (proven by
+        # token_hash) has a short window to set the new password. Expiry is
+        # computed at read time from created_at / approved_until, so status
+        # only ever stores pending | approved | denied | completed | cancelled.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS password_reset_requests (
+                request_id     TEXT PRIMARY KEY,
+                user_id        TEXT NOT NULL REFERENCES users(user_id),
+                token_hash     TEXT NOT NULL,
+                status         TEXT NOT NULL,
+                created_at     TEXT NOT NULL,
+                decided_at     TEXT,
+                decided_by     TEXT,
+                approved_until TEXT
+            )
+        """)
+
+        # The report as shown on screen after the assessment (charts + scores),
+        # captured in the participant's browser as a light-theme PDF and uploaded
+        # once (ciq/reports/pdf_store_routes.py); the QR download serves it. Its own
+        # table so the dashboard's survey_records queries never read the BLOBs.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS report_pdfs (
+                survey_run_id TEXT PRIMARY KEY REFERENCES survey_records(survey_run_id),
+                pdf           BLOB NOT NULL,
+                size_bytes    INTEGER NOT NULL,
+                created_at    TEXT NOT NULL
+            )
+        """)
+
+        # "Request another download" for a report already downloaded once
+        # (ciq/reports/download_request_routes.py). An admin approves (the run's
+        # report_download_count goes back to 0) or denies. The partial unique index
+        # keeps a run to at most one pending request.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS report_download_requests (
+                request_id    TEXT PRIMARY KEY,
+                survey_run_id TEXT NOT NULL REFERENCES survey_records(survey_run_id),
+                user_id       TEXT NOT NULL REFERENCES users(user_id),
+                status        TEXT NOT NULL,
+                created_at    TEXT NOT NULL,
+                decided_at    TEXT,
+                decided_by    TEXT
+            )
+        """)
+        await db.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_report_download_requests_one_pending
+            ON report_download_requests(survey_run_id) WHERE status = 'pending'
         """)
 
         now = datetime.utcnow().isoformat()

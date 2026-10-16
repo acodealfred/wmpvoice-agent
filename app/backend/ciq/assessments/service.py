@@ -89,20 +89,37 @@ def _ordered_rows(rows: list[dict], config: dict) -> list[dict]:
 
 
 # ── live-session persistence (called from the realtime layer) ─────────────────
-async def persist_answer(sess: SessionState, survey_config: dict, snapshot: dict) -> None:
+async def run_is_active(sess: SessionState) -> bool:
+    """Whether the session may record answers now: an unbound session (legacy flow)
+    always may; a bound run only while it is active — not paused or closed (e.g. a
+    reply the agent was still generating when the user pressed Pause)."""
+    if not sess.survey_run_id or not sess.user_id:
+        return True
+    try:
+        return await get_survey_run_status(sess.survey_run_id) == "active"
+    except Exception as e:  # a DB hiccup must not block the survey; persist_answer logs it
+        logger.error("[Assessment] Run status check failed (run=%s): %s", sess.survey_run_id[:8], e)
+        return True
+
+
+async def persist_answer(sess: SessionState, survey_config: dict, snapshot: dict,
+                         status_checked: bool = False) -> None:
     """Persist one scored answer against the session's bound run, if it is active.
 
     No-op for an unbound session (legacy flow — persisted at report time) and for
     a run that was paused/closed meanwhile (e.g. another tab pressed Start new).
+    `status_checked`: the caller already confirmed the run is active (run_is_active),
+    so the status isn't read twice.
     """
     if not sess.survey_run_id or not sess.user_id:
         return
     try:
-        status = await get_survey_run_status(sess.survey_run_id)
-        if status != "active":
-            logger.warning("[Assessment] Answer %s not persisted: run %s is %s",
-                           snapshot.get("questionId"), sess.survey_run_id[:8], status)
-            return
+        if not status_checked:
+            status = await get_survey_run_status(sess.survey_run_id)
+            if status != "active":
+                logger.warning("[Assessment] Answer %s not persisted: run %s is %s",
+                               snapshot.get("questionId"), sess.survey_run_id[:8], status)
+                return
         await save_survey_item_responses(
             sess.survey_run_id, sess.user_id, sess.session_id, survey_config, [snapshot],
         )

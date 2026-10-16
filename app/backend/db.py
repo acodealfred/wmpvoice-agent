@@ -241,7 +241,7 @@ async def get_user_survey_records(user_id: str) -> list[dict]:
     async with _open_db() as db:
         async with db.execute("""
             SELECT survey_run_id, session_id, survey_type, created_at, updated_at,
-                   survey_results, technical_report, prompt_info
+                   survey_results, technical_report, prompt_info, is_demo
             FROM survey_records
             WHERE user_id = ?
               AND status = 'completed'
@@ -271,6 +271,123 @@ async def get_completed_reports(since_iso: str | None = None) -> list[dict]:
             ORDER BY sr.updated_at DESC
         """, (since_iso, since_iso)) as cursor:
             return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_completed_report(survey_run_id: str) -> dict | None:
+    """One completed report, same row shape and inclusion rule as
+    get_completed_reports() plus its download count — for the QR report download
+    (ciq.reports.share_routes), which checks the owner's name and the one-download limit."""
+    async with _open_db() as db:
+        async with db.execute("""
+            SELECT sr.survey_run_id, sr.user_id, u.name AS user_name,
+                   sr.survey_type, sr.updated_at, sr.technical_report, sr.prompt_info,
+                   sr.report_download_count, sr.report_downloaded_at
+            FROM survey_records sr
+            JOIN users u ON u.user_id = sr.user_id
+            WHERE sr.survey_run_id = ?
+              AND sr.status = 'completed'
+              AND (sr.survey_results IS NOT NULL OR sr.prompt_info IS NOT NULL)
+        """, (survey_run_id,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def save_report_pdf(survey_run_id: str, pdf: bytes) -> bool:
+    """Store a run's on-screen report PDF. The first upload wins (a later one is
+    ignored), so the capture made right after the assessment is the kept copy.
+    True when this call stored it."""
+    async with _open_db() as db:
+        cursor = await db.execute(
+            "INSERT OR IGNORE INTO report_pdfs (survey_run_id, pdf, size_bytes, created_at) VALUES (?, ?, ?, ?)",
+            (survey_run_id, pdf, len(pdf), datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cursor.rowcount == 1
+
+
+async def mark_report_downloaded(survey_run_id: str) -> bool:
+    """Count the run's one QR download. True only for the call that took it — a
+    report already downloaded (count 1) is left alone and returns False."""
+    async with _open_db() as db:
+        cursor = await db.execute(
+            """UPDATE survey_records SET report_download_count = 1, report_downloaded_at = ?
+               WHERE survey_run_id = ? AND report_download_count = 0""",
+            (datetime.utcnow().isoformat(), survey_run_id),
+        )
+        await db.commit()
+        return cursor.rowcount == 1
+
+
+async def latest_download_request(survey_run_id: str) -> dict | None:
+    """The run's most recent "request another download", or None."""
+    async with _open_db() as db:
+        async with db.execute(
+            """SELECT request_id, status, created_at, decided_at FROM report_download_requests
+               WHERE survey_run_id = ? ORDER BY created_at DESC LIMIT 1""",
+            (survey_run_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def create_download_request(request_id: str, survey_run_id: str, user_id: str) -> None:
+    """Add a pending request. A run that already has a pending one keeps it
+    (the partial unique index refuses a second; OR IGNORE skips it)."""
+    async with _open_db() as db:
+        await db.execute(
+            """INSERT OR IGNORE INTO report_download_requests
+               (request_id, survey_run_id, user_id, status, created_at)
+               VALUES (?, ?, ?, 'pending', ?)""",
+            (request_id, survey_run_id, user_id, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+
+
+async def list_pending_download_requests() -> list[dict]:
+    """Pending requests for the Admin panel notification, oldest first."""
+    async with _open_db() as db:
+        async with db.execute(
+            """SELECT r.request_id, r.survey_run_id, r.created_at, u.name AS user_name,
+                      sr.survey_type, sr.updated_at AS completed_at, sr.report_downloaded_at
+               FROM report_download_requests r
+               JOIN users u ON u.user_id = r.user_id
+               JOIN survey_records sr ON sr.survey_run_id = r.survey_run_id
+               WHERE r.status = 'pending'
+               ORDER BY r.created_at"""
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+
+async def decide_download_request(request_id: str, admin_id: str, approve: bool) -> bool:
+    """Approve or deny a still-pending request. Approving resets the run's download
+    count to 0 (one more download). One transaction. False if it isn't pending."""
+    async with _open_db() as db:
+        cursor = await db.execute(
+            """UPDATE report_download_requests SET status = ?, decided_at = ?, decided_by = ?
+               WHERE request_id = ? AND status = 'pending'""",
+            ("approved" if approve else "denied", datetime.utcnow().isoformat(), admin_id, request_id),
+        )
+        if cursor.rowcount != 1:
+            await db.rollback()
+            return False
+        if approve:
+            await db.execute(
+                """UPDATE survey_records SET report_download_count = 0, report_downloaded_at = NULL
+                   WHERE survey_run_id = (SELECT survey_run_id FROM report_download_requests WHERE request_id = ?)""",
+                (request_id,),
+            )
+        await db.commit()
+        return True
+
+
+async def get_report_pdf(survey_run_id: str) -> bytes | None:
+    """The stored on-screen report PDF for a run, or None."""
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT pdf FROM report_pdfs WHERE survey_run_id = ?", (survey_run_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return bytes(row["pdf"]) if row else None
 
 
 async def get_user_survey_run_summaries(user_id: str) -> list[dict]:
@@ -1089,6 +1206,7 @@ async def get_all_users_with_session_info() -> list[dict]:
             SELECT
                 u.user_id,
                 u.name,
+                u.role,
                 u.created_at,
                 COUNT(sr.survey_run_id) AS session_count,
                 MAX(sr.updated_at)      AS last_active_at,
@@ -1102,6 +1220,162 @@ async def get_all_users_with_session_info() -> list[dict]:
         """) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+
+VALID_ROLES = ("admin", "manager", "employee")
+
+
+async def update_user_role(user_id: str, new_role: str) -> str:
+    """Change a user's role. Returns 'ok', 'unchanged', 'not_found' or 'last_admin'.
+
+    BEGIN IMMEDIATE takes the write lock before the admin count is read, so two
+    concurrent demotions can never leave the system with zero admins.
+    """
+    async with _open_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            async with db.execute(
+                "SELECT role FROM users WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                return "not_found"
+            if row["role"] == new_role:
+                return "unchanged"
+            if row["role"] == "admin":
+                async with db.execute(
+                    "SELECT COUNT(*) AS n FROM users WHERE role = 'admin'"
+                ) as cursor:
+                    if (await cursor.fetchone())["n"] <= 1:
+                        return "last_admin"
+            await db.execute(
+                "UPDATE users SET role = ? WHERE user_id = ?", (new_role, user_id)
+            )
+            await db.commit()
+            return "ok"
+        finally:
+            if db.in_transaction:
+                await db.rollback()
+
+
+# ── Password reset requests ──────────────────────────────────────────────────
+# Timestamps here are fixed-width ISO strings (timespec="microseconds") so they
+# compare correctly as text in SQL. Expiry is never stored: a pending row older
+# than the pending cutoff, or an approved row past approved_until, is expired.
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat(timespec="microseconds")
+
+
+async def create_password_reset_request(
+    request_id: str, user_id: str, token_hash: str, now: datetime,
+    rate_window: timedelta, max_requests: int,
+) -> bool:
+    """Insert a pending request, cancelling the user's earlier open ones.
+
+    Returns False (and inserts nothing) when the user already made
+    max_requests within rate_window.
+    """
+    async with _open_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            async with db.execute(
+                "SELECT COUNT(*) AS n FROM password_reset_requests WHERE user_id = ? AND created_at > ?",
+                (user_id, _iso(now - rate_window)),
+            ) as cursor:
+                if (await cursor.fetchone())["n"] >= max_requests:
+                    return False
+            await db.execute(
+                "UPDATE password_reset_requests SET status = 'cancelled' "
+                "WHERE user_id = ? AND status IN ('pending', 'approved')",
+                (user_id,),
+            )
+            await db.execute(
+                """INSERT INTO password_reset_requests
+                   (request_id, user_id, token_hash, status, created_at)
+                   VALUES (?, ?, ?, 'pending', ?)""",
+                (request_id, user_id, token_hash, _iso(now)),
+            )
+            await db.commit()
+            return True
+        finally:
+            if db.in_transaction:
+                await db.rollback()
+
+
+async def get_password_reset_request(request_id: str) -> dict | None:
+    async with _open_db() as db:
+        async with db.execute(
+            "SELECT * FROM password_reset_requests WHERE request_id = ?", (request_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def list_pending_password_resets(pending_cutoff: datetime) -> list[dict]:
+    """Pending requests created after pending_cutoff, oldest first, with the username."""
+    async with _open_db() as db:
+        async with db.execute(
+            """SELECT r.request_id, r.user_id, u.name, u.role, r.created_at
+               FROM password_reset_requests r
+               JOIN users u ON u.user_id = r.user_id
+               WHERE r.status = 'pending' AND r.created_at > ?
+               ORDER BY r.created_at""",
+            (_iso(pending_cutoff),),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+
+async def decide_password_reset(
+    request_id: str, admin_id: str, approve: bool, now: datetime,
+    pending_cutoff: datetime, approval_window: timedelta,
+) -> bool:
+    """Approve or deny a still-pending, unexpired request. False if it isn't one."""
+    async with _open_db() as db:
+        cursor = await db.execute(
+            """UPDATE password_reset_requests
+               SET status = ?, decided_at = ?, decided_by = ?, approved_until = ?
+               WHERE request_id = ? AND status = 'pending' AND created_at > ?""",
+            (
+                "approved" if approve else "denied",
+                _iso(now),
+                admin_id,
+                _iso(now + approval_window) if approve else None,
+                request_id,
+                _iso(pending_cutoff),
+            ),
+        )
+        await db.commit()
+        return cursor.rowcount == 1
+
+
+async def complete_password_reset(request_id: str, password_hash: str, now: datetime) -> bool:
+    """Set the new password if the request is approved and inside its window.
+
+    Also deletes all of the user's sessions so any old login is signed out.
+    One transaction: the request is consumed exactly once.
+    """
+    async with _open_db() as db:
+        cursor = await db.execute(
+            """UPDATE password_reset_requests SET status = 'completed'
+               WHERE request_id = ? AND status = 'approved' AND approved_until > ?""",
+            (request_id, _iso(now)),
+        )
+        if cursor.rowcount != 1:
+            await db.rollback()
+            return False
+        await db.execute(
+            """UPDATE users SET password_hash = ?
+               WHERE user_id = (SELECT user_id FROM password_reset_requests WHERE request_id = ?)""",
+            (password_hash, request_id),
+        )
+        await db.execute(
+            """DELETE FROM user_sessions
+               WHERE user_id = (SELECT user_id FROM password_reset_requests WHERE request_id = ?)""",
+            (request_id,),
+        )
+        await db.commit()
+        return True
 
 
 async def get_manager_overview() -> dict:

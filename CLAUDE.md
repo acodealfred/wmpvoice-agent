@@ -100,6 +100,13 @@ Three roles (`users.role`): **`admin`** (reaches `/admin/*`), **`manager`**
 renamed from the former `guest`). `users` also has an **`active`** boolean;
 the manager dashboard's population is **active employees only**. The role rename
 + `active` column are applied by an in-place migration in `db_init.init_db`.
+Admins change roles from the Admin → Users tab (`PATCH /admin/users/{userId}/role`,
+`db.update_user_role`); an admin can't change their own role and the last admin
+can't be demoted. The role is re-read per request, so changes apply immediately.
+Forgot password: the login page sends a username-only request; an admin
+approves it from the notification at the top of the Admin panel, then the
+requesting browser has 2 minutes to set the new password (else a new request
+and approval are needed). See `ciq/api/password_reset_routes.py`.
 
 ### Manager dashboard & chat
 

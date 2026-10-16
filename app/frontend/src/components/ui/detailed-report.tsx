@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { BiometricSnapshot, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse } from "@/types";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { BiometricSnapshot, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse, ReportComparison } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { fetchZoneTrend } from "@/lib/zone";
 import { blinkBandLevel } from "@/lib/bands";
@@ -11,6 +12,10 @@ import { Loader2, AlertCircle, Sparkles, Eye, Timer, Gauge, Download } from "luc
 import { Markdown } from "@/components/ui/markdown";
 import { ReadinessReportView } from "@/components/ui/readiness-report-view";
 import { ZoneScale } from "@/components/ui/zone-scale";
+import { ReportQrDialog } from "@/components/ui/report-qr-dialog";
+import { ReportPdfCapture } from "@/components/ui/report-pdf-capture";
+import { ReportComparisonCard } from "@/components/ui/report-comparison-card";
+import { fetchReportComparison } from "@/lib/report-comparison";
 import {
     ResponsiveContainer,
     RadialBarChart,
@@ -46,9 +51,16 @@ interface DetailedReportProps {
      * A saved report reopened read-only (History tab / Admin Data Validation): shown
      * from the stored figures — nothing is saved again, no AI call is made, and the
      * AI Insights section is left out. `showZone` only when the viewer is the report's
-     * owner, since /api/zone-trend is always the logged-in user's own trend.
+     * owner, since /api/zone-trend is always the logged-in user's own trend. `zone` /
+     * `comparison`, when given, are drawn as-is without fetching (the PDF capture copy).
      */
-    saved?: { report: SavedReport["report"]; createdAt: string | null; showZone: boolean };
+    saved?: {
+        report: SavedReport["report"];
+        createdAt: string | null;
+        showZone: boolean;
+        zone?: ZoneTrendResponse | null;
+        comparison?: ReportComparison | null;
+    };
 }
 
 // Radar axis label wrapped onto several short lines, so long domain names
@@ -89,10 +101,13 @@ function RadarTick(props: { x?: number; y?: number; textAnchor?: string; payload
 }
 
 // ── Theme tokens resolved to concrete colors for Recharts (which needs real
-// color strings, not CSS var() references). Re-reads when the theme flips. ──
+// color strings, not CSS var() references). Re-reads when the theme flips.
+// Read from the report's own element, so a scoped override — the light colours
+// of the PDF capture copy (data-pdf-light, report-pdf-capture.tsx) — reaches the
+// charts too; on the normal screen that inherits the same values as the root. ──
 type Tokens = ReturnType<typeof readTokens>;
-function readTokens() {
-    const s = getComputedStyle(document.documentElement);
+function readTokens(el?: Element | null) {
+    const s = getComputedStyle(el ?? document.documentElement);
     const g = (n: string) => s.getPropertyValue(n).trim() || "#888";
     return {
         green: g("--ciq-accent-green"),
@@ -107,10 +122,12 @@ function readTokens() {
         card2: g("--ciq-card-2")
     };
 }
-function useThemeTokens(): Tokens {
-    const [tok, setTok] = useState<Tokens>(readTokens);
+function useThemeTokens(ref: RefObject<HTMLElement>): Tokens {
+    const [tok, setTok] = useState<Tokens>(() => readTokens());
+    // Before paint, so the first frame already uses the element's own colours.
+    useLayoutEffect(() => setTok(readTokens(ref.current)), [ref]);
     useEffect(() => {
-        const obs = new MutationObserver(() => setTok(readTokens()));
+        const obs = new MutationObserver(() => setTok(readTokens(ref.current)));
         obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
         return () => obs.disconnect();
     }, []);
@@ -120,8 +137,8 @@ function useThemeTokens(): Tokens {
 type ReportTab = "analysis" | "consultative";
 
 export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, onReportDelivered, compact = false, saved }: DetailedReportProps) {
-    const tok = useThemeTokens();
     const reportRef = useRef<HTMLDivElement>(null);
+    const tok = useThemeTokens(reportRef);
 
     const [analyzeData, setAnalyzeData] = useState<AnalyzeReportResponse | null>(() =>
         saved ? { ...saved.report, domainTotals: saved.report.domainTotals ?? {}, analysis: {}, agentResponse: "" } : null
@@ -130,7 +147,11 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // Bumped by the "Retry saving" button to re-run the /analyze-report save below.
     const [saveAttempt, setSaveAttempt] = useState(0);
     // Fatigue ↔ Burnout zone, fetched once the run is saved. Any failure just hides the scale.
-    const [zoneData, setZoneData] = useState<ZoneTrendResponse | null>(null);
+    const [zoneData, setZoneData] = useState<ZoneTrendResponse | null>(saved?.zone ?? null);
+    // "Compared with your last assessment" (same survey type); null = nothing to compare.
+    const [comparison, setComparison] = useState<ReportComparison | null>(saved?.comparison ?? null);
+    // Live report: zone + comparison loads have finished (either way), so the PDF copy can be captured.
+    const [extrasLoaded, setExtrasLoaded] = useState(false);
 
     // On-demand AI generations (the two slow LLM calls, now triggered by buttons).
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
@@ -230,11 +251,12 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     setAnalyzeData(data);
                     setSaveError(null);
                     onReportDelivered?.();
-                    // The run is now saved and completed, so the zone endpoint can see it.
+                    // The run is now saved and completed, so the zone + comparison endpoints can see it.
                     if (surveyRunId) {
-                        fetchZoneTrend()
-                            .then(z => !cancelled && setZoneData(z))
-                            .catch(() => {});
+                        void Promise.allSettled([
+                            fetchZoneTrend().then(z => !cancelled && setZoneData(z)),
+                            fetchReportComparison(surveyRunId).then(c => !cancelled && setComparison(c))
+                        ]).then(() => !cancelled && setExtrasLoaded(true));
                     }
                     return;
                 } catch (err) {
@@ -260,6 +282,9 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         let cancelled = false;
         fetchZoneTrend()
             .then(z => !cancelled && setZoneData(z))
+            .catch(() => {});
+        fetchReportComparison(surveyRunId)
+            .then(c => !cancelled && setComparison(c))
             .catch(() => {});
         return () => {
             cancelled = true;
@@ -547,9 +572,17 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
     const cardClass = "ciq-print-keep rounded-2xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] p-4";
 
-    // "Download PDF" — the browser's print → Save as PDF, of this report only (AI Insights left out).
+    // "Download PDF" — the participant's own report goes through password → QR code →
+    // one download on their phone (report-qr-dialog). An admin viewing someone else's
+    // saved report (showZone false) keeps the browser's print → Save as PDF.
+    const ownReport = !saved || saved.showZone;
+    const [showQr, setShowQr] = useState(false);
     const [printing, setPrinting] = useState(false);
     const handleDownloadPdf = async () => {
+        if (ownReport && surveyRunId) {
+            setShowQr(true);
+            return;
+        }
         if (!reportRef.current || printing) return;
         setPrinting(true);
         try {
@@ -577,12 +610,32 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     onClick={() => void handleDownloadPdf()}
                     disabled={!scoreReady || printing}
                     className="ciq-no-print flex shrink-0 items-center gap-1.5 rounded-lg border border-[color:var(--ciq-line)] px-3 py-1.5 text-sm font-semibold text-[color:var(--ciq-text-strong)] hover:bg-[color:var(--ciq-card-2)] disabled:cursor-not-allowed disabled:opacity-50"
-                    title={scoreReady ? "Save this report as a PDF" : "Available once the report is ready"}
+                    title={
+                        !scoreReady
+                            ? "Available once the report is ready"
+                            : ownReport
+                              ? "Get a QR code to download this report on your phone"
+                              : "Save this report as a PDF"
+                    }
                 >
                     {printing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     Download PDF
                 </button>
             </div>
+            {/* Portalled so no transformed ancestor (report panel, saved-report overlay) traps the fixed overlay. */}
+            {showQr && surveyRunId && createPortal(<ReportQrDialog surveyRunId={surveyRunId} onClose={() => setShowQr(false)} />, document.body)}
+            {/* Once the live report is saved: an off-screen light copy (saved mode, so no
+                 API calls and no AI Insights tabs) is captured to the PDF the QR download serves. */}
+            {!saved && analyzeData && surveyRunId && extrasLoaded && (
+                <ReportPdfCapture surveyRunId={surveyRunId}>
+                    <DetailedReport
+                        snapshots={snapshots}
+                        surveyRunId={surveyRunId}
+                        surveyType={surveyType}
+                        saved={{ report: analyzeData, createdAt: null, showZone: false, zone: zoneData, comparison }}
+                    />
+                </ReportPdfCapture>
+            )}
 
             {/* Auto-save warning — shown when /analyze-report failed to persist after retries. */}
             {saveError && (
@@ -682,6 +735,9 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     <ZoneScale latest={zoneData.latest} trend={zoneData.trend} />
                 </div>
             )}
+
+            {/* ── Compared with the last assessment of the same type (none on a first one) ── */}
+            {comparison && comparison.measures.length > 0 && <ReportComparisonCard comparison={comparison} className={`mb-4 ${cardClass}`} />}
 
             {/* ── KPI tiles ── */}
             <div className="ciq-print-keep mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">

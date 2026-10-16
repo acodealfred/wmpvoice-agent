@@ -92,6 +92,10 @@ export function useMuse() {
     // tick, and the recorder's dropped-packet total at that tick (for a per-tick delta).
     const healthRef = useRef(new EegHealthAccumulator());
     const droppedAtTickRef = useRef<{ recorder: Recorder | null; total: number }>({ recorder: null, total: 0 });
+    // When the current health window opened (page clock), so a tick can report its real
+    // length: samples arrive in 12-sample packets on a timer that isn't packet-aligned,
+    // so a "1 s" window holds 252 or 264 samples — counts mean nothing without the span.
+    const healthWindowStartRef = useRef<number | null>(null);
 
     const available = isWebBluetoothAvailable(nav);
 
@@ -129,6 +133,7 @@ export function useMuse() {
             for (const ch of channelsForPreset(PRESET)) buffers.set(ch, new RollingWindow(CHART_WINDOW_SAMPLES));
             buffersRef.current = buffers;
             healthRef.current.reset();
+            healthWindowStartRef.current = performance.now();
             rateRef.current = { startTMs: null, samples: 0, lastHz: null, spanHz: null };
             setBatteryPercent(null);
 
@@ -213,6 +218,7 @@ export function useMuse() {
         sourceRef.current = null;
         buffersRef.current = new Map();
         healthRef.current.reset();
+        healthWindowStartRef.current = null;
         pausedRef.current = false;
         questionMarkersRef.current = [];
         setDevice(null);
@@ -384,6 +390,9 @@ export function useMuse() {
     const takeEegHealth = useCallback(() => {
         const chans = channelsForPreset(PRESET).filter(ch => CONTACT_CHANNELS.includes(ch));
         const channelStats: Partial<Record<EegChannel, ChannelHealth>> = healthRef.current.take(chans);
+        const now = performance.now();
+        const windowMs = healthWindowStartRef.current === null ? null : Math.round(now - healthWindowStartRef.current);
+        healthWindowStartRef.current = now;
         const contact: Partial<Record<EegChannel, ContactQuality>> = {};
         for (const ch of chans) contact[ch] = contactQuality(getChannelSamples(ch));
         const recorder = recorderRef.current;
@@ -397,6 +406,7 @@ export function useMuse() {
         }
         return {
             channels: channelStats,
+            windowMs,
             contact,
             dropped,
             recorderPackets: recorder?.packetCount() ?? 0,

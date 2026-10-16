@@ -408,6 +408,60 @@ body {
     width: 790px !important;
     max-width: none !important;
 }
+
+/* ── Stored report PDF (components/ui/report-pdf-capture.tsx) — an off-screen copy
+   of the report, captured to a PDF the QR download serves. Light colours (the app
+   itself is dark-only) scoped to the copy; DetailedReport reads its chart colours
+   from its own element, so the charts pick these up too. ── */
+[data-pdf-light] {
+    --ciq-text-strong: #11181d;
+    --ciq-text-86: rgba(17, 24, 29, 0.9);
+    --ciq-text-68: rgba(17, 24, 29, 0.78);
+    --ciq-text-60: rgba(17, 24, 29, 0.72);
+    --ciq-text-46: rgba(17, 24, 29, 0.62);
+    --ciq-text-40: rgba(17, 24, 29, 0.58);
+    --ciq-tile: rgba(236, 239, 242, 0.6);
+    --ciq-tile-strong: rgba(236, 239, 242, 0.95);
+    --ciq-hover: rgba(42, 127, 200, 0.1);
+    --ciq-track: #e3e8ec;
+    --ciq-divider: #dfe4e8;
+    --ciq-border: #dfe4e8;
+    --ciq-accent-green: #1f9a6a;
+    --ciq-accent-red: #c94420;
+    --ciq-accent-amber: #c27a12;
+    --ciq-accent-purple: #2a7fc8;
+    --ciq-accent-blue: #2a7fc8;
+    --ciq-card: #ffffff;
+    --ciq-card-2: #f5f7f9;
+    --ciq-card-3: #eceff2;
+    --ciq-text-body: #2f3a42;
+    --ciq-text-muted: #5b6670;
+    --ciq-text-faint: #8a949c;
+    --ciq-line: #dfe4e8;
+    --ciq-glass-border: #dfe4e8;
+    --ciq-glass-grad-1: rgba(255, 255, 255, 0.9);
+    --ciq-glass-grad-2: rgba(245, 247, 249, 0.9);
+    --ciq-glass-base: #ffffff;
+    color: var(--ciq-text-body);
+}
+[data-pdf-capture] {
+    position: fixed;
+    top: 0;
+    left: -10000px;
+    width: 790px;
+    pointer-events: none;
+}
+[data-pdf-capture] > * {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+[data-pdf-capture] .ciq-no-print,
+[data-pdf-capture] .recharts-tooltip-wrapper {
+    display: none !important;
+}
+[data-pdf-capture] .overflow-x-auto {
+    overflow: visible !important;
+}
 @media print {
     @page {
         size: A4 portrait;

@@ -1,7 +1,7 @@
 // Admin "Live Monitor" tab — watch the data of assessments while they run, instead of
 // discovering gaps in the exports afterwards. Shows health only (is each stream
 // arriving, is it valid), never the data itself. Backend: ciq/monitoring/.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Activity, AlertTriangle, Check, Loader2, Radio, X } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
@@ -16,7 +16,9 @@ import {
     STREAM_LABEL,
     formatDuration,
     issueLog,
+    MAX_OPEN_DETAILS,
     phaseStepIndex,
+    toggleSelection,
     type MonitorLevel,
     type MonitorSecond,
     type MonitorSession,
@@ -191,6 +193,7 @@ function SecondsStrip({ label, levels }: { label: string; levels: MonitorLevel[]
 function SessionDetail({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
     const [session, setSession] = useState<MonitorSession | null>(null);
     const [gone, setGone] = useState(false);
+    const headingId = useId(); // several detail panels can be open at once
 
     const load = useCallback(async () => {
         const res = await apiFetch(`/admin/monitor/sessions/${encodeURIComponent(sessionId)}`);
@@ -209,10 +212,10 @@ function SessionDetail({ sessionId, onClose }: { sessionId: string; onClose: () 
     const eeg = session?.eeg;
 
     return (
-        <section className={`${CARD} flex flex-col gap-4 p-4`} aria-labelledby="lm-detail-h">
+        <section className={`${CARD} flex flex-col gap-4 p-4`} aria-labelledby={headingId}>
             <div className="flex items-start justify-between gap-3">
                 <div>
-                    <h2 id="lm-detail-h" className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">
+                    <h2 id={headingId} className="font-display text-lg font-semibold text-[color:var(--ciq-text-strong)]">
                         {session?.userName ?? "Session"} — last {history.length} s
                     </h2>
                     <p className="font-data break-all text-[11px] text-[color:var(--ciq-text-muted)]">run {session?.surveyRunId ?? "—"}</p>
@@ -251,16 +254,20 @@ function SessionDetail({ sessionId, onClose }: { sessionId: string; onClose: () 
                     </div>
 
                     {eeg && eeg.status && (
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        // Box count per row follows the PANEL's width (auto-fit), not the window's,
+                        // so two panels side by side wrap to 2×2 instead of squeezing four in a row.
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-2">
                             {EEG_CHANNELS.map(ch => (
                                 <div key={ch} className="rounded-lg bg-[color:var(--ciq-tile)] p-2">
                                     <p className="font-data text-[11px] text-[color:var(--ciq-text-muted)]">{ch}</p>
-                                    <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">{eeg.samples[ch] ?? 0}/256 per s</p>
+                                    {/* Averaged over ~5 s: a single second holds 252 or 264 samples
+                                        (12-sample packets vs a 1 s timer), which read as errors. */}
+                                    <p className="text-sm font-semibold text-[color:var(--ciq-text-strong)]">{eeg.rates?.[ch] ?? "—"} samples/s</p>
                                     <p className="text-[11px] capitalize text-[color:var(--ciq-text-muted)]">contact: {eeg.contact[ch] ?? "—"}</p>
                                 </div>
                             ))}
-                            <p className="col-span-2 text-[11px] text-[color:var(--ciq-text-muted)] sm:col-span-4">
-                                Headband {eeg.status}
+                            <p className="col-span-full text-[11px] text-[color:var(--ciq-text-muted)]">
+                                Expected 256 samples/s per channel (5-second average) · headband {eeg.status}
                                 {eeg.battery !== null && ` · battery ${eeg.battery}%`}
                                 {eeg.rate_hz !== null && ` · ${eeg.rate_hz} Hz`}
                                 {eeg.recorder_packets !== null && ` · ${eeg.recorder_packets.toLocaleString()} packets in this recording`}
@@ -294,7 +301,8 @@ export function LiveMonitorPanel() {
     const [data, setData] = useState<MonitorSessionsResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    // Several sessions' details can be open at once (compare two running assessments).
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
     const load = useCallback(async () => {
         try {
@@ -340,9 +348,14 @@ export function LiveMonitorPanel() {
             )}
 
             {data?.enabled && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <span className={`${BADGE} ${PILL.blue}`}>{sessions.length} running</span>
                     {problems > 0 && <span className={`${BADGE} ${PILL.red}`}>{problems} with problems</span>}
+                    {sessions.length > 1 && (
+                        <span className="text-xs text-[color:var(--ciq-text-muted)]">
+                            Click cards to open their details side by side (up to {MAX_OPEN_DETAILS}).
+                        </span>
+                    )}
                 </div>
             )}
 
@@ -361,14 +374,22 @@ export function LiveMonitorPanel() {
                             key={s.sessionId}
                             session={s}
                             serverTime={serverTime}
-                            selected={s.sessionId === selectedId}
-                            onSelect={() => setSelectedId(id => (id === s.sessionId ? null : s.sessionId))}
+                            selected={selectedIds.includes(s.sessionId)}
+                            onSelect={() => setSelectedIds(ids => toggleSelection(ids, s.sessionId))}
                         />
                     ))}
                 </div>
             )}
 
-            {selectedId && <SessionDetail key={selectedId} sessionId={selectedId} onClose={() => setSelectedId(null)} />}
+            {/* Side by side only on wide screens (xl, ≥1280px) — each panel then gets ~650px;
+                below that they stack at full width so the strips and boxes stay readable. */}
+            {selectedIds.length > 0 && (
+                <div className={`grid items-start gap-4 ${selectedIds.length > 1 ? "xl:grid-cols-2" : ""}`}>
+                    {selectedIds.map(id => (
+                        <SessionDetail key={id} sessionId={id} onClose={() => setSelectedIds(ids => ids.filter(x => x !== id))} />
+                    ))}
+                </div>
+            )}
 
             {!data && !error && <Loader2 className="h-5 w-5 animate-spin text-[color:var(--ciq-text-muted)]" />}
         </div>

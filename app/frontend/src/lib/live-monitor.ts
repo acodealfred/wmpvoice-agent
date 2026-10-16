@@ -29,7 +29,8 @@ export type MonitorSession = {
         status: string | null;
         battery: number | null;
         rate_hz: number | null;
-        samples: Record<string, number | undefined>;
+        /** Samples per second per channel, averaged over the last ~5 s (≈256 when healthy). */
+        rates: Record<string, number | undefined>;
         contact: Record<string, string>;
         recorder_packets: number | null;
     } | null;
@@ -98,4 +99,16 @@ export function issueLog(history: MonitorSecond[], limit = 20): { t: number; iss
         previous = current;
     }
     return out.reverse().slice(0, limit);
+}
+
+/** Most detail panels open at once — beyond this the page stops being readable. */
+export const MAX_OPEN_DETAILS = 4;
+
+/**
+ * Click on a card: open its detail (alongside any already open) or close it again.
+ * Opening one more than MAX_OPEN_DETAILS closes the one opened longest ago.
+ */
+export function toggleSelection(selected: string[], id: string, max = MAX_OPEN_DETAILS): string[] {
+    if (selected.includes(id)) return selected.filter(s => s !== id);
+    return [...selected, id].slice(-max);
 }

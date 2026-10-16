@@ -180,6 +180,8 @@ export default function EegPairModal({
                                     Start
                                 </Button>
                             ) : (
+                                // TODO(before real runs): remove "Continue without EEG" once EEG is
+                                // mandatory — kept for now so the app can be tested without a headband.
                                 <Button type="button" variant="outline" onClick={onProceed} disabled={isBusy}>
                                     Continue without EEG
                                 </Button>

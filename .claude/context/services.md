@@ -59,6 +59,10 @@
   The old `/baseline` routes were removed.
 - `GET /consent`, `POST /consent` — Get and accept informed consent form.
 - `GET /admin/users` — **(Admin only)** List all registered users.
+- `PATCH /admin/users/{userId}/role` — **(Admin only)** Change a user's role (`admin`|`manager`|`employee`). 400 invalid role, 404 unknown user, 409 own role / last admin. Takes effect on the user's next request.
+- `GET /admin/password-resets` — **(Admin only)** Pending forgot-password requests (unanswered ones expire after 15 min).
+- `POST /admin/password-resets/{requestId}/approve` | `/deny` — **(Admin only)** Decide a pending request. Approval opens a 2-minute window. 409 if no longer pending.
+- `POST /password-reset/request` | `/status` | `/complete` — **(Public)** Login-page forgot-password flow. `request {username}` returns `{request_id, token}`; the token (only its sha256 is stored) authorises `status`/`complete`. Max 3 requests per user per 15 min (429). `complete` needs ≥8 chars + matching confirm, and signs the user out everywhere. Handlers: `ciq/api/password_reset_routes.py`.
 - `GET /admin/demo-data`, `POST /admin/demo-data` — **(Admin only)** Manage demo dataset.
 - `GET /admin/pilot-survey/export` — **(Admin only)** Export pilot survey responses.
 - `GET /admin/users/{userId}/survey-runs` — **(Admin only)** Export survey runs for a specific user.

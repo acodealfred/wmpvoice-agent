@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDuration, issueLog, phaseStepIndex, type MonitorSecond } from "./live-monitor";
+import { formatDuration, issueLog, phaseStepIndex, toggleSelection, type MonitorSecond } from "./live-monitor";
 
 describe("formatDuration", () => {
     it("formats minutes and hours", () => {
@@ -39,5 +39,18 @@ describe("issueLog", () => {
     it("logs an issue again when it comes back", () => {
         const log = issueLog([second(1, ["x"]), second(2, []), second(3, ["x"])]);
         expect(log.map(e => e.t)).toEqual([3, 1]);
+    });
+});
+
+describe("toggleSelection", () => {
+    it("opens several details at once and closes one on a second click", () => {
+        let open = toggleSelection([], "a");
+        open = toggleSelection(open, "b");
+        expect(open).toEqual(["a", "b"]);
+        expect(toggleSelection(open, "a")).toEqual(["b"]);
+    });
+
+    it("keeps at most the limit open, closing the one opened longest ago", () => {
+        expect(toggleSelection(["a", "b"], "c", 2)).toEqual(["b", "c"]);
     });
 });

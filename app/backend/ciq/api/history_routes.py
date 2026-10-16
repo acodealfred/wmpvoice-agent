@@ -14,6 +14,7 @@ from ciq.eeg.combine import EEG_COLUMNS, combine_segments
 from ciq.voice.keys import ANSWER_FEATURE_KEYS, WINDOW_FEATURE_KEYS
 from ciq.zone import ZoneConfigError, build_zone_trend
 from db import (
+    VALID_ROLES,
     get_all_users_with_session_info,
     get_eeg_segments,
     get_manager_analytics,
@@ -25,6 +26,7 @@ from db import (
     get_survey_timeline_frames,
     get_user_survey_records,
     get_user_survey_run_summaries,
+    update_user_role,
 )
 from demo_data import clear_demo_data, demo_data_status, seed_demo_data
 from survey_loader import compute_survey_summary, effective_score, load_survey
@@ -176,6 +178,39 @@ async def admin_list_users(request: web.Request) -> web.Response:
     """GET /admin/users — list all users with session stats."""
     users = await get_all_users_with_session_info()
     return web.json_response({"users": users})
+
+
+async def admin_update_user_role(request: web.Request) -> web.Response:
+    """PATCH /admin/users/{userId}/role — body {"role": "admin"|"manager"|"employee"}.
+
+    Admins cannot change their own role, and the last admin cannot be demoted,
+    so the system can never be left without anyone able to reach /admin/*.
+    """
+    user_id = request.match_info["userId"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    new_role = data.get("role") if isinstance(data, dict) else None
+    if new_role not in VALID_ROLES:
+        return web.json_response(
+            {"error": f"role must be one of: {', '.join(VALID_ROLES)}"}, status=400
+        )
+
+    actor_id = request["auth_session"]["user_id"]
+    if user_id == actor_id:
+        return web.json_response({"error": "You cannot change your own role."}, status=409)
+
+    result = await update_user_role(user_id, new_role)
+    if result == "not_found":
+        return web.json_response({"error": "User not found"}, status=404)
+    if result == "last_admin":
+        return web.json_response(
+            {"error": "Cannot demote the last remaining admin."}, status=409
+        )
+    if result == "ok":
+        logger.info("[Admin] role change user=%s -> %s by=%s", user_id, new_role, actor_id)
+    return web.json_response({"user_id": user_id, "role": new_role})
 
 
 async def manager_overview(request: web.Request) -> web.Response:

@@ -160,3 +160,50 @@ def test_new_survey_clears_the_monitor_history():
     live.record_tick(sess, _tick(), 400, now=1000.0)
     sess.reset_for_new_survey()
     assert len(sess.monitor_ticks) == 0 and sess.monitor_phase is None
+
+
+# ── sample-rate averaging (252/264 packet-boundary jitter) ────────────────────
+def _tick_n(n, window_ms=1000, status="streaming"):
+    eeg = _eeg(status=status, window_ms=window_ms, channels={ch: {**GOOD, "n": n} for ch in rules.EEG_CHANNELS})
+    return _tick(eeg)
+
+
+def test_window_seconds():
+    assert rules.window_seconds({"window_ms": 1032}) == 1.032
+    assert rules.window_seconds({"window_ms": None}) == 1.0
+    assert rules.window_seconds({"window_ms": 50}) == 1.0  # implausible → 1 s
+    assert rules.window_seconds(None) == 1.0
+
+
+def test_channel_rates_is_total_samples_over_total_time():
+    parts = [{"TP9": (252, 1.0)}, {"TP9": (264, 1.0)}, {"TP9": (240, 0.94)}]
+    assert round(rules.channel_rates(parts)["TP9"]) == 257  # 756 samples / 2.94 s
+    assert rules.channel_rates([{}]) == {}
+
+
+def test_packet_boundary_jitter_reads_as_256_and_ok():
+    sess = _session()
+    for i, n in enumerate([252, 264, 252, 264, 252]):
+        live.record_tick(sess, _tick_n(n), 400, now=1000.0 + i)
+    latest = sess.monitor_ticks[-1]
+    assert latest["eeg"]["rates"]["AF7"] == 257  # (252*3 + 264*2) / 5
+    assert latest["levels"]["eeg"] == "ok"
+
+
+def test_short_window_is_not_mistaken_for_low_rate():
+    # 204 samples in 0.8 s is a healthy 255/s — not "204/256".
+    level, _, issues = rules.assess_eeg(_eeg(channels={ch: {**GOOD, "n": 204} for ch in rules.EEG_CHANNELS}), {ch: 255.0 for ch in rules.EEG_CHANNELS})
+    assert level == "ok" and issues == []
+
+
+def test_a_silent_second_is_bad_even_when_the_average_is_fine():
+    level, channels, _ = rules.assess_eeg(_eeg(channels={**{ch: dict(GOOD) for ch in rules.EEG_CHANNELS}, "AF7": {"n": 0}}), {ch: 250.0 for ch in rules.EEG_CHANNELS})
+    assert channels["AF7"] == "bad" and level == "bad"
+
+
+def test_ticks_from_a_drop_do_not_drag_down_the_reconnected_rate():
+    sess = _session()
+    live.record_tick(sess, _tick_n(0, status="disconnected"), 400, now=1000.0)
+    live.record_tick(sess, _tick_n(256), 400, now=1001.0)
+    assert sess.monitor_ticks[-1]["eeg"]["rates"]["TP9"] == 256
+    assert sess.monitor_ticks[-1]["levels"]["eeg"] == "ok"

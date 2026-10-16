@@ -16,10 +16,12 @@ import {
     Download,
     X,
     Clock,
-    ShieldAlert
+    ShieldAlert,
+    KeyRound,
+    FileDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { KBDocument, AdminUser, SurveyRunSummary, FlaggedRecoverySession } from "@/types";
+import { KBDocument, AdminUser, UserRole, SurveyRunSummary, FlaggedRecoverySession, PasswordResetRequest, ReportDownloadRequest } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { FontScale, FONT_SCALES, FONT_SCALE_LABEL, FONT_SCALE_PCT, getFontScale, setFontScale } from "@/lib/fontScale";
 import { PILL, BANNER } from "@/lib/badges";
@@ -179,6 +181,125 @@ export function AdminPanel() {
     useEffect(() => {
         fetchUsers();
     }, [fetchUsers]);
+
+    const [roleSaving, setRoleSaving] = useState<string | null>(null);
+
+    const changeUserRole = useCallback(
+        async (user: AdminUser, newRole: UserRole) => {
+            if (newRole === user.role) return;
+            const warning = user.role === "employee" ? "\n\nTheir past assessments will no longer count in the manager dashboard." : "";
+            if (!window.confirm(`Change ${user.name}'s role from ${user.role} to ${newRole}?${warning}`)) return;
+            setRoleSaving(user.user_id);
+            setUsersError(null);
+            try {
+                const resp = await apiFetch(`/admin/users/${encodeURIComponent(user.user_id)}/role`, {
+                    method: "PATCH",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ role: newRole })
+                });
+                if (resp.ok) {
+                    await fetchUsers();
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    setUsersError(data.error ?? "Failed to change role.");
+                }
+            } catch {
+                setUsersError("Network error.");
+            } finally {
+                setRoleSaving(null);
+            }
+        },
+        [fetchUsers]
+    );
+
+    // ── Password reset requests (forgot-password from the login page) ──
+    // Polled so a new request shows up as a notification at the top of the panel.
+    const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
+    const [resetDeciding, setResetDeciding] = useState<string | null>(null);
+    const [resetError, setResetError] = useState<string | null>(null);
+
+    const fetchResetRequests = useCallback(async () => {
+        try {
+            const resp = await apiFetch("/admin/password-resets", { credentials: "same-origin" });
+            if (resp.ok) setResetRequests((await resp.json()).requests);
+        } catch {
+            // Transient; the next poll retries.
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchResetRequests();
+        const id = window.setInterval(fetchResetRequests, 10_000);
+        return () => window.clearInterval(id);
+    }, [fetchResetRequests]);
+
+    const decideResetRequest = useCallback(
+        async (req: PasswordResetRequest, approve: boolean) => {
+            setResetDeciding(req.request_id);
+            setResetError(null);
+            try {
+                const resp = await apiFetch(`/admin/password-resets/${encodeURIComponent(req.request_id)}/${approve ? "approve" : "deny"}`, {
+                    method: "POST",
+                    credentials: "same-origin"
+                });
+                if (!resp.ok) {
+                    const data = await resp.json().catch(() => ({}));
+                    setResetError(data.error ?? "Failed to update the request.");
+                }
+            } catch {
+                setResetError("Network error.");
+            } finally {
+                setResetDeciding(null);
+                fetchResetRequests();
+            }
+        },
+        [fetchResetRequests]
+    );
+
+    // ── Report download requests (a report's one QR download already used) ──
+    // Polled like password resets; approving lets the user download once more.
+    const [downloadRequests, setDownloadRequests] = useState<ReportDownloadRequest[]>([]);
+    const [downloadDeciding, setDownloadDeciding] = useState<string | null>(null);
+    const [downloadError, setDownloadError] = useState<string | null>(null);
+
+    const fetchDownloadRequests = useCallback(async () => {
+        try {
+            const resp = await apiFetch("/admin/download-requests", { credentials: "same-origin" });
+            if (resp.ok) setDownloadRequests((await resp.json()).requests);
+        } catch {
+            // Transient; the next poll retries.
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchDownloadRequests();
+        const id = window.setInterval(fetchDownloadRequests, 10_000);
+        return () => window.clearInterval(id);
+    }, [fetchDownloadRequests]);
+
+    const decideDownloadRequest = useCallback(
+        async (req: ReportDownloadRequest, approve: boolean) => {
+            setDownloadDeciding(req.request_id);
+            setDownloadError(null);
+            try {
+                const resp = await apiFetch(`/admin/download-requests/${encodeURIComponent(req.request_id)}/${approve ? "approve" : "deny"}`, {
+                    method: "POST",
+                    credentials: "same-origin"
+                });
+                if (!resp.ok) {
+                    const data = await resp.json().catch(() => ({}));
+                    setDownloadError(data.error ?? "Failed to update the request.");
+                }
+            } catch {
+                setDownloadError("Network error.");
+            } finally {
+                setDownloadDeciding(null);
+                fetchDownloadRequests();
+            }
+        },
+        [fetchDownloadRequests]
+    );
 
     // ── Biometric guardrail toggle ───────────────────────────────────
     const [guardrailEnabled, setGuardrailEnabled] = useState<boolean | null>(null);
@@ -543,6 +664,106 @@ export function AdminPanel() {
     // ── Render ─────────────────────────────────────────────────────────
     return (
         <div className="space-y-6">
+            {/* ── Notification: pending password reset requests ── */}
+            {(resetRequests.length > 0 || resetError) && (
+                <div className={`rounded-xl p-4 shadow-md ${BANNER.amber}`} role="status">
+                    <div className="mb-2 flex items-center gap-2">
+                        <KeyRound className="h-5 w-5" />
+                        <h2 className="font-display text-base font-semibold">
+                            {resetRequests.length} password reset request{resetRequests.length === 1 ? "" : "s"}
+                        </h2>
+                    </div>
+                    <p className="mb-3 text-sm text-[color:var(--ciq-text-body)]">
+                        Only the username was entered, so the app can&apos;t confirm who is asking. Approve only if you expected this request. Once approved,
+                        the user has 2 minutes to set a new password.
+                    </p>
+                    {resetError && (
+                        <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
+                            <XCircle className="h-4 w-4 shrink-0" />
+                            {resetError}
+                        </div>
+                    )}
+                    <ul className="space-y-2">
+                        {resetRequests.map(r => (
+                            <li
+                                key={r.request_id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[color:var(--ciq-card)] px-3 py-2 text-[color:var(--ciq-text-body)]"
+                            >
+                                <span className="text-sm">
+                                    <span className="font-semibold text-[color:var(--ciq-text-strong)]">{r.name}</span>
+                                    <span className="text-[color:var(--ciq-text-muted)]">
+                                        {" "}
+                                        ({r.role}) · requested {formatServerDate(r.created_at)}
+                                    </span>
+                                </span>
+                                <span className="flex gap-2">
+                                    <Button size="sm" variant="outline" disabled={resetDeciding === r.request_id} onClick={() => decideResetRequest(r, false)}>
+                                        Deny
+                                    </Button>
+                                    <Button size="sm" disabled={resetDeciding === r.request_id} onClick={() => decideResetRequest(r, true)}>
+                                        Approve
+                                    </Button>
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {/* ── Notification: pending report download requests ── */}
+            {(downloadRequests.length > 0 || downloadError) && (
+                <div className={`rounded-xl p-4 shadow-md ${BANNER.amber}`} role="status">
+                    <div className="mb-2 flex items-center gap-2">
+                        <FileDown className="h-5 w-5" />
+                        <h2 className="font-display text-base font-semibold">
+                            {downloadRequests.length} report download request{downloadRequests.length === 1 ? "" : "s"}
+                        </h2>
+                    </div>
+                    <p className="mb-3 text-sm text-[color:var(--ciq-text-body)]">
+                        Each report can be downloaded once. These participants already downloaded theirs and asked for another. Approving allows one more
+                        download.
+                    </p>
+                    {downloadError && (
+                        <div className={`mb-3 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${BANNER.red}`}>
+                            <XCircle className="h-4 w-4 shrink-0" />
+                            {downloadError}
+                        </div>
+                    )}
+                    <ul className="space-y-2">
+                        {downloadRequests.map(r => (
+                            <li
+                                key={r.request_id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[color:var(--ciq-card)] px-3 py-2 text-[color:var(--ciq-text-body)]"
+                            >
+                                <span className="text-sm">
+                                    <span className="font-semibold text-[color:var(--ciq-text-strong)]">{r.user_name}</span>
+                                    <span className="text-[color:var(--ciq-text-muted)]">
+                                        {" "}
+                                        · {r.survey_type ?? "Assessment"}
+                                        {r.completed_at && <> · completed {formatServerDate(r.completed_at)}</>}
+                                        {r.report_downloaded_at && <> · downloaded {formatServerDate(r.report_downloaded_at)}</>} · requested{" "}
+                                        {formatServerDate(r.created_at)}
+                                    </span>
+                                </span>
+                                <span className="flex gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={downloadDeciding === r.request_id}
+                                        onClick={() => decideDownloadRequest(r, false)}
+                                    >
+                                        Deny
+                                    </Button>
+                                    <Button size="sm" disabled={downloadDeciding === r.request_id} onClick={() => decideDownloadRequest(r, true)}>
+                                        Approve
+                                    </Button>
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
             {/* ── Section: Text Size ── */}
             <div className="rounded-xl border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] p-5 shadow-md">
                 <div className="mb-2 flex items-center gap-2">
@@ -666,6 +887,7 @@ export function AdminPanel() {
                             <thead>
                                 <tr className="bg-[color:var(--ciq-card-2)] text-xs font-medium uppercase tracking-wide text-[color:var(--ciq-text-muted)]">
                                     <th className="px-4 py-3 text-left">User</th>
+                                    <th className="px-4 py-3 text-left">Role</th>
                                     <th className="px-4 py-3 text-left">Status</th>
                                     <th className="px-4 py-3 text-left">Flagged At</th>
                                     <th className="px-4 py-3 text-center">Reviewed</th>
@@ -1162,6 +1384,19 @@ export function AdminPanel() {
                                 {users.map((u, i) => (
                                     <tr key={u.user_id} className={i % 2 === 0 ? "bg-[color:var(--ciq-card)]" : "bg-[color:var(--ciq-card-2)]"}>
                                         <td className="px-4 py-3 font-medium text-[color:var(--ciq-text-strong)]">{u.name}</td>
+                                        <td className="px-4 py-3">
+                                            <select
+                                                aria-label={`Role for ${u.name}`}
+                                                value={u.role}
+                                                disabled={roleSaving === u.user_id}
+                                                onChange={e => changeUserRole(u, e.target.value as UserRole)}
+                                                className="rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card)] px-2 py-1 text-xs text-[color:var(--ciq-text-body)] disabled:opacity-50"
+                                            >
+                                                <option value="employee">Employee</option>
+                                                <option value="manager">Manager</option>
+                                                <option value="admin">Admin</option>
+                                            </select>
+                                        </td>
                                         <td className="px-4 py-3 text-center">
                                             <span
                                                 className={`font-data rounded-full px-2 py-0.5 text-xs font-semibold ${u.session_count > 0 ? PILL.purple : PILL.neutral}`}

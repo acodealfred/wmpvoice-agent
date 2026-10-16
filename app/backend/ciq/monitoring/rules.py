@@ -10,6 +10,10 @@ EEG_CHANNELS = ("TP9", "AF7", "AF8", "TP10")
 EEG_EXPECTED_PER_S = 256
 EEG_WARN_BELOW = 230
 EEG_BAD_BELOW = 128
+# Samples arrive 12 per packet on a page timer that isn't packet-aligned, so one "1 s"
+# tick holds 252 or 264 (and Bluetooth bursts skew single seconds further). Rates are
+# judged — and shown — as samples / real elapsed time over the last few ticks.
+RATE_AVG_TICKS = 5
 FLAT_STD_UV = 0.1
 SWING_WARN_UV = 400.0
 DROPPED_BAD_PER_S = 20
@@ -30,8 +34,12 @@ def _num(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
-def assess_channel(ch: str, stats, contact) -> tuple[str, list[str]]:
-    """One EEG channel's second: sample count, NaNs, flat line, swings, contact."""
+def assess_channel(ch: str, stats, contact, rate=None) -> tuple[str, list[str]]:
+    """One EEG channel's second: sample rate, NaNs, flat line, swings, contact.
+
+    `rate` is the channel's averaged samples per second (see RATE_AVG_TICKS); without
+    it the raw count of this tick stands in. A tick with no samples at all is a
+    problem straight away — averaging must never hide a channel going silent."""
     stats = stats if isinstance(stats, dict) else {}
     n = _num(stats.get("n")) or 0
     nan = _num(stats.get("nan")) or 0
@@ -40,12 +48,13 @@ def assess_channel(ch: str, stats, contact) -> tuple[str, list[str]]:
     issues, levels = [], ["ok"]
     if n == 0:
         return "bad", [f"{ch}: no samples"]
-    if n < EEG_BAD_BELOW:
+    per_s = rate if isinstance(rate, (int, float)) else n
+    if per_s < EEG_BAD_BELOW:
         levels.append("bad")
-        issues.append(f"{ch}: only {n}/{EEG_EXPECTED_PER_S} samples")
-    elif n < EEG_WARN_BELOW:
+        issues.append(f"{ch}: only {round(per_s)}/{EEG_EXPECTED_PER_S} samples per second")
+    elif per_s < EEG_WARN_BELOW:
         levels.append("warn")
-        issues.append(f"{ch}: {n}/{EEG_EXPECTED_PER_S} samples")
+        issues.append(f"{ch}: {round(per_s)}/{EEG_EXPECTED_PER_S} samples per second")
     if nan:
         levels.append("bad")
         issues.append(f"{ch}: {nan} NaN values")
@@ -64,8 +73,10 @@ def assess_channel(ch: str, stats, contact) -> tuple[str, list[str]]:
     return worst(levels), issues
 
 
-def assess_eeg(eeg) -> tuple[str, dict, list[str]]:
-    """(overall level, {channel: level}, issues) for one tick's EEG block."""
+def assess_eeg(eeg, rates=None) -> tuple[str, dict, list[str]]:
+    """(overall level, {channel: level}, issues) for one tick's EEG block.
+
+    `rates`: {channel: averaged samples per second} (see channel_rates)."""
     eeg = eeg if isinstance(eeg, dict) else {}
     status = eeg.get("status")
     if status != "streaming" and not eeg.get("expected"):
@@ -77,7 +88,7 @@ def assess_eeg(eeg) -> tuple[str, dict, list[str]]:
     contact = eeg.get("contact") if isinstance(eeg.get("contact"), dict) else {}
     ch_levels, issues = {}, []
     for ch in EEG_CHANNELS:
-        ch_levels[ch], ch_issues = assess_channel(ch, channels.get(ch), contact.get(ch))
+        ch_levels[ch], ch_issues = assess_channel(ch, channels.get(ch), contact.get(ch), (rates or {}).get(ch))
         issues += ch_issues
 
     levels = list(ch_levels.values())
@@ -96,6 +107,25 @@ def assess_eeg(eeg) -> tuple[str, dict, list[str]]:
         levels.append("warn")
         issues.append(f"Headband battery low ({round(battery)}%)")
     return worst(levels), ch_levels, issues
+
+
+def window_seconds(eeg) -> float:
+    """The real span a tick's channel stats cover — 1 s when the page didn't say (or
+    said something implausible, e.g. the very first tick)."""
+    ms = _num((eeg or {}).get("window_ms")) if isinstance(eeg, dict) else None
+    return ms / 1000.0 if ms is not None and 200 <= ms <= 10_000 else 1.0
+
+
+def channel_rates(parts: list[dict]) -> dict:
+    """{channel: samples per second} over the given ticks' (samples, seconds) parts —
+    total samples / total real time, so packet-boundary jitter averages out."""
+    rates = {}
+    for ch in EEG_CHANNELS:
+        samples = sum(p[ch][0] for p in parts if ch in p)
+        seconds = sum(p[ch][1] for p in parts if ch in p)
+        if seconds > 0:
+            rates[ch] = samples / seconds
+    return rates
 
 
 def assess_camera(camera, no_face_streak_s: int) -> tuple[str, list[str]]:

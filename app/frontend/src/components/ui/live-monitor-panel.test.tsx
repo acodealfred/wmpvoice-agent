@@ -50,7 +50,7 @@ describe("SessionCard", () => {
 
     it("never renders raw EEG values", () => {
         const html = render(
-            session({ eeg: { status: "streaming", battery: 80, rate_hz: 256, samples: { TP9: 256 }, contact: { TP9: "good" }, recorder_packets: 10 } })
+            session({ eeg: { status: "streaming", battery: 80, rate_hz: 256, rates: { TP9: 256 }, contact: { TP9: "good" }, recorder_packets: 10 } })
         );
         expect(html).not.toContain("µV");
     });

@@ -52,7 +52,7 @@ async def test_unknown_cue_or_no_results_is_ignored():
 def test_missing_spoken_report_falls_back_to_interpretations_only():
     text = report_cue_instructions("report_explain", {"sections": [{"label": "BAT-4", "interpretation": "Low."}]})
     assert "BAT-4: Low." in text
-    assert "SPOKEN REPORT (STEP 3): none — go straight to the closing invitation." in text
+    assert "SPOKEN REPORT (STEP 4): none — go straight to the closing invitation." in text
 
 
 def test_cue_names():
@@ -76,7 +76,7 @@ async def test_zone_is_step_2_between_results_and_spoken_report():
         results, zone, spoken = (
             text.index("INTERPRETATIONS (STEP 1)"),
             text.index("FATIGUE ↔ BURNOUT ZONE (STEP 2)"),
-            text.index("SPOKEN REPORT (STEP 3)"),
+            text.index("SPOKEN REPORT (STEP 4)"),
         )
         assert results < zone < spoken
 
@@ -84,5 +84,31 @@ async def test_zone_is_step_2_between_results_and_spoken_report():
 async def test_zone_step_is_skipped_without_lines():
     text = report_cue_instructions("report_explain", {**await _pilot_report(), "zone_lines": []})
     assert "FATIGUE ↔ BURNOUT ZONE (STEP 2):" not in text
-    assert "SPOKEN REPORT (STEP 3)" in text
+    assert "SPOKEN REPORT (STEP 4)" in text
     assert "skip this step silently" in text
+
+
+COMPARISON_LINES = [
+    "Since your last assessment a few weeks ago, your BAT-4 result has improved, moving from high to moderate.",
+    "Your CBI-WRB3 result is about the same as last time.",
+]
+
+
+async def test_comparison_is_step_3_right_after_the_zone():
+    report = {**await _pilot_report(), "zone_lines": ZONE_LINES, "comparison_lines": COMPARISON_LINES}
+    for cue in ("report_explain", "report_continue"):
+        text = report_cue_instructions(cue, report)
+        for line in COMPARISON_LINES:
+            assert line in text
+        zone, comparison, spoken = (
+            text.index("FATIGUE ↔ BURNOUT ZONE (STEP 2)"),
+            text.index("SINCE YOUR LAST ASSESSMENT (STEP 3):"),
+            text.index("SPOKEN REPORT (STEP 4)"),
+        )
+        assert zone < comparison < spoken
+
+
+async def test_first_assessment_skips_the_comparison_silently():
+    text = report_cue_instructions("report_explain", {**await _pilot_report(), "zone_lines": ZONE_LINES, "comparison_lines": []})
+    assert "SINCE YOUR LAST ASSESSMENT (STEP 3):" not in text
+    assert "do not mention a previous assessment" in text

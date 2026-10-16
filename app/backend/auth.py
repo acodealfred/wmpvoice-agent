@@ -16,7 +16,11 @@ logger = logging.getLogger("voicerag")
 
 # Routes that do not require an authenticated session
 _PUBLIC_PATHS = {"/login", "/logout", "/api/signup", "/config", "/"}
-_PUBLIC_PREFIXES = ("/static/", "/assets/")
+# /password-reset/* is the forgot-password flow — the user cannot log in yet;
+# those handlers authorise via a per-request secret token instead.
+# /report-share/* is the QR report download opened on a phone (not logged in);
+# it authorises via a one-time token (ciq/reports/share_routes.py).
+_PUBLIC_PREFIXES = ("/static/", "/assets/", "/password-reset/", "/report-share/")
 
 # Paths under these prefixes require the "admin" role, not just a valid session.
 # /admin/* is the admin namespace; /kb/chats is the Test Generator's chat API,

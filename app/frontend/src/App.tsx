@@ -17,8 +17,7 @@ import {
     X,
     HeartHandshake,
     ChevronRight,
-    CheckCircle2,
-    BluetoothOff
+    CheckCircle2
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -42,6 +41,7 @@ import { ReportProgress } from "@/components/ui/report-progress";
 import { MusePanel } from "@/components/ui/muse-panel";
 import { EegConnectPanel } from "@/components/ui/eeg-connect-panel";
 import EegPairModal, { type EegPairVariant } from "@/components/ui/eeg-pair-modal";
+import EegDropDialog, { type EegDropVariant } from "@/components/ui/eeg-drop-dialog";
 import { UserHistory } from "@/components/ui/user-history";
 import { ManagerLanding } from "@/components/ui/manager-landing";
 import { GuestLanding } from "@/components/ui/guest-landing";
@@ -929,6 +929,7 @@ function App() {
                         expected: input.eegExpected,
                         battery: input.eegBatteryPercent,
                         rate_hz: rate(),
+                        window_ms: health.windowMs,
                         channels: health.channels,
                         contact: health.contact,
                         dropped: health.dropped,
@@ -1108,6 +1109,9 @@ function App() {
     // recorded so far is uploaded as this segment's own file. After the report, the
     // run is already complete — Pause then just stops the post-report conversation.
     const onPauseAssessment = async () => {
+        // Stop the agent's in-flight reply first, so it can't finish its turn — or call
+        // record_survey_response — after the run is paused (the backend refuses that too).
+        cancelResponse();
         await onStopListening();
         if (assessmentComplete) return;
         // Upload this segment's recording as it is — paused mid-baseline included: that
@@ -1277,7 +1281,13 @@ function App() {
             ? "Close this assessment? The baseline recorded so far is discarded and it can't be continued."
             : "Close this paused assessment? It can't be continued afterwards.";
         if (!window.confirm(confirmText)) return;
-        if (closingLive) {
+        await discardRun(runId, closingLive);
+    };
+
+    // Shared by Close and the baseline EEG drop: stop a live run (its partial EEG is
+    // discarded, not uploaded), disconnect the headband and close the run server-side.
+    const discardRun = async (runId: string, live: boolean) => {
+        if (live) {
             await onStopListening();
             eegSegmentLiveRef.current = false;
             resetAssessmentState();
@@ -1291,6 +1301,41 @@ function App() {
         }
         setResumable(await fetchResumableAssessment().catch(() => null));
     };
+
+    // ── EEG headband dropped out mid-assessment (lib/eeg-alert.ts) ──
+    // The app acts first, then tells the participant (EegDropDialog):
+    //  • baseline → the run is closed (a baseline with an EEG gap must be recorded
+    //    again); OK returns to the Start screen, and Start runs pairing → baseline.
+    //  • survey   → the run is paused (this segment's EEG is uploaded as its own file);
+    //    "Connect headband" goes through Continue's pairing popup, which resumes it with
+    //    a new EEG file, the half-answered question asked again.
+    // Handled once per drop: eegDropHandledRef is re-armed only once EEG streams again.
+    const [eegDropDialog, setEegDropDialog] = useState<EegDropVariant | null>(null);
+    const eegDropHandledRef = useRef(false);
+
+    const handleBaselineEegDrop = async () => {
+        await discardRun(surveyRunId, true);
+        setEegDropDialog("baseline");
+    };
+
+    const handleSurveyEegDrop = async () => {
+        await onPauseAssessment();
+        // Drop the dead Bluetooth source, so Continue's pairing popup offers a fresh pairing.
+        void disconnectEeg();
+        setEegDropDialog("survey");
+    };
+
+    useEffect(() => {
+        if (!eegAlert) {
+            eegDropHandledRef.current = false;
+            return;
+        }
+        if (eegDropHandledRef.current) return;
+        eegDropHandledRef.current = true;
+        void (eegAlert === "baseline" ? handleBaselineEegDrop() : handleSurveyEegDrop());
+        // The handlers are re-created every render; only a new alert should trigger them.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [eegAlert]);
 
     // Called by DetailedReport once POST /analyze-report has resolved (report
     // post-processed + persisted to DB). Clears the loader and arms the strict
@@ -1816,27 +1861,6 @@ function App() {
                                                     </div>
                                                 </div>
                                             )}
-                                            {/* EEG headband dropped out mid-assessment (lib/eeg-alert.ts). The fix is
-                                            Pause → reconnect → Continue: Pause uploads what was recorded, Continue's
-                                            pairing popup reconnects and starts the next EEG file. */}
-                                            {eegAlert && (
-                                                <div
-                                                    role="alert"
-                                                    className="mb-3 flex items-start gap-2 rounded-xl border border-[rgba(228,180,109,0.45)] bg-[rgba(228,180,109,0.12)] p-3 text-xs text-[color:var(--ciq-text-68)]"
-                                                >
-                                                    <BluetoothOff className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--ciq-accent-amber)]" />
-                                                    <div>
-                                                        <p className="font-semibold text-[color:var(--ciq-accent-amber)]">
-                                                            EEG headband disconnected — EEG isn't being recorded.
-                                                        </p>
-                                                        <p className="mt-0.5">
-                                                            {eegAlert === "survey"
-                                                                ? "Press Pause, check the headband is on and switched on, then press Continue to reconnect it."
-                                                                : "Press Close and start again with the headband connected, or carry on without EEG."}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            )}
                                             {/* Controls — driven by the assessment lifecycle (lib/assessment.ts):
                                             baseline → [Close]; survey → [Pause]; paused run → [Start new][Continue][Close];
                                             finished report → [Start new][Continue]; otherwise → [Start]. */}
@@ -2036,6 +2060,7 @@ function App() {
                                                     // live waveform shows from the baseline onwards, not only once the
                                                     // questions begin. Hidden while paused (headband stays connected).
                                                     assessmentStarted={isRecording && (eegSurveyStarted || baselineProtocol.isActive)}
+                                                    assessmentComplete={assessmentComplete}
                                                     channels={eegChannels}
                                                     getChannelSamples={getEegChannelSamples}
                                                     // Fit lights while fitting the band (not recording yet) and through
@@ -2353,6 +2378,15 @@ function App() {
                 onConnect={connectEeg}
                 onProceed={() => closeEegPrompt(true)}
                 onCancel={() => closeEegPrompt(false)}
+            />
+
+            <EegDropDialog
+                variant={eegDropDialog}
+                onDismiss={() => setEegDropDialog(null)}
+                onConnect={() => {
+                    setEegDropDialog(null);
+                    runWithConsent(onContinueAssessment);
+                }}
             />
 
             <ConsentModal

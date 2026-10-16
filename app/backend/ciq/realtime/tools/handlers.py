@@ -8,11 +8,12 @@ import json
 import logging
 from typing import Any
 
-from ciq.assessments.service import persist_answer
+from ciq.assessments.service import persist_answer, run_is_active
 from ciq.realtime.behaviour_capture import start_behaviour_capture
 from ciq.realtime.session import SessionState
 from ciq.realtime.spoken_report import build_pilot_spoken_report
 from ciq.realtime.timeline_capture import (
+    _next_expected_question,
     retag_pending_frames,
     schedule_stop_timeline_capture,
 )
@@ -229,20 +230,66 @@ async def sentiment_tool(args: Any) -> ToolResult:
     )
 
 
+def _reject_answer(question_id, reason: str, message: str, **extra) -> ToolResult:
+    """A refused record_survey_response. Sent TO_SERVER so the MODEL reads why (an
+    empty output let it believe a refused answer was saved — e.g. one filed under an
+    already-answered id after a Pause/Continue was silently lost, so the survey never
+    reached its total and no report started). Nothing is recorded or sent to the browser."""
+    logger.warning("[RTMT] Rejected record_survey_response for %s: %s", question_id, reason)
+    return ToolResult(
+        json.dumps({"question_id": question_id, "recorded": False, "reason": reason, "message": message, **extra}),
+        ToolResultDirection.TO_SERVER,
+    )
+
+
+def _current_question_hint(sess: SessionState) -> str:
+    nxt = _next_expected_question(sess)
+    if nxt is None:
+        return "Every question has already been answered."
+    q, _ = nxt
+    return f"The current question is '{q.get('prompt', q.get('text', ''))}' (id {q['id']})."
+
+
 async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> ToolResult:
     question_id = args.get("question_id")
     score = args.get("score")
     # The model's own paraphrase — only a fallback; see ciq.realtime.transcripts.
     model_response = args.get("user_verbal_response", "")
 
-    # Idempotency guard: reject duplicate recordings for the same question so a
-    # misfired tool call cannot pollute the report or confuse the progress counter.
+    # ── Guards: an answer is only recorded against the question actually being asked ──
+    # Nothing below them runs for a refused call, so survey_results, the pending-answer
+    # window, the blink window and the user's reply items all stay for the correct call.
+    question_ids = [q.get("id") for q in survey_config.get("questions", [])]
+    if question_id not in question_ids:
+        return _reject_answer(
+            question_id, "unknown_question",
+            f"Unknown question id {question_id!r}. Valid ids: {', '.join(map(str, question_ids))}. "
+            + _current_question_hint(sess),
+        )
+    if not await run_is_active(sess):
+        return _reject_answer(
+            question_id, "assessment_paused",
+            "The assessment is paused — do not record answers now. Wait until it is continued.",
+        )
+    # Idempotency guard: a misfired repeat must not pollute the report or the counter.
     if question_id in sess.survey_results:
-        logger.warning("[RTMT] Duplicate record_survey_response for %s — ignoring", question_id)
-        return ToolResult(
-            json.dumps({"question_id": question_id, "duplicate": True, "recorded": False,
-                        "message": "Already recorded — do not call again for this question."}),
-            ToolResultDirection.TO_CLIENT,
+        return _reject_answer(
+            question_id, "duplicate",
+            f"{question_id} is already recorded — do not call again for it. " + _current_question_hint(sess),
+            duplicate=True,
+        )
+    # Scored surveys are scripted strictly in order, so the only question that can be
+    # answered is the next unanswered one — after a Pause/Continue the model's own count
+    # can be off by one, filing an answer under a question that was never asked.
+    # Qualitative surveys (READINESS) may cover their topics in any order.
+    nxt = _next_expected_question(sess)
+    if not survey_config.get("qualitative") and nxt is not None and nxt[0].get("id") != question_id:
+        return _reject_answer(
+            question_id, "out_of_order",
+            _current_question_hint(sess)
+            + f" If you asked it and the user answered, record that answer under id {nxt[0]['id']};"
+            " if you have not asked it yet, ask it now.",
+            expected_question_id=nxt[0]["id"],
         )
 
     voice_sentiment = args.get("voice_sentiment") or sess.current_sentiment
@@ -343,7 +390,7 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
     # continued where the user left off. No-op when no run is bound. The voice
     # summary (ciq.voice) is stored with the answer but not sent to the browser.
     voice_features = await finalize_answer_features(sess)
-    await persist_answer(sess, survey_config, {**snapshot, "voiceFeatures": voice_features})
+    await persist_answer(sess, survey_config, {**snapshot, "voiceFeatures": voice_features}, status_checked=True)
 
     client_message = {
         "type": "survey.biometric.update",

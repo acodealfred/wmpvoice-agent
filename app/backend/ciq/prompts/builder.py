@@ -243,11 +243,10 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
 
     parts = ["\n\n=== RECONNECT — CRITICAL CONTEXT ==="]
     parts.append(
-        "IMPORTANT: The user's connection dropped and has just reconnected. "
+        "IMPORTANT: The user's connection dropped (or they paused) and has just reconnected. "
         "This is NOT a new conversation. DO NOT re-introduce yourself. "
         "DO NOT greet the user as if you are meeting them for the first time. "
-        "DO NOT suggest starting a survey. Just say something brief like "
-        "\"Welcome back — shall we continue?\" and wait for their response."
+        "DO NOT suggest starting a survey."
     )
 
     questions = survey_config.get("questions", [])
@@ -303,10 +302,25 @@ def reconnect_instructions(sess: "SessionState", survey_config: dict) -> str:
                     f"Total score: {total_score}/{total_questions * 5} — {risk}."
                 )
         else:
-            next_q_id = remaining_ids[0]
-            next_q = next((q for q in questions if q["id"] == next_q_id), None)
-            if next_q:
-                parts.append(f"\nNext unanswered question: '{next_q['prompt']}' (id: {next_q_id}).")
+            # Resume straight into the next question — no "shall we continue?": a "yes"
+            # to that used to get recorded as the next question's answer.
+            remaining = [q for q in questions if q["id"] in remaining_ids]
+            next_q = remaining[0]
+            parts.append(
+                "\nRESUME NOW: say ONE short line such as \"Welcome back — let's pick up where we left off.\" "
+                f"and then, in the same turn, ask the next unanswered question: '{next_q['prompt']}' "
+                f"(id: {next_q['id']}). Do not ask whether they want to continue."
+            )
+            parts.append(
+                "Questions still to ask, IN THIS ORDER:\n"
+                + "\n".join(f"  {i}. '{q['prompt']}' (id: {q['id']})" for i, q in enumerate(remaining, start=1))
+            )
+            parts.append(
+                "Record each answer ONLY under the id of the question you just asked, and only after "
+                "the user has answered it. A short reply such as 'yes', 'ok' or 'sure' to your welcome "
+                "back is NOT an answer — never record it. If record_survey_response is refused, read "
+                "its message: it names the question you should be on."
+            )
 
     if sess.conversation_state in ("report_delivered", "qa_mode"):
         report_noun = "readiness assessment report" if is_qualitative else "burnout report"
@@ -418,7 +432,8 @@ def baseline_cue_instructions(cue: str) -> str | None:
 # PILOT report explanation, triggered from the report screen (client `report.cue`).
 # `report` is query_survey_tool's burnout_score result, computed server-side at cue time:
 # {"sections": [{"label", "interpretation", ...}], "spoken_report": {"parts": [...]}}, plus
-# "zone_lines" (ciq.realtime.report_zone) — the Fatigue ↔ Burnout zone sentences, or [].
+# "zone_lines" (ciq.realtime.report_zone) — the Fatigue ↔ Burnout zone sentences, or [] —
+# and "comparison_lines" (ciq.realtime.report_comparison) — vs the previous PILOT run, or [].
 REPORT_CUE_NAMES = frozenset({"report_explain", "report_continue"})
 
 _REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
@@ -427,7 +442,11 @@ _REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
 - STEP 2 — YOUR FATIGUE ↔ BURNOUT ZONE: if zone lines are given below, say them next, in
   order, as a short connected passage — it is the overall picture of where they sit between
   fatigue and burnout. Add nothing to them. If there are none, skip this step silently.
-- STEP 3 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
+- STEP 3 — SINCE YOUR LAST ASSESSMENT: if comparison lines are given below, say them next,
+  in order, as a short connected passage — how each result compares with their previous
+  assessment. Add nothing to them: no causes, no advice, no reassurance. If there are none,
+  skip this step silently and do not mention a previous assessment.
+- STEP 4 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
   spoken piece, in order, part by part: begin each part with its title as a short spoken
   lead-in, then say that part's lines in order, each as its own short sentence.
 - Speak warmly and naturally, like a person talking — never as a list. No bullets, no
@@ -449,14 +468,18 @@ def _report_content(report: dict) -> str:
     if zone_lines:
         lines.append("FATIGUE ↔ BURNOUT ZONE (STEP 2):")
         lines.extend(f"- {line}" for line in zone_lines)
+    comparison_lines = report.get("comparison_lines") or []
+    if comparison_lines:
+        lines.append("SINCE YOUR LAST ASSESSMENT (STEP 3):")
+        lines.extend(f"- {line}" for line in comparison_lines)
     parts = (report.get("spoken_report") or {}).get("parts") or []
     if parts:
-        lines.append("SPOKEN REPORT (STEP 3):")
+        lines.append("SPOKEN REPORT (STEP 4):")
         for part in parts:
             lines.append(f"* {part.get('title', '')}")
             lines.extend(f"  - {line}" for line in part.get("say") or [])
     else:
-        lines.append("SPOKEN REPORT (STEP 3): none — go straight to the closing invitation.")
+        lines.append("SPOKEN REPORT (STEP 4): none — go straight to the closing invitation.")
     return "\n".join(lines)
 
 

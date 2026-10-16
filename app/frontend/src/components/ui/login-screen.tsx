@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AuthUser } from "@/types";
+import { ForgotPasswordDialog } from "@/components/ui/forgot-password-dialog";
 import logo from "@/assets/logo.png";
 
 interface LoginScreenProps {
@@ -12,6 +13,7 @@ export function LoginScreen({ onLogin, onSwitchToSignup }: LoginScreenProps) {
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+    const [showForgot, setShowForgot] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -58,7 +60,7 @@ export function LoginScreen({ onLogin, onSwitchToSignup }: LoginScreenProps) {
                         onChange={e => setUsername(e.target.value)}
                         required
                         autoComplete="username"
-                        className="ciq-touch rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ciq-accent-blue)]/50"
+                        className="ciq-touch focus:ring-[color:var(--ciq-accent-blue)]/50 rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2"
                     />
                     <input
                         type="password"
@@ -67,8 +69,15 @@ export function LoginScreen({ onLogin, onSwitchToSignup }: LoginScreenProps) {
                         onChange={e => setPassword(e.target.value)}
                         required
                         autoComplete="current-password"
-                        className="ciq-touch rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ciq-accent-blue)]/50"
+                        className="ciq-touch focus:ring-[color:var(--ciq-accent-blue)]/50 rounded-xl border border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] px-4 text-sm text-[color:var(--ciq-text-strong)] placeholder:text-[color:var(--ciq-text-faint)] focus:outline-none focus:ring-2"
                     />
+                    <button
+                        type="button"
+                        onClick={() => setShowForgot(true)}
+                        className="-mt-2 self-end text-xs font-semibold text-[color:var(--ciq-accent-blue)] transition-colors hover:opacity-80"
+                    >
+                        Forgot password?
+                    </button>
                     {error && <p className="rounded-lg bg-petroleum-flare/10 px-3 py-2 text-sm text-petroleum-flare">{error}</p>}
                     <button
                         type="submit"
@@ -89,6 +98,7 @@ export function LoginScreen({ onLogin, onSwitchToSignup }: LoginScreenProps) {
                     </button>
                 </p>
             </div>
+            {showForgot && <ForgotPasswordDialog onClose={() => setShowForgot(false)} />}
         </div>
     );
 }
