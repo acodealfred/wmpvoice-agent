@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MIC_REOPEN_TAIL_MS, MIC_SAFETY_TIMEOUT_MS, MicGate } from "./mic-gate";
+import { MIC_REOPEN_TAIL_MS, MIC_SAFETY_TIMEOUT_MS, MicGate, pcm16DurationMs } from "./mic-gate";
 
 function setup() {
     const changes: boolean[] = [];
@@ -105,5 +105,48 @@ describe("MicGate", () => {
         vi.advanceTimersByTime(MIC_SAFETY_TIMEOUT_MS);
         expect(gate.isOpen()).toBe(true);
         expect(changes).toEqual([]);
+    });
+
+    it("a long reply received ahead of playback keeps the mic closed until it has played", () => {
+        // The PILOT report: ~2.5 min of audio arrives in a few seconds, then plays out.
+        const { gate } = setup();
+        for (let i = 0; i < 150; i++) gate.agentAudio(1000);
+        gate.responseDone(); // fully generated, but ~150 s still to play
+        vi.advanceTimersByTime(MIC_SAFETY_TIMEOUT_MS + 60_000); // the old timeout would have fired here
+        expect(gate.isOpen()).toBe(false);
+        gate.drained(); // playback really finished
+        vi.advanceTimersByTime(MIC_REOPEN_TAIL_MS);
+        expect(gate.isOpen()).toBe(true);
+    });
+
+    it("still reopens via the safety timeout after the queued audio's end if drained never comes", () => {
+        const { gate } = setup();
+        gate.agentAudio(10_000);
+        gate.agentAudio(10_000); // 20 s queued
+        gate.responseDone();
+        vi.advanceTimersByTime(20_000 + MIC_SAFETY_TIMEOUT_MS - 1);
+        expect(gate.isOpen()).toBe(false);
+        vi.advanceTimersByTime(1);
+        expect(gate.isOpen()).toBe(true);
+    });
+
+    it("counts queued audio from now when playback had already caught up", () => {
+        const { gate } = setup();
+        gate.agentAudio(1000);
+        vi.advanceTimersByTime(5000); // that second of audio played long ago
+        gate.agentAudio(1000); // queue restarts from now: 1 s left, not -3 s
+        vi.advanceTimersByTime(1000 + MIC_SAFETY_TIMEOUT_MS - 1);
+        expect(gate.isOpen()).toBe(false);
+        vi.advanceTimersByTime(1);
+        expect(gate.isOpen()).toBe(true);
+    });
+});
+
+describe("pcm16DurationMs", () => {
+    it("is bytes / 2 / sample rate", () => {
+        const oneSecond = btoa("\0".repeat(48000)); // 48,000 bytes = 24,000 samples = 1 s
+        expect(pcm16DurationMs(oneSecond)).toBeCloseTo(1000);
+        expect(pcm16DurationMs(btoa("ab"))).toBeCloseTo((2 / 2 / 24000) * 1000); // with padding
+        expect(pcm16DurationMs("")).toBe(0);
     });
 });

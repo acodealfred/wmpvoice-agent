@@ -433,7 +433,9 @@ def baseline_cue_instructions(cue: str) -> str | None:
 # `report` is query_survey_tool's burnout_score result, computed server-side at cue time:
 # {"sections": [{"label", "interpretation", ...}], "spoken_report": {"parts": [...]}}, plus
 # "zone_lines" (ciq.realtime.report_zone) — the Fatigue ↔ Burnout zone sentences, or [] —
-# and "comparison_lines" (ciq.realtime.report_comparison) — vs the previous PILOT run, or [].
+# "comparison_lines" (ciq.realtime.report_comparison) — vs the previous PILOT run, or [] —
+# and "signal_lines" (ciq.realtime.report_signals) — the user's own signals per question vs
+# their past PILOT check-ins, or [].
 REPORT_CUE_NAMES = frozenset({"report_explain", "report_continue"})
 
 _REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
@@ -446,7 +448,12 @@ _REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
   in order, as a short connected passage — how each result compares with their previous
   assessment. Add nothing to them: no causes, no advice, no reassurance. If there are none,
   skip this step silently and do not mention a previous assessment.
-- STEP 4 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
+- STEP 4 — YOUR SIGNALS SINCE LAST TIME: if signal lines are given below, say them next, in
+  order, as a connected passage — what was recorded while they answered each question,
+  compared with their own past check-ins. Say EVERY line; do not drop or shorten any of them.
+  Add nothing to them: no causes, no meaning, no advice, no reassurance, no numbers. If there
+  are none, skip this step silently and do not mention signals.
+- STEP 5 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
   spoken piece, in order, part by part: begin each part with its title as a short spoken
   lead-in, then say that part's lines in order, each as its own short sentence.
 - Speak warmly and naturally, like a person talking — never as a list. No bullets, no
@@ -472,14 +479,18 @@ def _report_content(report: dict) -> str:
     if comparison_lines:
         lines.append("SINCE YOUR LAST ASSESSMENT (STEP 3):")
         lines.extend(f"- {line}" for line in comparison_lines)
+    signal_lines = report.get("signal_lines") or []
+    if signal_lines:
+        lines.append("YOUR SIGNALS SINCE LAST TIME (STEP 4):")
+        lines.extend(f"- {line}" for line in signal_lines)
     parts = (report.get("spoken_report") or {}).get("parts") or []
     if parts:
-        lines.append("SPOKEN REPORT (STEP 4):")
+        lines.append("SPOKEN REPORT (STEP 5):")
         for part in parts:
             lines.append(f"* {part.get('title', '')}")
             lines.extend(f"  - {line}" for line in part.get("say") or [])
     else:
-        lines.append("SPOKEN REPORT (STEP 4): none — go straight to the closing invitation.")
+        lines.append("SPOKEN REPORT (STEP 5): none — go straight to the closing invitation.")
     return "\n".join(lines)
 
 

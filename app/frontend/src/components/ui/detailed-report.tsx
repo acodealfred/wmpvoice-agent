@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { BiometricSnapshot, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse, ReportComparison } from "@/types";
+import { BiometricSnapshot, AnalyzeReportResponse, AnalysisResult, AnalysisInsight, ZoneTrendResponse, ReportComparison, SignalComparison } from "@/types";
 import { apiFetch } from "@/lib/api";
 import { fetchZoneTrend } from "@/lib/zone";
 import { blinkBandLevel } from "@/lib/bands";
@@ -16,6 +16,10 @@ import { ReportQrDialog } from "@/components/ui/report-qr-dialog";
 import { ReportPdfCapture } from "@/components/ui/report-pdf-capture";
 import { ReportComparisonCard } from "@/components/ui/report-comparison-card";
 import { fetchReportComparison } from "@/lib/report-comparison";
+import { domainChartData, effectiveScores } from "@/lib/report-scores";
+import { ReportSignalsCard } from "@/components/ui/report-signals-card";
+import { ReportSignalsOverviewCard } from "@/components/ui/report-signals-overview-card";
+import { fetchSignalComparison } from "@/lib/report-signals";
 import {
     ResponsiveContainer,
     RadialBarChart,
@@ -60,6 +64,7 @@ interface DetailedReportProps {
         showZone: boolean;
         zone?: ZoneTrendResponse | null;
         comparison?: ReportComparison | null;
+        signalComparison?: SignalComparison | null;
     };
 }
 
@@ -150,6 +155,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     const [zoneData, setZoneData] = useState<ZoneTrendResponse | null>(saved?.zone ?? null);
     // "Compared with your last assessment" (same survey type); null = nothing to compare.
     const [comparison, setComparison] = useState<ReportComparison | null>(saved?.comparison ?? null);
+    const [signalComparison, setSignalComparison] = useState<SignalComparison | null>(saved?.signalComparison ?? null);
     // Live report: zone + comparison loads have finished (either way), so the PDF copy can be captured.
     const [extrasLoaded, setExtrasLoaded] = useState(false);
 
@@ -255,7 +261,8 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                     if (surveyRunId) {
                         void Promise.allSettled([
                             fetchZoneTrend().then(z => !cancelled && setZoneData(z)),
-                            fetchReportComparison(surveyRunId).then(c => !cancelled && setComparison(c))
+                            fetchReportComparison(surveyRunId).then(c => !cancelled && setComparison(c)),
+                            fetchSignalComparison(surveyRunId).then(sc => !cancelled && setSignalComparison(sc))
                         ]).then(() => !cancelled && setExtrasLoaded(true));
                     }
                     return;
@@ -286,6 +293,7 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
         fetchReportComparison(surveyRunId)
             .then(c => !cancelled && setComparison(c))
             .catch(() => {});
+        void fetchSignalComparison(surveyRunId).then(sc => !cancelled && setSignalComparison(sc));
         return () => {
             cancelled = true;
         };
@@ -408,20 +416,12 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
     // Per-question score → color band (higher % of that question's own max = worse).
     const scoreHex = (pct: number) => (pct <= 20 ? tok.green : pct <= 60 ? tok.amber : tok.red);
 
-    // Average score per domain (normalized to % of each question's own max) for the
-    // radar / domain bars, so BAT-4 and CBI-WRB3 domains share one comparable axis.
-    const domainMap = new Map<string, { sum: number; n: number }>();
-    snapshots.forEach(s => {
-        const d = domainMap.get(s.domain) ?? { sum: 0, n: 0 };
-        d.sum += ((s.score ?? 0) / maxForQuestion(s.questionId)) * 100;
-        d.n += 1;
-        domainMap.set(s.domain, d);
-    });
-    const domainData = Array.from(domainMap.entries()).map(([domain, v]) => ({
-        domain,
-        score: Number((v.sum / v.n).toFixed(2)),
-        n: v.n
-    }));
+    // Score per domain (% of its questions' max) for the radar / domain bars, so BAT-4 and
+    // CBI-WRB3 domains share one comparable axis. Reverse-aware: built from the backend's
+    // domainTotals, so a reverse-scored item (PILOT cbi_q3) is plotted by its reversed score.
+    const domainData = domainChartData(snapshots, analyzeData?.domainTotals, maxForQuestion);
+    // Per-question reverse-aware scores for the data table (null where it can't be told).
+    const effective = effectiveScores(snapshots, analyzeData?.domainTotals);
     const useRadar = domainData.length >= 3;
 
     // KPI tiles.
@@ -628,11 +628,15 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                  API calls and no AI Insights tabs) is captured to the PDF the QR download serves. */}
             {!saved && analyzeData && surveyRunId && extrasLoaded && (
                 <ReportPdfCapture surveyRunId={surveyRunId}>
+                    {/* compact: the stacked layout, always — the PDF is captured at a fixed 790 px
+                        width but with the DEVICE's media queries, so the md:/sm: one-row layout
+                        could otherwise squeeze the scores beside the radar on a wide screen. */}
                     <DetailedReport
                         snapshots={snapshots}
                         surveyRunId={surveyRunId}
                         surveyType={surveyType}
-                        saved={{ report: analyzeData, createdAt: null, showZone: false, zone: zoneData, comparison }}
+                        compact
+                        saved={{ report: analyzeData, createdAt: null, showZone: false, zone: zoneData, comparison, signalComparison }}
                     />
                 </ReportPdfCapture>
             )}
@@ -738,6 +742,9 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
 
             {/* ── Compared with the last assessment of the same type (none on a first one) ── */}
             {comparison && comparison.measures.length > 0 && <ReportComparisonCard comparison={comparison} className={`mb-4 ${cardClass}`} />}
+            {/* ── Own signals per question vs past PILOT check-ins (renders nothing when none moved) ── */}
+            <ReportSignalsOverviewCard comparison={signalComparison} className={`mb-4 ${cardClass}`} />
+            <ReportSignalsCard comparison={signalComparison} className={`mb-4 ${cardClass}`} />
 
             {/* ── KPI tiles ── */}
             <div className="ciq-print-keep mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -775,6 +782,11 @@ export function DetailedReport({ snapshots, sessionId, surveyRunId, surveyType, 
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-[color:var(--ciq-text-strong)]">{s.domain}</td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center font-medium text-[color:var(--ciq-text-strong)]">
                                             {scoreDisplay(s.questionId, s.score)}
+                                            {effective[s.questionId] != null && effective[s.questionId] !== s.score && (
+                                                <span className="block text-xs font-normal text-[color:var(--ciq-text-muted)]">
+                                                    reversed: {effective[s.questionId]}/{maxForQuestion(s.questionId)}
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="border border-[color:var(--ciq-line)] px-3 py-2 text-center">
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${b.color}`}>{b.label}</span>

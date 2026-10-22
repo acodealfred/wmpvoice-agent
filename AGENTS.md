@@ -126,6 +126,7 @@ Frontend tests, when present, run via `cd app/frontend && npm test`.
 - `ENABLE_SURVEY_MODE` — burnout-specialist persona + survey tools
 - `ENABLE_SENTIMENT_ANALYSIS` — voice sentiment tool
 - `ENABLE_BIOMETRIC_GUARDRAIL` — descriptive-only biometric guardrail (admin-togglable)
+- `ENABLE_SIGNAL_COMPARISON` — ON by default: the PILOT report's "Your signals, compared with your past check-ins" card (`ciq/reports/signal_comparison.py`, `docs/signal-comparison.md`); `false` → route returns null, card hidden
 
 **Other integrations:**
 - AWS Rekognition: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`

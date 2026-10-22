@@ -80,6 +80,10 @@ ENABLE_LIVE_MONITOR=true         # ON by default: the assessment page sends a ~3
                                  # contact, lost packets, camera face) and admins watch it in the
                                  # "Live Monitor" tab (/admin/monitor/*). In memory only — relies on
                                  # the single-replica deployment. See ciq/monitoring/__init__.py.
+ENABLE_SIGNAL_COMPARISON=true    # ON by default: the PILOT report card "Your signals, compared with
+                                 # your past check-ins" (GET /me/reports/{runId}/signal-comparison).
+                                 # Computed on demand from stored rows, nothing persisted. Set false
+                                 # to hide it. See docs/signal-comparison.md.
 ```
 
 **AWS Rekognition (face emotion analysis):**

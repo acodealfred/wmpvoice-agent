@@ -24,3 +24,10 @@ def voice_features_enabled() -> bool:
     """Voice pitch / loudness / pause capture (ciq/voice). ON by default; set
     ENABLE_VOICE_FEATURES=false to stop collecting without a code change."""
     return env_flag("ENABLE_VOICE_FEATURES", "true")
+
+
+def signal_comparison_enabled() -> bool:
+    """The PILOT report's "Your signals, compared with your past check-ins" card
+    (ciq/reports/signal_comparison.py). ON by default; ENABLE_SIGNAL_COMPARISON=false
+    makes GET /me/reports/{runId}/signal-comparison return null, so the card is hidden."""
+    return env_flag("ENABLE_SIGNAL_COMPARISON", "true")

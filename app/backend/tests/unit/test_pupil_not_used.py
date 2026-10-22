@@ -134,3 +134,35 @@ async def test_pilot_export_rows_line_up_with_headers(monkeypatch):
     assert by_name["Response Latency (ms)"] == 2100
     assert (by_name["Survey Run ID"], by_name["Baseline Blink Rate"]) == ("run-1", 16.5)
     assert 0.11 not in row and 0.22 not in row
+
+
+def test_signal_comparison_never_reads_or_returns_pupil():
+    import inspect
+    import json
+
+    from ciq.reports import signal_comparison
+    from ciq.reports.signal_comparison import (
+        SIGNAL_CONFIG,
+        compare_signals,
+        question_readings,
+    )
+
+    config = load_survey("PILOT")
+    qids = [q["id"] for q in config["questions"]]
+    frames = [{"question_id": "bat_q1", "turn_state": "user_answer", "pupil_mm_change": 0.9,
+               "blink_rate_change_percent": 30.0} for _ in range(3)]
+    items = [{"question_id": "bat_q1", "pupil_mm_change": 0.9, "response_latency_ms": 5000, "raw_score": 4}]
+    past_items = [{"question_id": "bat_q1", "response_latency_ms": 2000, "raw_score": 2}]
+    current = {"record": {"survey_run_id": "now", "survey_type": "PILOT", "created_at": "2026-10-19T09:00:00"},
+               "readings": question_readings(frames, items, qids)}
+    previous = [{"record": {"survey_run_id": "before", "survey_type": "PILOT", "created_at": "2026-10-12T09:00:00"},
+                 "readings": question_readings([], past_items, qids)}]
+    result = compare_signals(current, previous, SIGNAL_CONFIG, config)
+
+    assert result is not None
+    for text in (json.dumps(result), json.dumps(current["readings"]), json.dumps(SIGNAL_CONFIG)):
+        assert "pupil" not in text.lower()
+    # The module's code never reads a pupil column either (docstring mentions excluded).
+    code = "\n".join(line for line in inspect.getsource(signal_comparison).splitlines()
+                     if not line.strip().startswith(("#", '"""')) and "Pupil is never read" not in line)
+    assert "pupil_" not in code

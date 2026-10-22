@@ -9,6 +9,11 @@
 //
 // A safety timeout reopens the gate if neither signal arrives for a while, so the
 // mic can never stay off for good; reset() reopens it at once (stop / pause / new survey).
+// The model sends audio faster than it plays, so a long reply (the PILOT report) can be
+// fully received a minute or more before it finishes playing. The safety timeout
+// therefore counts from when the queued audio is due to END, not from the last chunk —
+// otherwise it reopened the mic mid-speech, the mic heard the agent's own voice (or room
+// noise), server VAD took it as the user speaking, and playback was cut off.
 
 export const MIC_REOPEN_TAIL_MS = 300;
 export const MIC_SAFETY_TIMEOUT_MS = 30_000;
@@ -16,12 +21,21 @@ export const MIC_SAFETY_TIMEOUT_MS = 30_000;
 type Timers = {
     setTimeout: (fn: () => void, ms: number) => unknown;
     clearTimeout: (handle: unknown) => void;
+    now?: () => number;
 };
 
 const defaultTimers: Timers = {
     setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
-    clearTimeout: handle => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>)
+    clearTimeout: handle => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+    now: () => Date.now()
 };
+
+/** Playback length of a base64 PCM16 mono chunk at `sampleRate` (the realtime API's 24 kHz). */
+export function pcm16DurationMs(base64: string, sampleRate = 24000): number {
+    const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    const bytes = (base64.length * 3) / 4 - padding;
+    return (bytes / 2 / sampleRate) * 1000;
+}
 
 export class MicGate {
     private open = true;
@@ -29,6 +43,8 @@ export class MicGate {
     private playing = false;
     private tailTimer: unknown = null;
     private safetyTimer: unknown = null;
+    /** When the audio queued so far is due to finish playing (ms on the timers' clock). */
+    private playsUntil = 0;
 
     constructor(
         private readonly onChange: (open: boolean) => void = () => {},
@@ -39,12 +55,14 @@ export class MicGate {
         return this.open;
     }
 
-    /** A chunk of agent audio was handed to the player. */
-    agentAudio(): void {
+    /** A chunk of agent audio (`durationMs` long) was handed to the player. */
+    agentAudio(durationMs = 0): void {
+        const now = this.now();
+        this.playsUntil = Math.max(this.playsUntil, now) + Math.max(0, durationMs);
         this.generating = true;
         this.playing = true;
         this.clearTail();
-        this.armSafety();
+        this.armSafety(this.playsUntil - now);
         this.setOpen(false);
     }
 
@@ -69,6 +87,7 @@ export class MicGate {
     drained(): void {
         if (this.open) return;
         this.playing = false;
+        this.playsUntil = 0;
         this.maybeReopen();
     }
 
@@ -76,6 +95,7 @@ export class MicGate {
     reset(): void {
         this.generating = false;
         this.playing = false;
+        this.playsUntil = 0;
         this.clearTail();
         this.clearSafety();
         this.setOpen(true);
@@ -90,12 +110,17 @@ export class MicGate {
         }, MIC_REOPEN_TAIL_MS);
     }
 
-    private armSafety(): void {
+    /** Safety reopen MIC_SAFETY_TIMEOUT_MS after the queued audio is due to end. */
+    private armSafety(stillToPlayMs = 0): void {
         this.clearSafety();
         this.safetyTimer = this.timers.setTimeout(() => {
             this.safetyTimer = null;
             this.reset();
-        }, MIC_SAFETY_TIMEOUT_MS);
+        }, stillToPlayMs + MIC_SAFETY_TIMEOUT_MS);
+    }
+
+    private now(): number {
+        return this.timers.now ? this.timers.now() : Date.now();
     }
 
     private clearTail(): void {

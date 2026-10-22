@@ -450,6 +450,10 @@ body {
     left: -10000px;
     width: 790px;
     pointer-events: none;
+    /* Mobile browsers (e.g. Chrome on Android in "Desktop site" mode) enlarge text in a block
+       wider than the screen; the 790 px capture copy would get ~2x text and break its layout. */
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
 }
 [data-pdf-capture] > * {
     border-radius: 0 !important;

@@ -63,7 +63,7 @@ import { applyFontScale, getFontScale } from "@/lib/fontScale";
 import useRealTime from "@/hooks/useRealtime";
 import useAudioRecorder from "@/hooks/useAudioRecorder";
 import useAudioPlayer from "@/hooks/useAudioPlayer";
-import { MicGate } from "@/lib/mic-gate";
+import { MicGate, pcm16DurationMs } from "@/lib/mic-gate";
 import { eegDisconnectAlert } from "@/lib/eeg-alert";
 import type { MonitorTick } from "@/lib/monitor-tick";
 import { ReportSpeech, type ReportSpeechState } from "@/lib/report-speech";
@@ -487,7 +487,7 @@ function App() {
             if (suppressAgentAudioRef.current) return;
             if (isRecording) {
                 playAudio(message.delta, message.item_id);
-                micGate.agentAudio();
+                micGate.agentAudio(pcm16DurationMs(message.delta));
                 reportSpeech.agentAudio(message.item_id);
             }
             baselineProtocol.notifyAudioDelta(message.delta);
@@ -1863,7 +1863,9 @@ function App() {
                                             )}
                                             {/* Controls — driven by the assessment lifecycle (lib/assessment.ts):
                                             baseline → [Close]; survey → [Pause]; paused run → [Start new][Continue][Close];
-                                            finished report → [Start new][Continue]; otherwise → [Start]. */}
+                                            finished report → [Start new][Continue]; otherwise → [Start].
+                                            whitespace-normal: labels wrap inside their button on narrow phones
+                                            (the shared Button is nowrap, so "Continue Assessment" overflowed onto Close). */}
                                             {controls.close && resumable && (
                                                 <p className="mb-2 text-xs text-[color:var(--ciq-text-60)]" role="status">
                                                     {t("app.pausedAssessmentNotice", { answered: resumable.answered, total: resumable.total }) ||
@@ -1876,7 +1878,7 @@ function App() {
                                                 {controls.start && (
                                                     <Button
                                                         onClick={() => runWithConsent(onStartNewSurvey)}
-                                                        className="ciq-btn-primary ciq-touch-lg flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)]"
+                                                        className="ciq-btn-primary ciq-touch-lg flex items-center justify-center gap-2 whitespace-normal rounded-xl text-center text-sm font-semibold leading-tight transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)]"
                                                     >
                                                         <Mic className="h-4 w-4" />
                                                         {t("app.startAssessment") || "Start Assessment"}
@@ -1886,7 +1888,7 @@ function App() {
                                                     <Button
                                                         onClick={() => runWithConsent(onStartNewSurvey)}
                                                         variant="outline"
-                                                        className="ciq-btn-secondary ciq-touch order-3 col-span-2 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] sm:order-1 sm:col-span-1"
+                                                        className="ciq-btn-secondary ciq-touch order-3 col-span-2 flex items-center justify-center gap-2 whitespace-normal rounded-xl text-center text-sm font-semibold leading-tight focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-purple)] sm:order-1 sm:col-span-1"
                                                     >
                                                         <RotateCcw className="h-4 w-4" />
                                                         {t("app.startNewSurvey") || "Start New Survey"}
@@ -1895,7 +1897,7 @@ function App() {
                                                 {controls.continue && (
                                                     <Button
                                                         onClick={() => runWithConsent(onContinueAssessment)}
-                                                        className="ciq-btn-primary ciq-touch-lg order-1 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] sm:order-2"
+                                                        className="ciq-btn-primary ciq-touch-lg order-1 flex items-center justify-center gap-2 whitespace-normal rounded-xl text-center text-sm font-semibold leading-tight transition-all focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-blue)] sm:order-2"
                                                     >
                                                         <Mic className="h-4 w-4" />
                                                         {resumable
@@ -1907,7 +1909,7 @@ function App() {
                                                     <Button
                                                         onClick={onCloseAssessment}
                                                         variant="outline"
-                                                        className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)] sm:order-3"
+                                                        className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 whitespace-normal rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-center text-sm font-semibold leading-tight text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)] sm:order-3"
                                                     >
                                                         <X className="h-4 w-4" />
                                                         {t("app.closeAssessment") || "Close"}
@@ -1917,7 +1919,7 @@ function App() {
                                                     <Button
                                                         onClick={onFinishAssessment}
                                                         variant="outline"
-                                                        className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-green)] sm:order-3"
+                                                        className="ciq-btn-secondary ciq-touch order-2 flex items-center justify-center gap-2 whitespace-normal rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-center text-sm font-semibold leading-tight text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-green)] sm:order-3"
                                                     >
                                                         <CheckCircle2 className="h-4 w-4" />
                                                         {t("app.finishAssessment") || "Finish"}
@@ -1927,7 +1929,7 @@ function App() {
                                                     <Button
                                                         onClick={onPauseAssessment}
                                                         variant="outline"
-                                                        className="ciq-btn-secondary ciq-touch flex items-center justify-center gap-2 rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-sm font-semibold text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)]"
+                                                        className="ciq-btn-secondary ciq-touch flex items-center justify-center gap-2 whitespace-normal rounded-xl border-[color:var(--ciq-border)] bg-[color:var(--ciq-tile-strong)] text-center text-sm font-semibold leading-tight text-[color:var(--ciq-text-68)] hover:bg-[color:var(--ciq-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--ciq-accent-red)]"
                                                     >
                                                         <MicOff className="h-4 w-4" />
                                                         {t("app.pauseAssessment") || "Pause"}

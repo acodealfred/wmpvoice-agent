@@ -633,3 +633,48 @@ export type ReportComparison = {
     daysBetween: number | null;
     measures: ComparisonMeasure[];
 };
+
+/** One signal that moved during a question (GET /me/reports/{runId}/signal-comparison). */
+export type SignalChange = {
+    id: "blink" | "latency" | "pitch" | "intensity" | "sentiment" | "face";
+    direction: "higher" | "lower" | "longer" | "shorter" | "louder" | "quieter" | "changed";
+    tier: "moved" | "strong";
+    /** "past" = the person's previous check-ins; "today" = this run's other answers (intensity). */
+    reference: "past" | "today";
+    /** Numbers (or sentiment / face labels) for tests and a later admin view — never shown to the participant. */
+    today: number | string | null;
+    past: number | string | null;
+    delta: number | null;
+    unit: string | null;
+    todaySupport: "above_baseline" | "below_baseline" | "above_run_median" | "below_run_median" | null;
+};
+
+export type SignalQuestion = {
+    questionId: string;
+    label: string;
+    /** Short name for the at-a-glance table ("Mental exhaustion"); falls back to `label`. */
+    shortLabel?: string;
+    prompt: string;
+    answer: {
+        previousLabel: string | null;
+        currentLabel: string | null;
+        previousValue: number | null;
+        currentValue: number | null;
+        changed: boolean;
+    };
+    /** "changed": meets the surfacing rule, its moved signals listed. "steady": signals were
+     *  compared but none is notable (none listed). "no_data": nothing could be compared. */
+    status: "changed" | "steady" | "no_data";
+    surfacedBy: "corroborated" | "strong" | null;
+    signals: SignalChange[];
+};
+
+export type SignalComparison = {
+    surveyRunId: string;
+    referenceRunIds: string[];
+    referenceCount: number;
+    latestReferenceDate: string | null;
+    daysSinceLatest: number | null;
+    tier: "fixed" | "personal";
+    questions: SignalQuestion[];
+};

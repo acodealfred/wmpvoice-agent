@@ -36,6 +36,7 @@ from ciq.realtime.ga_protocol import (
     redact_session_created,
 )
 from ciq.realtime.report_comparison import report_comparison_lines
+from ciq.realtime.report_signals import report_signal_lines
 from ciq.realtime.report_zone import report_zone_lines
 from ciq.realtime.session import (
     ConnectionState,
@@ -984,6 +985,11 @@ class RTMiddleTier:
                     if report["comparison_lines"]:
                         cmp_text = "Since your last assessment: " + " ".join(report["comparison_lines"])
                         sess.spoken_report_text = f"{sess.spoken_report_text}\n{cmp_text}" if sess.spoken_report_text else cmp_text
+                    # STEP 4: the user's own signals per question vs past PILOT check-ins ([] → skipped).
+                    report["signal_lines"] = await report_signal_lines(sess)
+                    if report["signal_lines"]:
+                        sig_text = "Your signals since last time: " + " ".join(report["signal_lines"])
+                        sess.spoken_report_text = f"{sess.spoken_report_text}\n{sig_text}" if sess.spoken_report_text else sig_text
                     instructions = report_cue_instructions(message.get("cue", ""), report)
                     if instructions is None:
                         logger.warning("[RTMT] Report cue %s ignored (unknown cue or no results)", message.get("cue"))

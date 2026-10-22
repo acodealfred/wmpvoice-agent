@@ -96,6 +96,27 @@ async def test_periods_filter_completed_reports_only(export_app, initialized_db)
         await client.close()
 
 
+async def test_zip_uses_the_stored_on_screen_pdf_like_the_qr_download(export_app, initialized_db):
+    from db import save_report_pdf
+
+    uid = await seed_user_id("system1")
+    await _seed(initialized_db, uid, "run-captured")
+    await _seed(initialized_db, uid, "run-not-captured")
+    captured = b"%PDF-1.4 on-screen report captured in the browser"
+    assert await save_report_pdf("run-captured", captured)
+
+    client = await _client(export_app, "system1")
+    try:
+        resp = await client.get(f"{URL}?period=all")
+        assert resp.status == 200
+        with zipfile.ZipFile(io.BytesIO(await resp.read())) as zf:
+            assert zf.read("system1_run-captured.pdf") == captured
+            fallback = zf.read("system1_run-not-captured.pdf")
+        assert fallback.startswith(b"%PDF") and fallback != captured
+    finally:
+        await client.close()
+
+
 async def test_empty_period_and_bad_input(export_app):
     client = await _client(export_app, "system1")
     try:

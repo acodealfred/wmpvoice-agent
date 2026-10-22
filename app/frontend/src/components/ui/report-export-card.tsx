@@ -8,8 +8,9 @@ import { downloadBlob, filenameFromResponse } from "@/ui/download";
 
 /**
  * Admin panel card: every completed report in a period as ONE ZIP of participant PDFs
- * (`<user_name>_<survey_run_id>.pdf`) — same results as the History tab, without
- * internal fields, so each PDF can be sent to its participant.
+ * (`<user_name>_<survey_run_id>.pdf`) — the same PDF the participant's QR download
+ * gives them (the on-screen report captured after the assessment; a text PDF of the
+ * History results for a run with no captured copy).
  */
 export function ReportExportCard() {
     const [period, setPeriod] = useState<ReportPeriod>("today");
@@ -41,8 +42,9 @@ export function ReportExportCard() {
                 <h2 className="font-display text-base font-semibold text-[color:var(--ciq-text-strong)]">Participant Reports</h2>
             </div>
             <p className="mb-2 text-sm text-[color:var(--ciq-text-muted)]">
-                Download every completed report in the selected period as one ZIP of PDFs, named by participant and survey run. Each PDF has the
-                participant&apos;s scores, risk levels, interpretations and written summary — the same results as their History tab.
+                Download every completed report in the selected period as one ZIP of PDFs, named by participant and survey run. Each PDF is the same report the
+                participant downloads from their QR code — their on-screen report with charts and scores. Runs with no saved on-screen copy fall back to a text
+                PDF of their History results.
             </p>
             <p className="mb-4 text-xs font-semibold text-[color:var(--ciq-accent-amber)]">
                 Check the name before sending — each participant must only receive their own report.

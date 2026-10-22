@@ -18,6 +18,11 @@ const A4_H_MM = 297;
 const MAX_CANVAS_PX = 16000;
 const JPEG_QUALITY = 0.85;
 
+// A break landing this close below the top of an enclosing card (even one taller than a
+// page) moves up to that card's top, so its edge and padding aren't left alone at the
+// bottom of the previous page.
+const LEAD_IN_PX = 48;
+
 /**
  * Where each page starts, in CSS px. A page ends early, at the top of a card, when
  * that card would otherwise be cut — unless the card is taller than a page, which
@@ -35,6 +40,12 @@ export function pageBreaks(totalHeight: number, pageHeight: number, keep: KeepRa
             moved = false;
             for (const r of fitting) {
                 if (r.top > start && r.top < end && r.bottom > end) {
+                    end = r.top;
+                    moved = true;
+                }
+            }
+            for (const r of keep) {
+                if (r.top > start && r.top < end && end - r.top <= LEAD_IN_PX && r.bottom > end) {
                     end = r.top;
                     moved = true;
                 }

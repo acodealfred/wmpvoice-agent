@@ -14,6 +14,8 @@
       "text": "Emotional Exhaustion",
       "domain": "Emotional Exhaustion",
       "prompt": "At work, I feel mentally exhausted.",
+      "spoken": "feeling mentally exhausted at work",
+      "short": "Mental exhaustion",
       "style": "statement"
     },
     {
@@ -21,6 +23,8 @@
       "text": "Mental Distance",
       "domain": "Mental Distance",
       "prompt": "I struggle to find any enthusiasm for my work.",
+      "spoken": "finding enthusiasm for your work",
+      "short": "Enthusiasm for work",
       "style": "statement"
     },
     {
@@ -28,6 +32,8 @@
       "text": "Cognitive Impairment",
       "domain": "Cognitive Impairment",
       "prompt": "At work, I have trouble staying focused.",
+      "spoken": "staying focused at work",
+      "short": "Staying focused",
       "style": "statement"
     },
     {
@@ -35,6 +41,8 @@
       "text": "Emotional Impairment",
       "domain": "Emotional Impairment",
       "prompt": "At work, I feel unable to control my emotions.",
+      "spoken": "keeping control of your emotions at work",
+      "short": "Emotional control",
       "style": "statement"
     },
     {
@@ -42,6 +50,8 @@
       "text": "Work Emotionally Exhausting",
       "domain": "Work-Related Burnout (Item 7)",
       "prompt": "Is your work emotionally exhausting?",
+      "spoken": "whether your work is emotionally exhausting",
+      "short": "Emotionally draining work",
       "style": "question"
     },
     {
@@ -49,6 +59,8 @@
       "text": "Morning Exhaustion Feel",
       "domain": "Work-Related Burnout (Item 11)",
       "prompt": "Are you exhausted in the morning at the thought of another day at work?",
+      "spoken": "feeling exhausted in the morning at the thought of another day at work",
+      "short": "Morning exhaustion",
       "style": "question"
     },
     {
@@ -56,6 +68,8 @@
       "text": "Leisure Energy Availability",
       "domain": "Work-Related Burnout (Item 13)",
       "prompt": "Do you have enough energy for family and friends during leisure time?",
+      "spoken": "having enough energy for family and friends in your free time",
+      "short": "Energy for family and friends",
       "reverse": true,
       "style": "question"
     }

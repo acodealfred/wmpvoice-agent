@@ -109,6 +109,7 @@ from ciq.reports.share_routes import (
     report_share_download,
     report_share_page,
 )
+from ciq.reports.signal_comparison_routes import me_signal_comparison
 from ciq.validation.routes import (
     admin_data_validation_export_zip,
     admin_data_validation_runs,
@@ -192,6 +193,8 @@ async def create_app():
     app.router.add_get("/me/reports/{runId}", me_saved_report)
     # Compared with the previous same-type run (ciq/reports/comparison_routes.py)
     app.router.add_get("/me/reports/{runId}/comparison", me_report_comparison)
+    # Per-question signals vs previous PILOT runs (ciq/reports/signal_comparison_routes.py)
+    app.router.add_get("/me/reports/{runId}/signal-comparison", me_signal_comparison)
     app.router.add_get("/admin/reports/runs/{runId}", admin_saved_report)
     # QR report download — password, then a one-time link for the phone (ciq/reports/share_routes.py)
     app.router.add_post("/me/reports/{runId}/share", create_report_share)

@@ -44,4 +44,24 @@ describe("pageBreaks", () => {
     it("cuts a card taller than a page, since it can't fit anywhere", () => {
         expect(pageBreaks(2500, 1000, [{ top: 100, bottom: 2400 }])).toEqual([0, 1000, 2000]);
     });
+
+    it("takes a tall card's top edge along when the break lands just inside it", () => {
+        // A card taller than a page (700–2400) whose first kept group (716–1100) moves to
+        // the next page: the break goes to the card's top, not 16 px inside it.
+        expect(
+            pageBreaks(2500, 1000, [
+                { top: 700, bottom: 2400 },
+                { top: 716, bottom: 1100 }
+            ])[1]
+        ).toBe(700);
+    });
+
+    it("leaves a break deep inside a tall card where it is", () => {
+        expect(
+            pageBreaks(2500, 1000, [
+                { top: 100, bottom: 2400 },
+                { top: 900, bottom: 1100 }
+            ])[1]
+        ).toBe(900);
+    });
 });
