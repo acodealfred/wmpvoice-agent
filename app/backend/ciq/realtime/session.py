@@ -476,6 +476,10 @@ class ConnectionState:
     # PILOT's final answer: don't auto-request the agent's reply after the tool call —
     # the closing line comes later, as the browser's `survey_complete` cue.
     skip_tool_followup: bool = False
+    # PILOT report explanation in progress on this connection (the report.cue payload), so a
+    # response cut off at the output-token cap can be continued (ciq.realtime.report_continuation).
+    report_cue: dict | None = None
+    report_auto_continues: int = 0
 
 
 # Same propagation model as _active_session: set in _forward_messages before the

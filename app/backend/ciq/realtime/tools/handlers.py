@@ -98,7 +98,9 @@ async def query_survey_tool(sess: SessionState, survey_config: dict, args: Any) 
         # report is unaffected). Held on the session so post-report Q&A knows what was said.
         spoken = build_pilot_spoken_report(cfg, results)
         if spoken:
-            response_data["spoken_report"] = {"framing": spoken["framing"], "parts": spoken["parts"]}
+            response_data["spoken_report"] = {
+                "framing": spoken["framing"], "parts": spoken["parts"], "domain_lines": spoken["domain_lines"],
+            }
             sess.spoken_report_text = spoken["plain_text"]
 
     elif query_type == "contributing_domains":

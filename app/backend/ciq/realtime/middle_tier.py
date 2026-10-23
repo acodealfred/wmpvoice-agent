@@ -22,6 +22,7 @@ from ciq.config import live_monitor_enabled
 from ciq.llm.azure_chat import AzureChatClient
 from ciq.monitoring.live import record_tick
 from ciq.prompts.builder import (
+    REPORT_AUTO_CONTINUE,
     baseline_cue_instructions,
     build_session_instructions,
     report_cue_instructions,
@@ -36,6 +37,11 @@ from ciq.realtime.ga_protocol import (
     redact_session_created,
 )
 from ciq.realtime.report_comparison import report_comparison_lines
+from ciq.realtime.report_continuation import (
+    MAX_AUTO_CONTINUES,
+    cut_off_by_token_limit,
+    response_end_summary,
+)
 from ciq.realtime.report_signals import report_signal_lines
 from ciq.realtime.report_zone import report_zone_lines
 from ciq.realtime.session import (
@@ -791,6 +797,26 @@ class RTMiddleTier:
                         resolve_agent_turn(self._sess, extract_turn_transcript(message))
 
                     conn = current_connection()
+                    logger.info("[RTMT] Response done: %s", response_end_summary(message))
+                    if conn.report_cue is not None:
+                        # The PILOT report explanation hit the output cap mid-sentence → ask
+                        # the model to carry on (bounded). Any other ending closes the report.
+                        if (cut_off_by_token_limit(message)
+                                and conn.report_auto_continues < MAX_AUTO_CONTINUES
+                                and not self._tools_pending):
+                            conn.report_auto_continues += 1
+                            logger.warning("[RTMT] Report cut off at the output limit — auto-continuing (%d/%d)",
+                                           conn.report_auto_continues, MAX_AUTO_CONTINUES)
+                            await server_ws.send_json({
+                                "type": "response.create",
+                                "response": {
+                                    "instructions": report_cue_instructions(REPORT_AUTO_CONTINUE, conn.report_cue),
+                                    "tool_choice": "none",
+                                },
+                            })
+                            self._response_in_progress = True
+                        else:
+                            conn.report_cue = None
                     if len(self._tools_pending) > 0 and conn.skip_tool_followup:
                         # PILOT's last answer: stay silent; the progress screen's
                         # survey_complete cue asks for the closing line at card 4.
@@ -974,27 +1000,31 @@ class RTMiddleTier:
                     sess = self._sess
                     result = await query_survey_tool(sess, sess.survey_config, {"query_type": "burnout_score"})
                     report = json.loads(result.to_text())
-                    # STEP 2: the run's Fatigue ↔ Burnout zone as fixed sentences ([] → skipped),
-                    # also kept in the follow-up context so questions about it stay grounded.
-                    report["zone_lines"] = await report_zone_lines(sess)
-                    if report["zone_lines"]:
-                        zone_text = "Fatigue ↔ Burnout zone: " + " ".join(report["zone_lines"])
-                        sess.spoken_report_text = f"{sess.spoken_report_text}\n{zone_text}" if sess.spoken_report_text else zone_text
-                    # STEP 3: compared with the user's previous PILOT run ([] → first one, skipped).
+                    # Fixed sentences for the four spoken sections (see report_cue_instructions),
+                    # each [] → skipped: vs the previous PILOT run and the Fatigue ↔ Burnout zone
+                    # (section 1), and each question vs past PILOT check-ins (section 3).
                     report["comparison_lines"] = await report_comparison_lines(sess)
-                    if report["comparison_lines"]:
-                        cmp_text = "Since your last assessment: " + " ".join(report["comparison_lines"])
-                        sess.spoken_report_text = f"{sess.spoken_report_text}\n{cmp_text}" if sess.spoken_report_text else cmp_text
-                    # STEP 4: the user's own signals per question vs past PILOT check-ins ([] → skipped).
+                    report["zone_lines"] = await report_zone_lines(sess)
                     report["signal_lines"] = await report_signal_lines(sess)
-                    if report["signal_lines"]:
-                        sig_text = "Your signals since last time: " + " ".join(report["signal_lines"])
-                        sess.spoken_report_text = f"{sess.spoken_report_text}\n{sig_text}" if sess.spoken_report_text else sig_text
+                    # Also kept in the follow-up context, in speaking order, so questions about
+                    # any of it stay grounded.
+                    context = [
+                        ("Since your last assessment: ", report["comparison_lines"]),
+                        ("Fatigue ↔ Burnout zone: ", report["zone_lines"]),
+                        ("", [sess.spoken_report_text] if sess.spoken_report_text else []),
+                        ("Question by question: ", report["signal_lines"]),
+                    ]
+                    sess.spoken_report_text = "\n".join(head + " ".join(body) for head, body in context if body) or None
                     instructions = report_cue_instructions(message.get("cue", ""), report)
                     if instructions is None:
                         logger.warning("[RTMT] Report cue %s ignored (unknown cue or no results)", message.get("cue"))
                         return None
                     logger.info("[RTMT] ★ Report cue: %s", message["cue"])
+                    # Remembered for this connection so a response cut off at the output cap
+                    # can be carried on (see the response.done handler).
+                    conn = current_connection()
+                    conn.report_cue = report
+                    conn.report_auto_continues = 0
                     return json.dumps({
                         "type": "response.create",
                         "response": {"instructions": instructions, "tool_choice": "none"},

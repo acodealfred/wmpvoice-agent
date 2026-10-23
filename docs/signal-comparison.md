@@ -19,7 +19,7 @@ and where it differs from the spec.
 | Feature flag `ENABLE_SIGNAL_COMPARISON` (default on) | `app/backend/ciq/config.py` |
 | Fetch + sentence wording | `app/frontend/src/lib/report-signals.ts` |
 | Card | `app/frontend/src/components/ui/report-signals-card.tsx`, rendered in `detailed-report.tsx` under "Compared with your last assessment" |
-| Spoken lines (voice report STEP 4) | `signal_spoken_lines()` in `signal_comparison.py`; `app/backend/ciq/realtime/report_signals.py`; hooked in `middle_tier.py` (`report.cue`); step rules in `ciq/prompts/builder.py` |
+| Spoken lines (voice report section 3, question by question) | `signal_spoken_lines()` in `signal_comparison.py`; `app/backend/ciq/realtime/report_signals.py`; hooked in `middle_tier.py` (`report.cue`); step rules in `ciq/prompts/builder.py` |
 | Spoken name of each question | `"spoken"` field per question in `app/backend/surveys/pilot-survey.json` |
 
 Nothing is stored. The route reads `survey_records`, `survey_item_responses` and
@@ -99,23 +99,56 @@ html-to-image cannot read the stylesheet (a `SecurityError` on `cssRules`) and, 
 draws the PDF in a wider fallback font. Tight layouts then overlap: the overall scores, the radar
 labels and the data table.
 
-## Spoken lines (Phase 2)
+## Spoken lines (Phase 2, restructured 22 Oct 2026)
 
-When the participant presses Start on the report screen, the agent adds **STEP 4 — YOUR SIGNALS
-SINCE LAST TIME**. It comes after "since your last assessment" (STEP 3) and before the spoken report,
-which is now STEP 5.
+When the participant presses Start on the report screen, the agent explains the report in four
+sections (`report_cue_instructions` in `ciq/prompts/builder.py`):
+
+1. **Since your last check-in:** how each result compares with the previous assessment, then the
+   Fatigue ↔ Burnout zone.
+2. **This assessment:** "Where Your Capacity Is Going" (blink rate, answer pace and the overall
+   voice tone, from `ciq/realtime/spoken_report.py`). The BAT-4 / CBI scores and the
+   interpretation text under them are on screen, so they are **not** read out.
+3. **Question by question:** the lines described below.
+4. **Where your answers point:** the top domain area(s) are **always** named. Each area is scored
+   as the mean of its questions' place in their own burnout range (reverse items flipped). The four
+   BAT items each have their own area; the three CBI items share "work-related fatigue". The wording
+   follows the level: high ("highest on …"), moderate ("leaned most toward …") or low ("came out
+   slightly highest …"). It uses plain language and is never a diagnosis. This is followed by
+   "The Opportunity" and "What This Unlocks".
+
+**Length.** The whole explanation is ONE realtime response, and Azure caps output per response.
+A heavy but realistic report must stay within 450 spoken words, about three minutes. The extreme
+case, where every question is notable, must stay within 600 (unit tests in
+`test_report_cues.py`). If a report response still ends `incomplete` / `max_output_tokens`, the
+middle tier asks the model to carry on from where it stopped, at most twice
+(`ciq/realtime/report_continuation.py`; state is on `ConnectionState`). Every `response.done` is
+logged with its status, reason and output-token counts.
+
+Question by question:
 
 - **Same data as the card:** it calls `load_signal_comparison()`, so speech and card always agree.
-  The `ENABLE_SIGNAL_COMPARISON` flag turns both off.
-- **What is spoken:** every question, in survey order (the card's order), with no limit (decision
-  21 Oct 2026). A `changed` question gets its own sentence: the answer then → now and each signal.
-  Neighbouring `steady` questions are grouped into one short sentence ("On A and B, there was no
-  notable change in your signals."), and so are neighbouring `no_data` ones ("…there weren't enough
-  readings to compare."). Steady and no-data questions are never mixed in one sentence. If every
-  question is steady, one sentence covers them all.
-- **Wording:** fixed sentences with no numbers. Each question is named by its `"spoken"` phrase
-  ("On feeling mentally exhausted at work, …"). The agent may smooth the wording but must add nothing:
-  no causes, no meaning, no advice, no reassurance.
+  The `ENABLE_SIGNAL_COMPARISON` flag turns both off. Each question's `answer` also carries
+  `recentValues` / `recentLabels`: the previous `answer_history_runs` (2) answers, newest first.
+  This field is for speech only; the card ignores it.
+- **What is spoken:** every question, in survey order (the card's order), with no limit:
+  - **A. Notable signal change** (`changed`): its own sentence. It says what moved, the answer then
+    → now, and a gentle reflection that the answer "might not tell the whole story". Three
+    reflection phrasings rotate so the passage doesn't repeat itself.
+  - **B. In line:** the answer is within one scale step of at least one of the last two answers.
+    Neighbouring questions with the same status are grouped ("On A and B, your answers and your
+    signals were in line with before, with no notable change."). If every question is like this,
+    one sentence covers them all.
+  - **C. Answer shift:** the signals are steady, but the answer is `answer_shift_steps` (2) or more
+    scale steps away from every one of the last two answers (e.g. always → never). It gets its own
+    sentence naming the shift and inviting reflection on whether it reflects a usual week or mostly
+    today. Steps are positions on the answer scale, so BAT (1–5) and CBI (0–100) work the same way,
+    and reverse-scored items need no special case.
+- **Wording:** fixed sentences with no numbers. In this section each question is named by its
+  short name, lower-cased ("On morning exhaustion, …"), to keep the passage brief.
+  Reflections are observations and invitations only. The agent never says or implies an answer was
+  wrong or untruthful, and never asks for an answer to change. A unit test bans words like lie,
+  honest, contradict, wrong, should and burnout from these lines.
 - **Follow-up questions:** the lines are appended to `spoken_report_text`, so follow-up answers stay
   grounded. The biometric guardrail still governs any "why" question.
 - **Nothing to say** (first check-in, nothing changed, feature off, any error): the step is skipped

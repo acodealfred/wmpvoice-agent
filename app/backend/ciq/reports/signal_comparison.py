@@ -19,7 +19,7 @@ from collections import Counter
 from statistics import median
 
 from ciq.reports.comparison import _parse_date
-from survey_loader import option_label
+from survey_loader import option_label, options_for_question
 
 # Product judgement, not validated thresholds (like zone.ZONE_CONFIG): no source gives
 # an absolute cut-off for any of these signals, so each is compared with the person's
@@ -46,6 +46,10 @@ SIGNAL_CONFIG = {
     "min_latency_ms": 300,        # below this a latency is VAD noise
     "spread_moved_factor": 1.5,
     "spread_strong_factor": 3.0,
+    # Voice report only: an answer this many scale steps (Never → Rarely → …) from EVERY
+    # one of the previous answer_history_runs answers is spoken as a shift worth reflecting on.
+    "answer_shift_steps": 2,
+    "answer_history_runs": 2,
 }
 
 SIGNAL_ORDER = ("blink", "latency", "pitch", "intensity", "sentiment", "face")
@@ -293,7 +297,9 @@ def _surfaced_by(signals: list[dict], config: dict) -> str | None:
 
 def _answer(qid: str, run: dict, history: list[dict], survey_config: dict) -> dict:
     current = run[qid].get("answer")
-    previous = next((h[qid]["answer"] for h in history if h.get(qid, {}).get("answer") is not None), None)
+    answered = [h[qid]["answer"] for h in history if h.get(qid, {}).get("answer") is not None]
+    previous = answered[0] if answered else None
+    recent = answered[: SIGNAL_CONFIG["answer_history_runs"]]
 
     def label(value):
         return option_label(survey_config, qid, int(value)) if value is not None else None
@@ -304,6 +310,9 @@ def _answer(qid: str, run: dict, history: list[dict], survey_config: dict) -> di
         "previousValue": int(previous) if previous is not None else None,
         "currentValue": int(current) if current is not None else None,
         "changed": current is not None and previous is not None and current != previous,
+        # The last few answers, newest first (the voice report's answer-shift rule).
+        "recentValues": [int(v) for v in recent],
+        "recentLabels": [label(v) for v in recent],
     }
 
 
@@ -361,7 +370,8 @@ def compare_signals(current: dict, previous: list[dict], config: dict, survey_co
     }
 
 
-# ── Spoken lines (the PILOT voice report's STEP 4, ciq/realtime/report_signals.py) ──
+# ── Spoken lines (the PILOT voice report's question-by-question section,
+#    ciq/realtime/report_signals.py) ──
 
 def _spoken_label(label: str | None) -> str:
     return (label or "").replace(" / ", " or ").lower()
@@ -373,13 +383,15 @@ def _spoken_face(label) -> str:
 
 
 def _clause(s: dict) -> str:
-    """One signal as a spoken clause — no numbers, "notably" for the strong tier."""
+    """One signal as a spoken clause — no numbers, "notably" for the strong tier. The
+    comparison point ("your past check-ins") is set once by the section's lead line."""
     notably = "notably " if s["tier"] == "strong" else ""
     d = s["direction"]
     if s["id"] == "blink":
-        return f"your blink rate was {notably}{d} than last time"
+        return f"your blink rate was {notably}{d}"
     if s["id"] == "latency":
-        return f"you answered {notably}more quickly" if d == "shorter" else f"you took {notably}longer before answering"
+        return (f"your reply came {notably}more quickly" if d == "shorter"
+                else f"you paused {notably}longer before replying")
     if s["id"] == "pitch":
         return f"your voice was {notably}{d} in pitch"
     if s["id"] == "intensity":
@@ -394,57 +406,138 @@ def _join(parts: list[str]) -> str:
     return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
 
 
+def _answer_shifted(qid: str, answer: dict, survey_config: dict) -> bool:
+    """True when today's answer is answer_shift_steps or more scale steps away from EVERY
+    one of the recent previous answers (one close answer is enough to count as in line).
+    Raw values, so a reverse-scored item needs no special case."""
+    values = [o.get("value") for o in options_for_question(survey_config, qid)]
+    current, recent = answer.get("currentValue"), answer.get("recentValues") or []
+    if current not in values or not recent or any(v not in values for v in recent):
+        return False
+    steps = SIGNAL_CONFIG["answer_shift_steps"]
+    return all(abs(values.index(current) - values.index(v)) >= steps for v in recent)
+
+
+def _said_before(answer: dict) -> str:
+    """Where the earlier answers were, in words: "last time you said often" / "before, you
+    said often both times" / "before, you said always, then often"."""
+    labels = [_spoken_label(lbl) for lbl in answer.get("recentLabels") or [] if lbl]
+    if len(labels) < 2:
+        return f"last time you said {labels[0]}" if labels else "before you answered differently"
+    newest, older = labels[0], labels[1]
+    if newest == older:
+        return f"before, you said {newest} both times"
+    return f"before, you said {older}, then {newest}"
+
+
+def _your_answer(answer: dict) -> str:
+    label = _spoken_label(answer.get("currentLabel"))
+    return f"your answer of {label}" if label else "your answer"
+
+
+# A reflection after a question whose signals moved notably. An observation and an
+# invitation to reflect — never a verdict on the answer. Rotated so the passage doesn't
+# repeat one sentence. {answer} is "your answer of <label>", always mid-sentence. Kept
+# short: the whole report is one spoken response with an output cap.
+_SIGNAL_REFLECTIONS = (
+    "So {answer} may not be the whole story.",
+    "This one may sit closer to home than {answer} shows.",
+    "Here, {answer} may be only part of the picture.",
+)
+
+# A reflection after an answer that moved a long way from the recent ones (signals steady).
+_SHIFT_REFLECTIONS = (
+    "That's quite a shift — worth asking whether {current} fits a usual week, or mostly today.",
+    "That's a big move — {current} may reflect lately more than a usual week.",
+)
+
+
+def _changed_line(subject: str, q: dict, shifted: bool, turn: int) -> str:
+    """Case A: notable signal movement — what moved, then a gentle reflection."""
+    a = q["answer"]
+    clauses = _join([_clause(s) for s in q["signals"]])
+    current = _spoken_label(a["currentLabel"])
+    if shifted:
+        said = f"you said {current}, a big shift from before, and while you answered, "
+    elif a["changed"]:
+        said = f"you said {current}, after {_spoken_label(a['previousLabel'])} last time, and while you answered, "
+    elif a["previousLabel"]:
+        said = "same answer as last time, but while you answered, "
+    else:
+        said = "while you answered, "
+    reflection = _SIGNAL_REFLECTIONS[turn % len(_SIGNAL_REFLECTIONS)].format(answer=_your_answer(a))
+    return f"On {subject}, {said}{clauses}. {reflection}"
+
+
+def _shift_line(subject: str, q: dict, turn: int) -> str:
+    """Case C: signals steady, but the answer moved a long way from the recent ones."""
+    a = q["answer"]
+    current = _spoken_label(a["currentLabel"])
+    reflection = _SHIFT_REFLECTIONS[turn % len(_SHIFT_REFLECTIONS)].format(current=current)
+    return f"On {subject}, you said {current}, where {_said_before(a)}. {reflection}"
+
+
+# Case B endings, keyed by (status, whether earlier answers were there to line up with).
 _QUIET_ENDINGS = {
-    "steady": "there was no notable change in your signals",
-    "no_data": "there weren't enough readings to compare",
+    ("steady", True): "nothing notable changed",
+    ("steady", False): "your signals were steady",
+    ("no_data", True): "your answers were in line with before, with too few readings to compare signals",
+    ("no_data", False): "there weren't enough readings to compare",
 }
 
 
-def _changed_line(subject: str, q: dict) -> str:
-    a = q["answer"]
-    if a["changed"]:
-        said = (f"you said {_spoken_label(a['currentLabel'])} this time, "
-                f"where last time you said {_spoken_label(a['previousLabel'])}; ")
-    elif a["previousLabel"]:
-        said = "your answer was the same as last time; "
-    else:
-        said = ""
-    return f"On {subject}, {said}while you answered, {_join([_clause(s) for s in q['signals']])}."
-
-
 def signal_spoken_lines(result: dict | None, survey_config: dict) -> list[str]:
-    """Fixed sentences for the voice report: every question, in survey order (the
-    card's order). A "changed" question gets its own sentence (answer then → now and
-    each signal); neighbouring "steady" or "no_data" questions are grouped into one
-    short sentence per run, so the passage stays short without reordering anything.
-    No numbers. [] when there is nothing to say."""
+    """Fixed sentences for the voice report's question-by-question section: every question,
+    in survey order (the card's order).
+
+    A. signals moved notably ("changed") → its own sentence: what moved, the answer then →
+       now, and a gentle reflection that the answer may not be the whole picture;
+    B. otherwise, an answer in line with at least one of the recent ones → grouped with
+       its quiet neighbours into one short "no notable change" sentence;
+    C. otherwise (answer_shift_steps or more from all of them) → its own sentence naming
+       the shift and inviting reflection.
+    Observations and invitations only — never a verdict on the answer. No numbers.
+    [] when there is nothing to say."""
     questions = (result or {}).get("questions") or []
     if not questions:
         return []
-    phrases = {q.get("id"): q.get("spoken") or q.get("prompt") for q in survey_config.get("questions", [])}
+    # Each question by its short name ("morning exhaustion"): the passage covers every
+    # question in one spoken response with an output cap, so names are kept brief.
+    phrases = {q.get("id"): (q.get("short") or "").lower() or q.get("spoken") or q.get("prompt")
+               for q in survey_config.get("questions", [])}
 
     def subject(q: dict) -> str:
         return phrases.get(q["questionId"]) or q["prompt"]
 
     reference = "your recent check-ins" if result.get("referenceCount", 1) > 1 else "your last check-in"
-    lines = [f"Compared with {reference}, here's what was recorded while you were answering."]
-    if all(q["status"] == "steady" for q in questions):
-        return lines + ["There was no notable change in your signals on any of the questions."]
+    lines = [f"Now, question by question, compared with {reference}."]
+    shifted = {q["questionId"]: _answer_shifted(q["questionId"], q["answer"], survey_config) for q in questions}
+    if all(q["status"] == "steady" and not shifted[q["questionId"]] for q in questions):
+        consistent = all(q["answer"].get("recentValues") for q in questions)
+        what = "your answers and signals were" if consistent else "your signals were"
+        return lines + [f"On every question, {what} in line with before — a steady, consistent picture."]
 
-    quiet: list[dict] = []  # a run of neighbouring questions with the same quiet status
+    quiet: list[tuple[dict, tuple]] = []  # a run of neighbouring questions with the same ending
+    signal_turn = shift_turn = 0
 
     def flush():
         if quiet:
-            lines.append(f"On {_join([subject(q) for q in quiet])}, {_QUIET_ENDINGS[quiet[0]['status']]}.")
+            lines.append(f"On {_join([subject(q) for q, _ in quiet])}, {_QUIET_ENDINGS[quiet[0][1]]}.")
             quiet.clear()
 
     for q in questions:
         if q["status"] == "changed":
             flush()
-            lines.append(_changed_line(subject(q), q))
+            lines.append(_changed_line(subject(q), q, shifted[q["questionId"]], signal_turn))
+            signal_turn += 1
+        elif shifted[q["questionId"]]:
+            flush()
+            lines.append(_shift_line(subject(q), q, shift_turn))
+            shift_turn += 1
         else:
-            if quiet and quiet[0]["status"] != q["status"]:
+            key = (q["status"], bool(q["answer"].get("recentValues")))
+            if quiet and quiet[0][1] != key:
                 flush()
-            quiet.append(q)
+            quiet.append((q, key))
     flush()
     return lines

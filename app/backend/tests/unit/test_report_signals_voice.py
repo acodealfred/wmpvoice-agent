@@ -1,4 +1,4 @@
-"""ciq/realtime/report_signals.py — the voice report's signal lines (STEP 4)."""
+"""ciq/realtime/report_signals.py — the voice report's question-by-question lines (section 3)."""
 import logging
 from types import SimpleNamespace
 
@@ -43,9 +43,9 @@ def loader(monkeypatch):
 
 async def test_lines_for_the_sessions_own_run(loader):
     assert await report_signals.report_signal_lines(_sess()) == [
-        "Compared with your last check-in, here's what was recorded while you were answering.",
-        "On feeling mentally exhausted at work, you said often this time, where last time you said rarely; "
-        "while you answered, you answered notably more quickly.",
+        "Now, question by question, compared with your last check-in.",
+        "On mental exhaustion, you said often, after rarely last time, and while you answered, your reply came "
+        "notably more quickly. So your answer of often may not be the whole story.",
     ]
     assert loader.calls == [("u1", "cur")]
 

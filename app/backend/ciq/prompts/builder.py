@@ -431,33 +431,46 @@ def baseline_cue_instructions(cue: str) -> str | None:
 
 # PILOT report explanation, triggered from the report screen (client `report.cue`).
 # `report` is query_survey_tool's burnout_score result, computed server-side at cue time:
-# {"sections": [{"label", "interpretation", ...}], "spoken_report": {"parts": [...]}}, plus
-# "zone_lines" (ciq.realtime.report_zone) — the Fatigue ↔ Burnout zone sentences, or [] —
+# {"sections": [{"label", "interpretation", ...}],
+#  "spoken_report": {"parts": [capacity, opportunity, unlocks], "domain_lines": [...]}}, plus
 # "comparison_lines" (ciq.realtime.report_comparison) — vs the previous PILOT run, or [] —
-# and "signal_lines" (ciq.realtime.report_signals) — the user's own signals per question vs
-# their past PILOT check-ins, or [].
+# "zone_lines" (ciq.realtime.report_zone) — the Fatigue ↔ Burnout zone sentences, or [] —
+# and "signal_lines" (ciq.realtime.report_signals) — each question vs their past PILOT
+# check-ins, or []. The explanation runs in four sections, in this order:
+#   1. since your last check-in (comparison, then zone)   2. this assessment ("Where Your
+#   Capacity Is Going" — the on-screen interpretations are NOT spoken)   3. question by question   4. where the answers
+#   point (domain lines, then "The Opportunity" and "What This Unlocks").
 REPORT_CUE_NAMES = frozenset({"report_explain", "report_continue"})
+# Server-side only (never a client cue): the explanation hit the output-token cap mid-way and
+# the middle tier asks for the rest (ciq.realtime.report_continuation).
+REPORT_AUTO_CONTINUE = "report_auto_continue"
 
-_REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
-- STEP 1 — YOUR RESULTS: tell the user EVERY interpretation below, word for word, one at a
-  time. They are independent results — never blend or average them. Do not say numbers.
-- STEP 2 — YOUR FATIGUE ↔ BURNOUT ZONE: if zone lines are given below, say them next, in
-  order, as a short connected passage — it is the overall picture of where they sit between
-  fatigue and burnout. Add nothing to them. If there are none, skip this step silently.
-- STEP 3 — SINCE YOUR LAST ASSESSMENT: if comparison lines are given below, say them next,
-  in order, as a short connected passage — how each result compares with their previous
-  assessment. Add nothing to them: no causes, no advice, no reassurance. If there are none,
-  skip this step silently and do not mention a previous assessment.
-- STEP 4 — YOUR SIGNALS SINCE LAST TIME: if signal lines are given below, say them next, in
-  order, as a connected passage — what was recorded while they answered each question,
-  compared with their own past check-ins. Say EVERY line; do not drop or shorten any of them.
-  Add nothing to them: no causes, no meaning, no advice, no reassurance, no numbers. If there
-  are none, skip this step silently and do not mention signals.
-- STEP 5 — THE SPOKEN REPORT: then deliver the spoken report as ONE continuous, natural
-  spoken piece, in order, part by part: begin each part with its title as a short spoken
-  lead-in, then say that part's lines in order, each as its own short sentence.
-- Speak warmly and naturally, like a person talking — never as a list. No bullets, no
-  markdown, no asterisks, no numbers.
+_REPORT_DELIVERY_RULES = """HOW TO SPEAK IT — four sections, in this order, as one flowing conversation:
+- SECTION 1 — SINCE YOUR LAST CHECK-IN: say the comparison lines first (how each result
+  compares with their previous assessment), then the zone lines (where they sit between
+  fatigue and burnout), as one short connected passage. Add nothing to them: no causes, no
+  advice, no reassurance. If there are no comparison lines, do not mention a previous
+  assessment. If there are no lines at all, skip this section silently.
+- SECTION 2 — THIS ASSESSMENT: say the "Where Your Capacity Is Going" lines: what their
+  blink rate, answer pace and voice tone did during this check-in. Their BAT-4 and CBI
+  scores and the text under them are already on their screen — do NOT read out the scores,
+  the risk levels or that text.
+- SECTION 3 — QUESTION BY QUESTION: if question lines are given, say EVERY line, in order —
+  do not drop, merge away or shorten any of them. Some lines end with a gentle reflection
+  that an answer may not be the whole picture. Keep each one exactly that: an observation
+  and an invitation to reflect, in a warm, curious tone. NEVER say or imply the user was
+  wrong, untruthful or inconsistent, and never ask them to change an answer. Add no other
+  causes, meanings or numbers. If there are no question lines, skip this section silently
+  and do not mention signals.
+- SECTION 4 — WHERE YOUR ANSWERS POINT: say the domain lines, then the spoken-report parts
+  in order — begin each part with its title as a short spoken lead-in, then its lines.
+- Between sections you may add ONE short natural bridge of a few words (for example "Now,
+  this check-in on its own…" or "Now, question by question.") so it feels like one
+  conversation, not a list of blocks. A bridge carries no new claim. Keep it brisk — the
+  whole explanation must fit in about three minutes, so add no extra sentences of your own.
+- Speak warmly and naturally, like a thoughtful analyst talking with them — never as a
+  list. No bullets, no markdown, no asterisks, no numbers. Leave a brief natural pause
+  between sections.
 - You may smooth the wording so it flows, but keep every line's meaning. Do NOT add, drop
   or reorder signals, and do NOT add any claim, cause, advice, diagnosis or reassurance
   that is not below. If a line says something is not a warning sign, that is the only
@@ -467,39 +480,54 @@ _REPORT_DELIVERY_RULES = """HOW TO SPEAK IT:
 - End with one short sentence inviting questions about their results, then stop."""
 
 
+def _report_part_lines(part: dict) -> list[str]:
+    return [f"* {part.get('title', '')}"] + [f"  - {line}" for line in part.get("say") or []]
+
+
 def _report_content(report: dict) -> str:
-    lines = ["INTERPRETATIONS (STEP 1):"]
-    for s in report.get("sections") or []:
-        lines.append(f"- {s.get('label', '')}: {s.get('interpretation', '')}")
-    zone_lines = report.get("zone_lines") or []
-    if zone_lines:
-        lines.append("FATIGUE ↔ BURNOUT ZONE (STEP 2):")
-        lines.extend(f"- {line}" for line in zone_lines)
-    comparison_lines = report.get("comparison_lines") or []
-    if comparison_lines:
-        lines.append("SINCE YOUR LAST ASSESSMENT (STEP 3):")
-        lines.extend(f"- {line}" for line in comparison_lines)
+    spoken = report.get("spoken_report") or {}
+    parts = spoken.get("parts") or []
+    lines: list[str] = []
+
+    since = (report.get("comparison_lines") or []) + (report.get("zone_lines") or [])
+    if since:
+        lines.append("SINCE YOUR LAST CHECK-IN (SECTION 1):")
+        lines.extend(f"- {line}" for line in since)
+
+    # The section interpretations are on the user's screen, so they are not spoken.
+    if parts:
+        lines.append("THIS ASSESSMENT (SECTION 2):")
+        lines.extend(_report_part_lines(parts[0]))
+
     signal_lines = report.get("signal_lines") or []
     if signal_lines:
-        lines.append("YOUR SIGNALS SINCE LAST TIME (STEP 4):")
+        lines.append("QUESTION BY QUESTION (SECTION 3):")
         lines.extend(f"- {line}" for line in signal_lines)
-    parts = (report.get("spoken_report") or {}).get("parts") or []
-    if parts:
-        lines.append("SPOKEN REPORT (STEP 5):")
-        for part in parts:
-            lines.append(f"* {part.get('title', '')}")
-            lines.extend(f"  - {line}" for line in part.get("say") or [])
+
+    domain_lines = spoken.get("domain_lines") or []
+    if domain_lines or parts[1:]:
+        lines.append("WHERE YOUR ANSWERS POINT (SECTION 4):")
+        lines.extend(f"- {line}" for line in domain_lines)
+        for part in parts[1:]:
+            lines.extend(_report_part_lines(part))
     else:
-        lines.append("SPOKEN REPORT (STEP 5): none — go straight to the closing invitation.")
+        lines.append("WHERE YOUR ANSWERS POINT (SECTION 4): none — go straight to the closing invitation.")
     return "\n".join(lines)
 
 
 def report_cue_instructions(cue: str, report: dict) -> str | None:
     """Per-response instructions to explain (or resume explaining) the PILOT report, or
-    None for an unknown cue or a report without sections."""
-    if cue not in REPORT_CUE_NAMES or not report.get("sections"):
+    None for an unknown cue or a report without sections (the sections gate the
+    explanation even though their interpretations are not spoken)."""
+    if (cue not in REPORT_CUE_NAMES and cue != REPORT_AUTO_CONTINUE) or not report.get("sections"):
         return None
-    if cue == "report_explain":
+    if cue == REPORT_AUTO_CONTINUE:
+        lead = (
+            "Your previous message explaining the user's report was cut off part-way by a length "
+            "limit. Carry on seamlessly from exactly where it ended — mid-sentence if need be — "
+            "without any lead-in. Do NOT repeat anything you already said and do NOT start over."
+        )
+    elif cue == "report_explain":
         lead = (
             "The user has pressed Start on their report screen. Explain their assessment "
             "report now, from the beginning."

@@ -86,7 +86,8 @@ async def test_route_returns_comparison_for_own_run(sig_app, initialized_db):
         q = body["questions"][0]
         assert q["questionId"] == "bat_q1" and q["prompt"] == "At work, I feel mentally exhausted."
         assert q["answer"] == {"previousLabel": "Rarely", "currentLabel": "Often",
-                               "previousValue": 2, "currentValue": 4, "changed": True}
+                               "previousValue": 2, "currentValue": 4, "changed": True,
+                               "recentValues": [2], "recentLabels": ["Rarely"]}
         assert q["surfacedBy"] == "strong"
         assert [s["id"] for s in q["signals"]] == ["blink", "latency"]
         assert q["signals"][1]["direction"] == "shorter" and q["signals"][1]["tier"] == "strong"

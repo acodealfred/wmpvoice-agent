@@ -122,16 +122,90 @@ def test_pace_slowing_and_steady_are_distinguished():
     assert "pace stayed steady" in _text(build_pilot_spoken_report(PILOT, _results(LOW_BAT, LOW_CBI, latency=steady)))
 
 
-def test_focus_area_from_high_answers_is_named_in_the_opportunity():
+# ── section 4: where the answers point ────────────────────────────────────
+
+def test_high_answers_are_named_with_their_domain_area():
     # bat_q1 (Emotional Exhaustion) answered 5/5
     r = build_pilot_spoken_report(PILOT, _results([5, 1, 1, 1], LOW_CBI))
-    assert r["parts"][1]["say"][0].startswith("Your answers pointed most toward mental exhaustion.")
+    assert r["domain_lines"][0] == "Your answers were highest on exhaustion — especially feeling mentally exhausted at work."
+    assert "isn't a label" in r["domain_lines"][1]
+    assert "pointed most toward" not in " ".join(r["parts"][1]["say"])  # no longer in The Opportunity
+
+
+def test_cbi_items_share_one_area_and_bat_items_keep_theirs():
+    # bat_q3 (Cognitive Impairment) = 5; the three CBI items together are high (cbi_q3 reversed).
+    r = build_pilot_spoken_report(PILOT, _results([1, 1, 5, 1], [100, 100, 0]))
+    assert r["domain_lines"][0] == ("Your answers were highest on difficulty keeping your focus and work-related "
+                                    "fatigue — especially staying focused at work.")
+
+
+def test_cbi_area_is_the_mean_of_its_items():
+    # One high CBI item among low ones doesn't make the whole CBI area high.
+    r = build_pilot_spoken_report(PILOT, _results([1, 1, 1, 1], [100, 50, 50]))  # mean ≈ two-thirds
+    assert r["domain_lines"][0].startswith("Nothing reached the high range, but your answers leaned most toward "
+                                           "work-related fatigue")
 
 
 def test_reverse_item_is_read_in_the_burnout_direction():
     # cbi_q3 answered 0 ("never enough energy") is the worst answer for a reverse item.
     r = build_pilot_spoken_report(PILOT, _results(LOW_BAT, [25, 25, 0]))
-    assert "having little energy left for life outside work" in r["parts"][1]["say"][0]
+    assert r["domain_lines"][0] == ("Nothing reached the high range, but your answers leaned most toward "
+                                    "work-related fatigue — especially having enough energy for family and "
+                                    "friends in your free time.")
+
+
+def test_moderate_answers_still_name_the_top_areas():
+    r = build_pilot_spoken_report(PILOT, _results(MOD_BAT, MOD_CBI))  # every area level → first two
+    assert r["domain_lines"][0] == ("Nothing reached the high range, but your answers leaned most toward exhaustion "
+                                    "and mental distance from your work — especially feeling mentally exhausted at work.")
+
+
+def test_low_answers_still_name_the_slightly_highest_areas():
+    r = build_pilot_spoken_report(PILOT, _results(LOW_BAT, LOW_CBI))
+    assert r["domain_lines"][0] == ("Your answers were low across the board; the areas that came out slightly highest "
+                                    "were mental distance from your work and difficulty managing your emotions at work.")
+    one = build_pilot_spoken_report(PILOT, _results([1, 2, 1, 1], [0, 0, 100]))
+    assert one["domain_lines"][0].endswith("the area that came out slightly highest was mental distance from your work.")
+
+
+def test_several_high_areas_are_capped_at_three():
+    r = build_pilot_spoken_report(PILOT, _results(HIGH_BAT, HIGH_CBI))
+    assert r["domain_lines"][0].startswith("Your answers were highest on exhaustion, mental distance from your work "
+                                           "and difficulty managing your emotions at work —")
+
+
+def test_domain_lines_never_diagnose_and_are_in_the_followup_text():
+    r = build_pilot_spoken_report(PILOT, _results(HIGH_BAT, HIGH_CBI))
+    joined = " ".join(r["domain_lines"]).lower()
+    assert "diagnos" not in joined and "you have" not in joined and "burnout" not in joined
+    assert "Where your answers point:" in r["plain_text"]
+
+
+# ── voice tone (section 2) ────────────────────────────────────────────────
+
+def _with_tones(tones):
+    results = _results(LOW_BAT, LOW_CBI)
+    for qid, tone in zip(_IDS, tones, strict=False):
+        results[qid]["voice_sentiment"] = tone
+    return results
+
+
+def test_mostly_one_tone_is_named():
+    r = build_pilot_spoken_report(PILOT, _with_tones(["neutral"] * 5 + ["positive"] * 2))
+    assert "The tone of your answers stayed mostly even and neutral throughout." in r["parts"][0]["say"]
+
+
+def test_mixed_tone_names_the_two_most_common():
+    r = build_pilot_spoken_report(PILOT, _with_tones(["negative", "negative", "negative", "positive", "positive", "neutral"]))
+    assert ("The tone of your answers moved around as you went — some moments on the heavier side, "
+            "others positive.") in r["parts"][0]["say"]
+
+
+def test_too_few_tones_say_nothing_and_tone_is_never_a_drive():
+    assert "tone" not in _text(build_pilot_spoken_report(PILOT, _with_tones(["positive", "positive"])))
+    r = build_pilot_spoken_report(PILOT, _with_tones(["positive"] * 7))
+    assert r["framing"] == FRAMING_STEADY
+    assert r["parts"][0]["say"][1] == "That steadiness shows up in one signal:"
 
 
 def test_only_pilot_gets_a_spoken_report():
@@ -146,6 +220,7 @@ async def test_burnout_score_carries_spoken_report_and_stores_it_for_followups()
     sess.survey_results = _results(LOW_BAT, LOW_CBI, FOCUSED_BLINK, ELEVATED_PUPIL, QUICKENING)
     data = json.loads((await query_survey_tool(sess, PILOT, {"query_type": "burnout_score"})).to_text())
     assert [p["title"] for p in data["spoken_report"]["parts"]] == [TITLE_CAPACITY, TITLE_OPPORTUNITY, TITLE_UNLOCKS]
+    assert data["spoken_report"]["domain_lines"]
     assert len(data["sections"]) == 2  # the interpretations are still returned
     assert sess.spoken_report_text and TITLE_CAPACITY in sess.spoken_report_text
 

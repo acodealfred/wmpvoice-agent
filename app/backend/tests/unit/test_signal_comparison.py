@@ -346,25 +346,40 @@ def test_compare_does_not_mutate_inputs():
     assert (today, past) == before
 
 
-# ── spoken lines (voice report STEP 4) ──────────────────────────────────────
+# ── spoken lines (voice report section 3, question by question) ─────────────
 
 _SPOKEN_FORBIDDEN = re.compile(
-    r"\b(lie|honest\w*|mismatch\w*|contradict\w*|verdict|pass|fail\w*|detect\w*|stress\w*|anxious|"
-    r"suggests?|because|means|should|try|consider|pupil|gaze|burnout)\b", re.IGNORECASE)
+    r"\b(lie|lying|liar|honest\w*|untru\w*|wrong|mismatch\w*|contradict\w*|inconsisten\w*|verdict|pass|"
+    r"fail\w*|detect\w*|stress\w*|anxious|suggests?|because|means|should|try|consider|pupil|gaze|burnout)\b",
+    re.IGNORECASE)
+
+_BAT_LABELS = {1: "Never", 2: "Rarely", 3: "Sometimes", 4: "Often", 5: "Always"}
 
 
-def _changed_q(qid, *, answer_changed=False, strong=0, moved=1, previous="Rarely", current="Often"):
+def _changed_q(qid, *, answer_changed=False, strong=0, moved=1, previous="Rarely", current="Often", recent=None):
     signals = ([{"id": "latency", "direction": "shorter", "tier": "strong", "today": 900, "past": 2400}] * strong
                + [{"id": "blink", "direction": "higher", "tier": "moved", "today": 20, "past": 0}] * moved)
-    return {"questionId": qid, "prompt": "p", "status": "changed",
-            "answer": {"changed": answer_changed, "previousLabel": previous,
-                       "currentLabel": current if answer_changed else previous},
-            "signals": signals}
+    answer = {"changed": answer_changed, "previousLabel": previous,
+              "currentLabel": current if answer_changed else previous}
+    if recent is not None:  # (current value, [recent values newest first]) on the BAT scale
+        cur, rec = recent
+        answer.update(currentValue=cur, currentLabel=_BAT_LABELS[cur],
+                      recentValues=rec, recentLabels=[_BAT_LABELS[v] for v in rec])
+    return {"questionId": qid, "prompt": "p", "status": "changed", "answer": answer, "signals": signals}
 
 
-def _quiet_q(qid, status="steady"):
-    return {"questionId": qid, "prompt": "p", "status": status,
-            "answer": {"changed": False, "previousLabel": "Often", "currentLabel": "Often"}, "signals": []}
+def _quiet_q(qid, status="steady", current=4, recent=(4,)):
+    """A quiet question whose answer is in line with the recent ones by default. BAT values
+    for bat_* ids, CBI values (0-100) for cbi_* ids."""
+    labels = _BAT_LABELS if qid.startswith("bat") else {0: "Never / Almost Never", 25: "Seldom", 50: "Sometimes",
+                                                         75: "Often", 100: "Always"}
+    if qid.startswith("cbi") and current == 4 and tuple(recent) == (4,):
+        current, recent = 75, (75,)
+    return {"questionId": qid, "prompt": "p", "status": status, "signals": [],
+            "answer": {"changed": bool(recent) and current != recent[0],
+                       "previousLabel": labels[recent[0]] if recent else None, "currentLabel": labels[current],
+                       "currentValue": current, "recentValues": list(recent),
+                       "recentLabels": [labels[v] for v in recent]}}
 
 
 def _spoken(*questions, reference_count=1):
@@ -386,7 +401,19 @@ def test_every_pilot_question_has_a_spoken_phrase():
         assert not re.search(r"\d", q["spoken"])
 
 
-LEAD_ONE = "Compared with your last check-in, here's what was recorded while you were answering."
+def test_payload_carries_the_last_two_answers_newest_first():
+    result = _compare(_readings(**{Q1: {"answer": 1, "latency_ms": 5000.0}}),
+                      _readings(**{Q1: {"answer": 4, "latency_ms": 2000.0}}),
+                      _readings(**{Q1: {"answer": 5, "latency_ms": 2000.0}}),
+                      _readings(**{Q1: {"answer": 2, "latency_ms": 2000.0}}))
+    a = _question(result)["answer"]
+    assert (a["recentValues"], a["recentLabels"]) == ([4, 5], ["Often", "Always"])
+    assert (a["previousLabel"], a["changed"]) == ("Often", True)  # unchanged contract for the card
+
+
+LEAD_ONE = "Now, question by question, compared with your last check-in."
+LEAD_MANY = "Now, question by question, compared with your recent check-ins."
+IN_LINE = "nothing notable changed"
 
 
 def test_spoken_lines_nothing_to_say():
@@ -398,7 +425,7 @@ def test_spoken_lines_cover_every_question_in_survey_order():
     lines = _spoken(*[_changed_q(qid) for qid in QIDS])
     assert lines[0] == LEAD_ONE
     assert len(lines) == 1 + len(QIDS)  # no cap, no "more on your screen" line
-    phrases = [q["spoken"] for q in PILOT["questions"]]
+    phrases = [q["short"].lower() for q in PILOT["questions"]]  # brief names: one capped response
     for line, phrase in zip(lines[1:], phrases, strict=True):
         assert line.startswith(f"On {phrase},")
     assert not any("on your screen" in line for line in lines)
@@ -412,34 +439,112 @@ def test_neighbouring_quiet_questions_are_grouped_by_status():
         _quiet_q("cbi_q1", "no_data"), _quiet_q("cbi_q2", "no_data"),  # no_data run
         _quiet_q("cbi_q3"),                                            # steady again
     )
-    assert lines[2] == ("On finding enthusiasm for your work and staying focused at work, "
-                        "there was no notable change in your signals.")
-    assert lines[3].startswith("On keeping control of your emotions at work, your answer was the same")
-    assert lines[4] == ("On whether your work is emotionally exhausting and feeling exhausted in the morning at the "
-                        "thought of another day at work, there weren't enough readings to compare.")
-    assert lines[5] == ("On having enough energy for family and friends in your free time, "
-                        "there was no notable change in your signals.")
+    assert lines[2] == f"On enthusiasm for work and staying focused, {IN_LINE}."
+    assert lines[3].startswith("On emotional control, same answer as last time")
+    assert lines[4] == ("On emotionally draining work and morning exhaustion, your answers were in line with before, "
+                        "with too few readings to compare signals.")
+    assert lines[5] == f"On energy for family and friends, {IN_LINE}."
     assert len(lines) == 6
+
+
+def test_quiet_question_without_earlier_answers_makes_no_claim_about_answers():
+    q = _quiet_q("bat_q1", recent=())
+    lines = _spoken(q, _changed_q("bat_q2"))
+    assert lines[1] == "On mental exhaustion, your signals were steady."
 
 
 def test_three_quiet_questions_join_with_commas_and_and():
     lines = _spoken(_quiet_q("bat_q1"), _quiet_q("bat_q2"), _quiet_q("bat_q3"), _changed_q("bat_q4"))
-    assert lines[1] == ("On feeling mentally exhausted at work, finding enthusiasm for your work and staying "
-                        "focused at work, there was no notable change in your signals.")
+    assert lines[1] == f"On mental exhaustion, enthusiasm for work and staying focused, {IN_LINE}."
 
 
 def test_all_steady_is_one_sentence():
     assert _spoken(*[_quiet_q(qid) for qid in QIDS]) == [
-        LEAD_ONE, "There was no notable change in your signals on any of the questions."]
+        LEAD_ONE, "On every question, your answers and signals were in line with before — a steady, "
+                  "consistent picture."]
 
 
 def test_spoken_answer_templates_and_reference():
     same = _spoken(_changed_q("cbi_q1", previous="Never / Almost Never"), reference_count=3)
-    assert same[0] == "Compared with your recent check-ins, here's what was recorded while you were answering."
-    assert same[1] == ("On whether your work is emotionally exhausting, your answer was the same as last time; "
-                       "while you answered, your blink rate was higher than last time.")
+    assert same[0] == LEAD_MANY
+    assert same[1] == ("On emotionally draining work, same answer as last time, but while you answered, your "
+                       "blink rate was higher. So your answer of never or almost never may not be the whole story.")
     changed = _spoken(_changed_q("cbi_q1", answer_changed=True, previous="Never / Almost Never", current="Often"))
-    assert "you said often this time, where last time you said never or almost never;" in changed[1]
+    assert "you said often, after never or almost never last time, and while you answered," in changed[1]
+
+
+def test_signal_reflections_rotate_so_no_sentence_repeats():
+    lines = _spoken(_changed_q("bat_q1"), _changed_q("bat_q2"), _changed_q("bat_q3"))
+    reflections = [line.split(". ", 1)[1] for line in lines[1:]]
+    assert len(set(reflections)) == 3
+
+
+# ── answer shift (signals steady, answer far from the recent ones) ───────────
+
+def test_answer_two_steps_from_both_recent_answers_is_spoken_as_a_shift():
+    lines = _spoken(_quiet_q("bat_q1", current=1, recent=(4, 5)), _quiet_q("bat_q2"))
+    assert lines[1] == ("On mental exhaustion, you said never, where before, you said always, then often. "
+                        "That's quite a shift — worth asking whether never fits a usual week, or mostly today.")
+    assert lines[2] == f"On enthusiasm for work, {IN_LINE}."
+
+
+def test_one_close_recent_answer_keeps_it_in_line():
+    # Two steps from the newest, but only one from the older → in line, nothing called out.
+    lines = _spoken(_quiet_q("bat_q1", current=2, recent=(4, 3)), _changed_q("bat_q2"))
+    assert lines[1] == f"On mental exhaustion, {IN_LINE}."
+
+
+@pytest.mark.parametrize("current, recent, shifted", [
+    (3, (4,), False),      # one step
+    (2, (4,), True),       # exactly two steps
+    (5, (3, 3), True),     # same answer twice before, two steps away
+    (1, (5, 1), False),    # matches one of the two
+])
+def test_shift_threshold_is_two_scale_steps(current, recent, shifted):
+    lines = _spoken(_quiet_q("bat_q1", current=current, recent=recent), _changed_q("bat_q2"))
+    assert ("quite a shift" in lines[1]) is shifted
+
+
+def test_shift_counts_scale_steps_on_cbi_and_uses_raw_answers_for_reverse_items():
+    assert "quite a shift" in _spoken(_quiet_q("cbi_q1", current=0, recent=(50,)), _changed_q("bat_q1"))[1]
+    assert "quite a shift" not in _spoken(_quiet_q("cbi_q1", current=0, recent=(25,)), _changed_q("bat_q1"))[1]
+    # cbi_q3 is reverse-scored; the answers themselves are what moved.
+    line = _spoken(_quiet_q("cbi_q3", current=100, recent=(0,)), _changed_q("bat_q1"))[1]
+    assert line.startswith("On energy for family and friends, you said always, where last time you said never "
+                           "or almost never.")
+
+
+def test_same_answer_twice_before_is_said_once():
+    line = _spoken(_quiet_q("bat_q1", current=5, recent=(3, 3)), _changed_q("bat_q2"))[1]
+    assert "before, you said sometimes both times" in line
+
+
+def test_shift_with_notable_signals_is_one_sentence_naming_both():
+    line = _spoken(_changed_q("bat_q1", recent=(1, [4, 5])))[1]
+    assert line == ("On mental exhaustion, you said never, a big shift from before, and while you answered, "
+                    "your blink rate was higher. So your answer of never may not be the whole story.")
+    assert "your answer of never" in line
+
+
+def test_shift_reflections_rotate():
+    lines = _spoken(_quiet_q("bat_q1", current=1, recent=(4,)), _quiet_q("bat_q2", current=1, recent=(4,)))
+    assert lines[1].split(". ", 1)[1] != lines[2].split(". ", 1)[1]
+
+
+def test_a_steady_run_with_one_shift_is_not_all_steady():
+    questions = [_quiet_q(qid) for qid in QIDS]
+    questions[0] = _quiet_q("bat_q1", current=1, recent=(4,))
+    lines = _spoken(*questions)
+    assert "quite a shift" in lines[1]
+    assert lines[2].endswith(f"{IN_LINE}.")
+
+
+def test_shift_lines_have_no_numbers_or_forbidden_words():
+    for current, recent in itertools.product(range(1, 6), [(1,), (5,), (1, 5), (5, 5), (3, 1)]):
+        for status in ("steady", "no_data"):
+            for line in _spoken(_quiet_q("bat_q1", status, current, recent), _changed_q("bat_q2", recent=(current, list(recent)))):
+                assert not re.search(r"\d", line), line
+                assert not _SPOKEN_FORBIDDEN.search(line), line
 
 
 def test_spoken_lines_have_no_numbers_or_forbidden_words():
