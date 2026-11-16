@@ -102,3 +102,37 @@ def test_reconnect_resumes_straight_into_the_next_question_with_the_full_remaini
     assert "ask the next unanswered question: 'Question 3?'" in text
     assert text.index("(id: q3)") < text.index("(id: q4)")
     assert "is NOT an answer" in text
+
+
+# ── a scored answer needs its score (else the report never opens) ────────────
+@pytest.mark.parametrize("bad", [None, "3", True])
+def test_scored_answer_without_a_valid_score_is_refused(bad):
+    sess = _sess()
+    result, body = _record(sess, "q1", score=bad)
+    assert body["recorded"] is False and body["reason"] == "missing_score"
+    assert "ask the question again" in body["message"]
+    assert result.destination == ToolResultDirection.TO_SERVER  # the model reads it
+    assert sess.survey_results == {}
+    _, body = _record(sess, "q1", score=3)  # the re-asked answer is then recorded
+    assert body["recorded"] is True
+
+
+async def test_continue_re_asks_an_answer_saved_without_a_score(live_rtmt, user):
+    from ciq.assessments.service import continue_run, get_resumable
+    from db import save_survey_item_responses
+
+    await start_run(live_rtmt, "s1", user, None, "TEST")
+    sess = live_rtmt.get_or_create_session("s1")
+    run_id = sess.survey_run_id
+    await survey_tool(sess, sess.survey_config, {"question_id": "q1", "score": 3})
+    # An answer stored without a score, as older code allowed.
+    await save_survey_item_responses(run_id, user, "s1", sess.survey_config, [{"questionId": "q2", "score": None}])
+    await pause_run(live_rtmt, "s1", user)
+
+    assert (await get_resumable(user))["answered"] == 1
+    run = await continue_run(live_rtmt, "s1", user, run_id)
+    assert run["answered"] == 1
+    assert [s["questionId"] for s in run["snapshots"]] == ["q1"]
+    assert set(sess.survey_results) == {"q1"}
+    result = await survey_tool(sess, sess.survey_config, {"question_id": "q2", "score": 4})  # q2 is next again
+    assert json.loads(result.to_text())["recorded"] is True

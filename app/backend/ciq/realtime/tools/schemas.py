@@ -49,7 +49,9 @@ SURVEY_SCHEMA = {
                 "description": (
                     "For 1-5 scale questions: 1=Never, 2=Rarely, 3=Sometimes, 4=Often, 5=Always. "
                     "For 0-100 scale questions: 0=Never/Almost Never, 25=Seldom, 50=Sometimes, "
-                    "75=Often, 100=Always. Omit entirely for a qualitative, open-ended question."
+                    "75=Often, 100=Always. REQUIRED for every scale question — if the answer is "
+                    "unclear, ask again rather than recording it without a score. Omit only for a "
+                    "qualitative, open-ended question."
                 ),
             },
             "user_verbal_response": {

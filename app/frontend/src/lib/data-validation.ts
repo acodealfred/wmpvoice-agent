@@ -18,10 +18,10 @@ export function filterByStatus(runs: DataValidationRun[], status: StatusFilter):
     return status === "all" ? runs : runs.filter(r => r.status === status);
 }
 
-/** Runs whose user ID contains `query` (trimmed, case-insensitive); a blank query keeps all. */
-export function filterByUserId(runs: DataValidationRun[], query: string): DataValidationRun[] {
+/** Runs whose user ID or user name contains `query` (trimmed, case-insensitive); a blank query keeps all. */
+export function filterByUser(runs: DataValidationRun[], query: string): DataValidationRun[] {
     const q = query.trim().toLowerCase();
-    return q ? runs.filter(r => r.userId?.toLowerCase().includes(q)) : runs;
+    return q ? runs.filter(r => r.userId?.toLowerCase().includes(q) || r.userName?.toLowerCase().includes(q)) : runs;
 }
 
 export const PAGE_SIZE = 10;

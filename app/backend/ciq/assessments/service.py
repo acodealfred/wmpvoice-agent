@@ -83,7 +83,13 @@ def _results_entry_from_row(row: dict) -> dict:
 
 
 def _ordered_rows(rows: list[dict], config: dict) -> list[dict]:
-    """Item rows in the survey's own question order (unknown ids last)."""
+    """The answered item rows in the survey's own question order (unknown ids last).
+
+    For a scored survey, a row with no raw_score doesn't count as answered: it can't be
+    scored or reported (and used to stop the report from opening), so after Continue that
+    question is asked again and its new answer replaces the row (upsert)."""
+    if not config.get("qualitative"):
+        rows = [r for r in rows if r.get("raw_score") is not None]
     order = {q["id"]: i for i, q in enumerate(config.get("questions", []))}
     return sorted(rows, key=lambda r: order.get(r["question_id"], len(order)))
 

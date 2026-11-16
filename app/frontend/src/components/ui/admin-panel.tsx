@@ -213,6 +213,23 @@ export function AdminPanel() {
         [fetchUsers]
     );
 
+    // Participant ID map (P004 → user id) as a CSV, for people who can't query the DB.
+    const [participantMapDownloading, setParticipantMapDownloading] = useState(false);
+
+    const downloadParticipantMap = useCallback(async () => {
+        setParticipantMapDownloading(true);
+        setUsersError(null);
+        try {
+            const resp = await apiFetch("/admin/users/participant-map.csv", { credentials: "same-origin" });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            triggerBlobDownload(await resp.blob(), filenameFromResponse(resp, "participant_id_map.csv"));
+        } catch (err) {
+            setUsersError(err instanceof Error ? `Participant map download failed (${err.message})` : "Participant map download failed.");
+        } finally {
+            setParticipantMapDownloading(false);
+        }
+    }, []);
+
     // ── Password reset requests (forgot-password from the login page) ──
     // Polled so a new request shows up as a notification at the top of the panel.
     const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
@@ -1342,16 +1359,29 @@ export function AdminPanel() {
                             </span>
                         )}
                     </div>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={fetchUsers}
-                        disabled={usersLoading}
-                        className="border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
-                    >
-                        <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${usersLoading ? "animate-spin" : ""}`} />
-                        Refresh
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={downloadParticipantMap}
+                            disabled={participantMapDownloading}
+                            title="CSV of participant usernames (P001, P002, …) and their user IDs"
+                            className="border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
+                        >
+                            {participantMapDownloading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FileDown className="mr-1.5 h-3.5 w-3.5" />}
+                            Participant ID map (CSV)
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={fetchUsers}
+                            disabled={usersLoading}
+                            className="border-[color:var(--ciq-line)] bg-transparent text-[color:var(--ciq-text-body)] hover:bg-[color:var(--ciq-card-2)]"
+                        >
+                            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${usersLoading ? "animate-spin" : ""}`} />
+                            Refresh
+                        </Button>
+                    </div>
                 </div>
 
                 {usersError && (

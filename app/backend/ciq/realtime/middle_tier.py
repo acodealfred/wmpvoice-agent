@@ -750,7 +750,10 @@ class RTMiddleTier:
                                                 "rightGazePosition": right_gaze_position,
                                                 "responseLatencyMs": survey_result_data.get("response_latency_ms"),
                                             },
-                                            "totalScore": sum(r["score"] for r in sess.survey_results.values()),
+                                            # .get/or 0: an answer stored without a score (a qualitative
+                                            # survey, or one restored from an older run) must never stop
+                                            # this message — it is what opens the report at completed == total.
+                                            "totalScore": sum(r.get("score") or 0 for r in sess.survey_results.values()),
                                             "completed": completed,
                                             "total": total_questions,
                                         }

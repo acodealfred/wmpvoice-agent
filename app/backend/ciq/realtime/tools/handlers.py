@@ -293,6 +293,15 @@ async def survey_tool(sess: SessionState, survey_config: dict, args: Any) -> Too
             " if you have not asked it yet, ask it now.",
             expected_question_id=nxt[0]["id"],
         )
+    # A scored answer needs its score: one saved without it can't be scored or reported
+    # (and used to stop the report from opening). Ask again instead of recording it.
+    if not survey_config.get("qualitative") and (isinstance(score, bool) or not isinstance(score, (int, float))):
+        return _reject_answer(
+            question_id, "missing_score",
+            f"{question_id} needs a score — do not record it without one. If the user's answer "
+            "didn't clearly match one of the answer options, gently ask the question again and "
+            "record the option they choose.",
+        )
 
     voice_sentiment = args.get("voice_sentiment") or sess.current_sentiment
 

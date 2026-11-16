@@ -25,6 +25,7 @@ from ciq.api.history_routes import (
     user_zone_trend,
 )
 from ciq.api.meta_routes import get_config, get_version
+from ciq.api.participant_map import admin_participant_map_csv
 from ciq.api.password_reset_routes import (
     admin_approve_password_reset,
     admin_deny_password_reset,
@@ -215,6 +216,7 @@ async def create_app():
     app.router.add_post("/consent", save_consent)
     app.router.add_get("/admin/users", admin_list_users)
     app.router.add_patch("/admin/users/{userId}/role", admin_update_user_role)
+    app.router.add_get("/admin/users/participant-map.csv", admin_participant_map_csv)
     app.router.add_get("/admin/password-resets", admin_list_password_resets)
     app.router.add_post("/admin/password-resets/{requestId}/approve", admin_approve_password_reset)
     app.router.add_post("/admin/password-resets/{requestId}/deny", admin_deny_password_reset)

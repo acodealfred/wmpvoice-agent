@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DataValidationRun } from "@/types";
 
-import { exportUrl, filterByStatus, filterByUserId, pageCount, paginate, statusBadgeLabel, statusCounts, zipFilename, zipTree } from "./data-validation";
+import { exportUrl, filterByStatus, filterByUser, pageCount, paginate, statusBadgeLabel, statusCounts, zipFilename, zipTree } from "./data-validation";
 
 function run(over: Partial<DataValidationRun>): DataValidationRun {
     return {
@@ -24,14 +24,14 @@ function run(over: Partial<DataValidationRun>): DataValidationRun {
     };
 }
 
-describe("filterByUserId", () => {
+describe("filterByUser", () => {
     const runs = [
         run({ surveyRunId: "a", userId: "6f1c2a90-aaaa" }),
         run({ surveyRunId: "b", userId: "6F1C77B0-bbbb" }),
         run({ surveyRunId: "c", userId: "d4e5f6a7-cccc" }),
         run({ surveyRunId: "d", userId: null })
     ];
-    const ids = (q: string) => filterByUserId(runs, q).map(r => r.surveyRunId);
+    const ids = (q: string) => filterByUser(runs, q).map(r => r.surveyRunId);
 
     it("matches any part of the user ID, ignoring case and surrounding spaces", () => {
         expect(ids("6f1c")).toEqual(["a", "b"]);
@@ -46,6 +46,26 @@ describe("filterByUserId", () => {
     it("never matches a run without a user ID, and returns none for no match", () => {
         expect(ids("null")).toEqual([]);
         expect(ids("zzz")).toEqual([]);
+    });
+
+    describe("by user name", () => {
+        const named = [
+            run({ surveyRunId: "a", userId: "6f1c2a90-aaaa", userName: "P001" }),
+            run({ surveyRunId: "b", userId: "d4e5f6a7-bbbb", userName: "Nimal Perera" }),
+            run({ surveyRunId: "c", userId: "9a8b7c6d-cccc", userName: null })
+        ];
+        const found = (q: string) => filterByUser(named, q).map(r => r.surveyRunId);
+
+        it("matches any part of the name, ignoring case and surrounding spaces", () => {
+            expect(found("p001")).toEqual(["a"]);
+            expect(found("  perera ")).toEqual(["b"]);
+            expect(found("NIMAL")).toEqual(["b"]);
+        });
+
+        it("still matches by user ID, including a run with no name", () => {
+            expect(found("cccc")).toEqual(["c"]);
+            expect(found("6f1c")).toEqual(["a"]);
+        });
     });
 });
 

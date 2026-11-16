@@ -12,7 +12,7 @@ import { SavedReportDialog } from "@/components/ui/saved-report-dialog";
 import {
     exportUrl,
     filterByStatus,
-    filterByUserId,
+    filterByUser,
     pageCount,
     paginate,
     statusBadgeLabel,
@@ -120,8 +120,8 @@ export function DataValidationPanel() {
     }, [load]);
 
     const runs = useMemo(() => data?.runs ?? [], [data]);
-    // User-ID search first, so the status pills and summary tiles count what it leaves.
-    const searched = useMemo(() => filterByUserId(runs, userQuery), [runs, userQuery]);
+    // User ID / name search first, so the status pills and summary tiles count what it leaves.
+    const searched = useMemo(() => filterByUser(runs, userQuery), [runs, userQuery]);
     const counts = useMemo(() => statusCounts(searched), [searched]);
     const rows = useMemo(() => filterByStatus(searched, status), [searched, status]);
     const selected = runs.find(r => r.surveyRunId === selectedId) ?? null;
@@ -234,15 +234,15 @@ export function DataValidationPanel() {
                         type="search"
                         value={userQuery}
                         onChange={e => setUserQuery(e.target.value)}
-                        placeholder="Search user ID…"
-                        aria-label="Search by user ID"
+                        placeholder="Search user ID or name…"
+                        aria-label="Search by user ID or name"
                         className="font-data h-10 w-full rounded-md border border-[color:var(--ciq-line)] bg-[color:var(--ciq-card-2)] pl-9 pr-9 text-sm text-[color:var(--ciq-text-strong)] placeholder:font-sans placeholder:text-[color:var(--ciq-text-muted)] focus:border-[color:var(--ciq-accent-purple)] focus:outline-none [&::-webkit-search-cancel-button]:hidden"
                     />
                     {userQuery && (
                         <button
                             type="button"
                             onClick={() => setUserQuery("")}
-                            aria-label="Clear user ID search"
+                            aria-label="Clear user search"
                             className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded text-[color:var(--ciq-text-muted)] hover:text-[color:var(--ciq-text-strong)]"
                         >
                             <X className="h-4 w-4" aria-hidden />
