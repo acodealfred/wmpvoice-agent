@@ -163,5 +163,5 @@ app/draftui
 docs/ai-observability-plan.html
 
 
-# Personal Claude Code permissions (per developer, never shared)
-.claude/settings.local.json
+# Claude Code orchestration (agents, commands, context, settings) — kept local, not shared
+.claude/

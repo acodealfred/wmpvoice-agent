@@ -58,12 +58,14 @@ cd app/frontend && npm test
 **Required:**
 ```
 AZURE_OPENAI_ENDPOINT=wss://<name>.openai.azure.com
-AZURE_OPENAI_REALTIME_DEPLOYMENT=gpt-4o-realtime-preview
+AZURE_OPENAI_REALTIME_DEPLOYMENT=gpt-realtime  # must be a GA realtime deployment (preview API is retired)
 AZURE_OPENAI_REALTIME_VOICE_CHOICE=alloy  # alloy | echo | shimmer
 ```
 
 **Optional feature flags:**
 ```
+ENABLE_RECOVERY_WINDOW_VOICE=true # ON by default: the post-report Recovery Window voice flow
+                                 # (intake + guided recovery track). See docs/recovery-window.md.
 ENABLE_SENTIMENT_ANALYSIS=true   # enables voice sentiment tool in RTMiddleTier
 ENABLE_SURVEY_MODE=true          # switches to burnout-specialist persona + survey tools
 ENABLE_BIOMETRIC_GUARDRAIL=true  # default for the descriptive-only biometric guardrail
@@ -155,12 +157,28 @@ The frontend runs two parallel pipelines driven by `useBiometrics.ts` and `useVi
 
 Current biometrics (`_current_blink_rate_change`, `_current_face_emotion`) are captured by the `record_survey_response` tool at answer time, creating per-question snapshots included in the final report.
 
+### Assessment lifecycle
+
+An assessment is a **run** (`survey_records` row) with states
+`active → paused → active → completed` (or `closed`). There is at most one open
+run per user. Each run has its own resting baseline (eyes open / eyes closed)
+and per-second timeline, stored per Start/Continue segment. Only PILOT is
+offered in the UI (`AVAILABLE_SURVEY_TYPES`). See `docs/assessment-lifecycle.md`.
+
 ### Report generation (two-stage LLM)
 
 `POST /analyze-report` (handler in `ciq/reports/routes.py`) performs two sequential `rtmt.analyze_with_prompt()` calls:
 
 1. **Behavioral analysis**: Strict JSON output — correlations, contradictions, patterns derived only from blink-rate research rules + survey snapshot data.
 2. **Consultative response**: Spoken summary for the user, referencing the behavioral analysis. Stored as conversation state (`report_delivered`) so the agent can answer follow-up questions.
+
+For **PILOT**, the spoken report works differently. The report screen's
+Start/Continue sends a custom `report.cue` message over `/realtime`, and the
+middle tier builds fixed sentences in code: comparison, zone, capacity/domain,
+then per-question signals (`ciq/realtime/spoken_report.py`). The LLM only voices
+them. Saved reports, the QR one-time PDF download, download requests and the
+admin bulk export are covered in `docs/reports.md`. The post-report Recovery
+Window is in `docs/recovery-window.md`.
 
 ### Frontend state and WebSocket messages
 
@@ -184,6 +202,10 @@ During frontend dev (`npm run dev`), `vite.config.ts` proxies `/realtime` to `ws
 | `app/backend/ciq/server.py` | `create_app()` — composition root + full route table |
 | `app/backend/ciq/realtime/middle_tier.py` | RTMiddleTier — WebSocket proxy + tool interception + biometric state |
 | `app/backend/ciq/reports/routes.py` | Report endpoints — `/analyze-report`, scoring |
+| `app/backend/ciq/assessments/` | Assessment run state machine + `/me/assessment/*` routes |
+| `app/backend/ciq/recovery/` | Recovery Window — intake, safety interlock, track router |
+| `app/backend/ciq/monitoring/`, `ciq/validation/` | Admin Live Monitor (in memory) and Data Validation dashboard |
+| `app/backend/ciq/voice/`, `ciq/eeg/` | Voice acoustics (parselmouth) and Muse EEG session storage/combine |
 | `app/backend/ciq/chat/` | Wellbeing Assistant chat engine (`rbac`, `tools`, `prompts`, `guardrails`, `orchestrator`, `routes`) — see `docs/manager-chat.md` |
 | `app/backend/app.py` / `app/backend/rtmt.py` | Thin shims re-exporting `ciq.server.create_app` / `RTMiddleTier` (entrypoint + legacy imports) |
 | `app/backend/biometric_interpreter.py` | BiometricInterpreter singleton — blink-rate stress detection (legacy module, imported by `ciq`) |

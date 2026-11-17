@@ -41,6 +41,21 @@ Assistant" chat.
   sharing one grounded, PII-safe engine. See `docs/manager-chat.md`.
 * **Durable persistence** — SQLite made durable across deployments via
   Litestream. See `docs/persistence.md`.
+* **Resumable assessments** — Start / Pause / Continue / Close, each run with its
+  own resting baseline and per-second timeline. See `docs/assessment-lifecycle.md`.
+* **Muse EEG headband (optional)** — Muse 2 / Muse S over Web Bluetooth, recorded
+  alongside the survey. See `docs/muse-integration.md`.
+* **Voice features** — pitch, loudness and pauses of the participant's speech.
+  See `docs/voice-features.md`.
+* **Spoken report + report cards** — a deterministic spoken PILOT report, change
+  since the last assessment, the Fatigue ↔ Burnout zone, and signals vs past
+  check-ins. Reports can be reopened from History and downloaded to a phone by
+  QR code. See `docs/reports.md`, `docs/signal-comparison.md`.
+* **Recovery Window** — an optional voice-guided post-report check-in with a
+  safety interlock and four guided recovery tracks. See `docs/recovery-window.md`.
+* **Admin tools** — Data Validation dashboard, Live Monitor of running
+  assessments, password-reset and download-request approvals, bulk report export.
+  See `docs/data-validation-dashboard.md`.
 
 ## Architecture
 
@@ -98,12 +113,13 @@ Minimal `app/backend/.env`:
 
 ```
 AZURE_OPENAI_ENDPOINT=wss://<name>.openai.azure.com
-AZURE_OPENAI_REALTIME_DEPLOYMENT=gpt-4o-realtime-preview
+AZURE_OPENAI_REALTIME_DEPLOYMENT=gpt-realtime      # must be a GA realtime deployment
 AZURE_OPENAI_REALTIME_VOICE_CHOICE=alloy      # alloy | echo | shimmer
 ```
 
 Common optional flags: `ENABLE_SURVEY_MODE`, `ENABLE_SENTIMENT_ANALYSIS`,
-`ENABLE_BIOMETRIC_GUARDRAIL`; AWS Rekognition (`AWS_REGION`,
+`ENABLE_BIOMETRIC_GUARDRAIL`; on-by-default flags `ENABLE_RECOVERY_WINDOW_VOICE`,
+`ENABLE_VOICE_FEATURES`, `ENABLE_LIVE_MONITOR`, `ENABLE_SIGNAL_COMPARISON`; AWS Rekognition (`AWS_REGION`,
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`); Wellbeing chat (`MITHRA_APP_TOKEN`,
 `AZURE_OPENAI_CHAT_DEPLOYMENT`). Omit `*_API_KEY` values to use Entra ID /
 Managed Identity. **The full, authoritative list lives in `CLAUDE.md`.**
@@ -136,12 +152,20 @@ session state and Litestream). Run `azd down` to tear down and avoid costs.
 | Doc | Covers |
 |---|---|
 | `CLAUDE.md` | **Start here** — architecture, commands, env vars, key files |
+| `CHANGELOG.md` | Release notes and upgrade notes per release |
 | `docs/refactoring.md` | The `ciq` package decomposition |
+| `docs/assessment-lifecycle.md` | Start / Pause / Continue, per-run baseline, timeline, transcripts |
+| `docs/reports.md` | Spoken report, report cards, saved reports, QR download, export |
+| `docs/signal-comparison.md` | "Your signals vs past check-ins" report card |
+| `docs/recovery-window.md` | Recovery Window flow, safety interlock, privacy model |
+| `docs/voice-features.md` | Voice pitch / loudness / pause measurements |
+| `docs/muse-integration.md`, `docs/muse-2-findings.md` | Muse EEG headband |
+| `docs/data-validation-dashboard.md` | Admin data-quality dashboard |
 | `docs/manager-dashboard.md` | Dashboard data model & counting rules |
 | `docs/manager-chat.md` | Wellbeing Assistant chat architecture + RBAC |
 | `docs/persistence.md` | SQLite + Litestream durability |
-| `docs/biometrics-inventory.md` | Biometric signals & pipeline |
-| `docs/test-plan.md`, `docs/critical-tests-guide.md` | Testing |
+| `docs/pilot-data-platform-changes.md`, `docs/survey-history.md` | Pilot survey data model |
+| `docs/test-plan.md` | Testing |
 | `docs/existing_services.md`, `docs/customizing_deploy.md`, `docs/manual_setup.md` | Deployment options |
 
 ## Project history
@@ -151,4 +175,5 @@ biometric integration → report analyzer → UI restructure → agent optimizat
 SSOT/Mithra KB integration → test generation). The MVP was frozen on
 `feature/simple-product-v1`; investor-demo work then moved to
 `release/ciq-alpha-v1`, with features developed on `feature/ciq-alpha-*` and
-merged on each success. The current branch is `feature/ciq-alpha-v1`.
+merged on each success. Releases so far: `release/ciq-alpha-v1`,
+`release/ciq-alpha-v2`, and ciq-alpha-v3 (see `CHANGELOG.md`).

@@ -105,7 +105,7 @@ azd up                               # provision + build + deploy
 ## Running the tests
 
 This repo has a pytest suite under `app/backend/tests/` (`pytest.ini`,
-`docs/test-plan.md`, `docs/critical-tests-guide.md`).
+`docs/test-plan.md`).
 
 ```bash
 source .venv/bin/activate
@@ -119,13 +119,16 @@ Frontend tests, when present, run via `cd app/frontend && npm test`.
 
 **Required:**
 - `AZURE_OPENAI_ENDPOINT` — Azure OpenAI resource (e.g. `wss://<name>.openai.azure.com`)
-- `AZURE_OPENAI_REALTIME_DEPLOYMENT` — e.g. `gpt-4o-realtime-preview`
+- `AZURE_OPENAI_REALTIME_DEPLOYMENT` — a GA realtime deployment, e.g. `gpt-realtime` (the preview API is retired)
 - `AZURE_OPENAI_REALTIME_VOICE_CHOICE` — `alloy` | `echo` | `shimmer`
 
 **Optional feature flags:**
 - `ENABLE_SURVEY_MODE` — burnout-specialist persona + survey tools
 - `ENABLE_SENTIMENT_ANALYSIS` — voice sentiment tool
 - `ENABLE_BIOMETRIC_GUARDRAIL` — descriptive-only biometric guardrail (admin-togglable)
+- `ENABLE_RECOVERY_WINDOW_VOICE` — ON by default: post-report Recovery Window voice flow (`docs/recovery-window.md`)
+- `ENABLE_VOICE_FEATURES` — ON by default: voice pitch / loudness / pause capture (`docs/voice-features.md`)
+- `ENABLE_LIVE_MONITOR` — ON by default: admin Live Monitor tick + `/admin/monitor/*` (in memory)
 - `ENABLE_SIGNAL_COMPARISON` — ON by default: the PILOT report's "Your signals, compared with your past check-ins" card (`ciq/reports/signal_comparison.py`, `docs/signal-comparison.md`); `false` → route returns null, card hidden
 
 **Other integrations:**
